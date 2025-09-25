@@ -897,7 +897,7 @@ public sealed class MinecraftBlockRenderer : IDisposable
 			BlockFaceDirection.South => SafeRatio(corner.X - element.From.X, element.To.X - element.From.X),
 			BlockFaceDirection.North => SafeRatio(corner.X - element.From.X, element.To.X - element.From.X),
 			BlockFaceDirection.East => SafeRatio(corner.Z - element.From.Z, element.To.Z - element.From.Z),
-			BlockFaceDirection.West => SafeRatio(corner.Z - element.From.Z, element.To.Z - element.From.Z),
+			BlockFaceDirection.West => SafeRatio(element.To.Z - corner.Z, element.To.Z - element.From.Z),
 			BlockFaceDirection.Up => SafeRatio(corner.X - element.From.X, element.To.X - element.From.X),
 			BlockFaceDirection.Down => SafeRatio(corner.X - element.From.X, element.To.X - element.From.X),
 			_ => 0f

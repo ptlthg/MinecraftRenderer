@@ -154,7 +154,7 @@ public sealed class BlockRendererTests
 		Assert.True(east[0].Y < east[2].Y, "East face should map top edge to lower V than bottom edge.");
 
 		var west = Map(BlockFaceDirection.West);
-		Assert.True(west[0].X > west[1].X, "West face should map south edge to higher U than north edge.");
+		Assert.True(west[1].X > west[0].X, "West face should map north edge to higher U than south edge.");
 		Assert.True(west[0].Y < west[2].Y, "West face should map top edge to lower V than bottom edge.");
 
 		var up = Map(BlockFaceDirection.Up);

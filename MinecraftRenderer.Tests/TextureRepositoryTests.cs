@@ -129,10 +129,10 @@ public sealed class BillboardOrientationTests
 
 		var expectedBaseWest = new[]
 		{
-			new Vector2(1f, 0f),
 			new Vector2(0f, 0f),
-			new Vector2(0f, 1f),
-			new Vector2(1f, 1f)
+			new Vector2(1f, 0f),
+			new Vector2(1f, 1f),
+			new Vector2(0f, 1f)
 		};
 
 		var targets = new[]
