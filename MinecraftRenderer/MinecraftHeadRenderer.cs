@@ -79,7 +79,7 @@ public class MinecraftHeadRenderer
 		new FaceData(Face.Bottom, [Vertices[4], Vertices[5], Vertices[1], Vertices[0]], BottomFaceUvMap)
 	];
 
-	public static async Task<Image<Rgba32>> RenderIsometricHead(IsometricRenderOptions options, Image<Rgba32> skin)
+	public static Image<Rgba32> RenderIsometricHead(IsometricRenderOptions options, Image<Rgba32> skin)
 	{
 		// Isometric view: showing front, right, and top faces (or left if specified)
 		const float isometricRightYaw = -135f;

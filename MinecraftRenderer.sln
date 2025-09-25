@@ -1,0 +1,30 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MinecraftRenderer", "MinecraftRenderer\MinecraftRenderer.csproj", "{D4D6D7A2-801C-47B0-9261-8A42928AA869}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MinecraftRenderer.Tests", "MinecraftRenderer.Tests\MinecraftRenderer.Tests.csproj", "{7B0E8D1E-29A1-4D43-A049-0B3437AC2F2F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CreateAtlases", "CreateAtlases\CreateAtlases.csproj", "{5E9B9C7F-57C2-44A4-9C2F-6AD7F2CB9F4D}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{D4D6D7A2-801C-47B0-9261-8A42928AA869}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D4D6D7A2-801C-47B0-9261-8A42928AA869}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D4D6D7A2-801C-47B0-9261-8A42928AA869}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D4D6D7A2-801C-47B0-9261-8A42928AA869}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7B0E8D1E-29A1-4D43-A049-0B3437AC2F2F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7B0E8D1E-29A1-4D43-A049-0B3437AC2F2F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7B0E8D1E-29A1-4D43-A049-0B3437AC2F2F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7B0E8D1E-29A1-4D43-A049-0B3437AC2F2F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5E9B9C7F-57C2-44A4-9C2F-6AD7F2CB9F4D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5E9B9C7F-57C2-44A4-9C2F-6AD7F2CB9F4D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5E9B9C7F-57C2-44A4-9C2F-6AD7F2CB9F4D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5E9B9C7F-57C2-44A4-9C2F-6AD7F2CB9F4D}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
