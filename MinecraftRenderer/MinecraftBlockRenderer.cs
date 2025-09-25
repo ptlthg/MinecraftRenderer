@@ -58,16 +58,6 @@ public sealed class MinecraftBlockRenderer : IDisposable
 		{ BlockFaceDirection.Down, new[] { 4, 5, 1, 0 } }
 	};
 
-	private static readonly Dictionary<BlockFaceDirection, Vector2[]> BaseUvMaps = new()
-	{
-		{ BlockFaceDirection.South, new[] { new Vector2(1, 0), new Vector2(0, 0), new Vector2(0, 1), new Vector2(1, 1) } },
-		{ BlockFaceDirection.North, new[] { new Vector2(0, 0), new Vector2(1, 0), new Vector2(1, 1), new Vector2(0, 1) } },
-		{ BlockFaceDirection.East, new[] { new Vector2(1, 0), new Vector2(0, 0), new Vector2(0, 1), new Vector2(1, 1) } },
-		{ BlockFaceDirection.West, new[] { new Vector2(0, 0), new Vector2(1, 0), new Vector2(1, 1), new Vector2(0, 1) } },
-		{ BlockFaceDirection.Up, new[] { new Vector2(0, 1), new Vector2(0, 0), new Vector2(1, 0), new Vector2(1, 1) } },
-		{ BlockFaceDirection.Down, new[] { new Vector2(0, 0), new Vector2(1, 0), new Vector2(1, 1), new Vector2(0, 1) } }
-	};
-
 	private MinecraftBlockRenderer(BlockModelResolver modelResolver, TextureRepository textureRepository, BlockRegistry blockRegistry, ItemRegistry? itemRegistry)
 	{
 		_modelResolver = modelResolver;
@@ -271,6 +261,10 @@ public sealed class MinecraftBlockRenderer : IDisposable
 			: null;
 
 		var canvas = new Image<Rgba32>(options.Size, options.Size, Color.Transparent);
+		var depthBuffer = new float[options.Size * options.Size];
+		Array.Fill(depthBuffer, float.PositiveInfinity);
+		var triangleOrder = 0;
+		const float DepthBiasPerTriangle = 1e-4f;
 
 		foreach (var tri in triangles)
 		{
@@ -282,7 +276,24 @@ public sealed class MinecraftBlockRenderer : IDisposable
 			var p2 = ProjectToScreen(centeredV2, scale, offset, perspective);
 			var p3 = ProjectToScreen(centeredV3, scale, offset, perspective);
 
-			RasterizeTriangle(canvas, p1, p2, p3, tri.T1, tri.T2, tri.T3, tri.Texture, tri.TextureRect);
+			var depthBias = triangleOrder * DepthBiasPerTriangle;
+			triangleOrder++;
+
+			RasterizeTriangle(
+				canvas,
+				depthBuffer,
+				depthBias,
+				centeredV1.Z,
+				centeredV2.Z,
+				centeredV3.Z,
+				p1,
+				p2,
+				p3,
+				tri.T1,
+				tri.T2,
+				tri.T3,
+				tri.Texture,
+				tri.TextureRect);
 		}
 
 		return canvas;
@@ -705,13 +716,35 @@ public sealed class MinecraftBlockRenderer : IDisposable
 			var faceUv = GetFaceUv(face, direction, element);
 			var textureRect = ComputeTextureRectangle(faceUv, texture);
 
-			var uvMap = CreateUvMap(direction, faceUv, face.Rotation ?? 0);
+			var uvMap = CreateUvMap(element, direction, faceUv, face.Rotation ?? 0);
+
 			var indices = FaceVertexIndices[direction];
 			var transformed = new Vector3[4];
 
 			for (var i = 0; i < 4; i++)
 			{
 				transformed[i] = Vector3.Transform(vertices[indices[i]], transform);
+			}
+
+			var expectedNormal = direction switch
+			{
+				BlockFaceDirection.South => Vector3.UnitZ,
+				BlockFaceDirection.North => -Vector3.UnitZ,
+				BlockFaceDirection.East => Vector3.UnitX,
+				BlockFaceDirection.West => -Vector3.UnitX,
+				BlockFaceDirection.Up => Vector3.UnitY,
+				BlockFaceDirection.Down => -Vector3.UnitY,
+				_ => Vector3.UnitZ
+			};
+
+			var edge1 = transformed[1] - transformed[0];
+			var edge2 = transformed[2] - transformed[0];
+			var faceNormal = Vector3.Cross(edge1, edge2);
+
+			if (faceNormal != Vector3.Zero && Vector3.Dot(faceNormal, expectedNormal) < 0)
+			{
+				(transformed[1], transformed[3]) = (transformed[3], transformed[1]);
+				(uvMap[1], uvMap[3]) = (uvMap[3], uvMap[1]);
 			}
 
 			var depth = (transformed[0].Z + transformed[1].Z + transformed[2].Z + transformed[3].Z) * 0.25f;
@@ -831,26 +864,108 @@ public sealed class MinecraftBlockRenderer : IDisposable
 		return new Rectangle(minX, minY, maxX - minX, maxY - minY);
 	}
 
-	private static Vector2[] CreateUvMap(BlockFaceDirection direction, Vector4 faceUv, int rotationDegrees)
+	private static Vector2[] CreateUvMap(ModelElement element, BlockFaceDirection direction, Vector4 faceUv, int rotationDegrees)
 	{
-		if (!BaseUvMaps.TryGetValue(direction, out var baseMap))
-		{
-			baseMap = BaseUvMaps[BlockFaceDirection.South];
-		}
+		var corners = GetFaceCornerPositions(element, direction);
+		var absolute = new Vector2[corners.Length];
 
-		var width = faceUv.Z - faceUv.X;
-		var height = faceUv.W - faceUv.Y;
-		var absolute = new Vector2[baseMap.Length];
-
-		for (var i = 0; i < baseMap.Length; i++)
+		for (var i = 0; i < corners.Length; i++)
 		{
-			absolute[i] = new Vector2(
-				faceUv.X + baseMap[i].X * width,
-				faceUv.Y + baseMap[i].Y * height);
+			var corner = corners[i];
+			var uv = CalculateFaceCoordinate(element, direction, faceUv, corner);
+			absolute[i] = uv;
 		}
 
 		ApplyFaceRotationAbsolute(absolute, faceUv, rotationDegrees);
-		return NormalizeUvCoordinates(absolute, faceUv);
+		return NormalizeFaceCoordinates(absolute, faceUv);
+	}
+
+	private static Vector2 CalculateFaceCoordinate(ModelElement element, BlockFaceDirection direction, Vector4 faceUv, Vector3 corner)
+	{
+		static float SafeRatio(float value, float length)
+			=> length < 1e-5f ? 0f : Clamp01(value / length);
+
+		var du = faceUv.Z - faceUv.X;
+		var dv = faceUv.W - faceUv.Y;
+
+		float uNormalized = direction switch
+		{
+			BlockFaceDirection.South => SafeRatio(corner.X - element.From.X, element.To.X - element.From.X),
+			BlockFaceDirection.North => SafeRatio(element.To.X - corner.X, element.To.X - element.From.X),
+			BlockFaceDirection.East => SafeRatio(element.To.Z - corner.Z, element.To.Z - element.From.Z),
+			BlockFaceDirection.West => SafeRatio(corner.Z - element.From.Z, element.To.Z - element.From.Z),
+			BlockFaceDirection.Up => SafeRatio(corner.X - element.From.X, element.To.X - element.From.X),
+			BlockFaceDirection.Down => SafeRatio(corner.X - element.From.X, element.To.X - element.From.X),
+			_ => 0f
+		};
+
+		float vNormalized = direction switch
+		{
+			BlockFaceDirection.South => SafeRatio(element.To.Y - corner.Y, element.To.Y - element.From.Y),
+			BlockFaceDirection.North => SafeRatio(element.To.Y - corner.Y, element.To.Y - element.From.Y),
+			BlockFaceDirection.East => SafeRatio(element.To.Y - corner.Y, element.To.Y - element.From.Y),
+			BlockFaceDirection.West => SafeRatio(element.To.Y - corner.Y, element.To.Y - element.From.Y),
+			BlockFaceDirection.Up => SafeRatio(corner.Z - element.From.Z, element.To.Z - element.From.Z),
+			BlockFaceDirection.Down => SafeRatio(element.To.Z - corner.Z, element.To.Z - element.From.Z),
+			_ => 0f
+		};
+
+		var u = faceUv.X + du * uNormalized;
+		var v = faceUv.Y + dv * vNormalized;
+		return new Vector2(u, v);
+	}
+
+	private static Vector3[] GetFaceCornerPositions(ModelElement element, BlockFaceDirection direction)
+	{
+		var from = element.From;
+		var to = element.To;
+
+		return direction switch
+		{
+			BlockFaceDirection.South => new[]
+			{
+				new Vector3(from.X, to.Y, to.Z),
+				new Vector3(to.X, to.Y, to.Z),
+				new Vector3(to.X, from.Y, to.Z),
+				new Vector3(from.X, from.Y, to.Z)
+			},
+			BlockFaceDirection.North => new[]
+			{
+				new Vector3(to.X, to.Y, from.Z),
+				new Vector3(from.X, to.Y, from.Z),
+				new Vector3(from.X, from.Y, from.Z),
+				new Vector3(to.X, from.Y, from.Z)
+			},
+			BlockFaceDirection.East => new[]
+			{
+				new Vector3(to.X, to.Y, from.Z),
+				new Vector3(to.X, to.Y, to.Z),
+				new Vector3(to.X, from.Y, to.Z),
+				new Vector3(to.X, from.Y, from.Z)
+			},
+			BlockFaceDirection.West => new[]
+			{
+				new Vector3(from.X, to.Y, to.Z),
+				new Vector3(from.X, to.Y, from.Z),
+				new Vector3(from.X, from.Y, from.Z),
+				new Vector3(from.X, from.Y, to.Z)
+			},
+			BlockFaceDirection.Up => new[]
+			{
+				new Vector3(from.X, to.Y, from.Z),
+				new Vector3(to.X, to.Y, from.Z),
+				new Vector3(to.X, to.Y, to.Z),
+				new Vector3(from.X, to.Y, to.Z)
+			},
+			BlockFaceDirection.Down => new[]
+			{
+				new Vector3(from.X, from.Y, to.Z),
+				new Vector3(to.X, from.Y, to.Z),
+				new Vector3(to.X, from.Y, from.Z),
+				new Vector3(from.X, from.Y, from.Z)
+			},
+			_ => Array.Empty<Vector3>()
+		};
 	}
 
 	private static void ApplyFaceRotationAbsolute(Vector2[] uv, Vector4 faceUv, int rotationDegrees)
@@ -874,25 +989,25 @@ public sealed class MinecraftBlockRenderer : IDisposable
 			for (var i = 0; i < uv.Length; i++)
 			{
 				var relative = uv[i] - center;
-				relative = new Vector2(relative.Y, -relative.X);
+				relative = new Vector2(-relative.Y, relative.X);
 				uv[i] = relative + center;
 			}
 		}
 	}
 
-	private static Vector2[] NormalizeUvCoordinates(Vector2[] absoluteUv, Vector4 faceUv)
+	private static Vector2[] NormalizeFaceCoordinates(Vector2[] absoluteUv, Vector4 faceUv)
 	{
-		var minX = MathF.Min(faceUv.X, faceUv.Z);
-		var minY = MathF.Min(faceUv.Y, faceUv.W);
-		var width = MathF.Max(MathF.Abs(faceUv.Z - faceUv.X), 1e-5f);
-		var height = MathF.Max(MathF.Abs(faceUv.W - faceUv.Y), 1e-5f);
+		var width = faceUv.Z - faceUv.X;
+		var height = faceUv.W - faceUv.Y;
+		var invWidth = MathF.Abs(width) < 1e-5f ? 0f : 1f / width;
+		var invHeight = MathF.Abs(height) < 1e-5f ? 0f : 1f / height;
 
 		var normalized = new Vector2[absoluteUv.Length];
 		for (var i = 0; i < absoluteUv.Length; i++)
 		{
-			normalized[i] = new Vector2(
-				Clamp01((absoluteUv[i].X - minX) / width),
-				Clamp01((absoluteUv[i].Y - minY) / height));
+			var u = (absoluteUv[i].X - faceUv.X) * invWidth;
+			var v = (absoluteUv[i].Y - faceUv.Y) * invHeight;
+			normalized[i] = new Vector2(Clamp01(u), Clamp01(v));
 		}
 
 		return normalized;
@@ -1055,6 +1170,11 @@ public sealed class MinecraftBlockRenderer : IDisposable
 
 	private static void RasterizeTriangle(
 		Image<Rgba32> canvas,
+		float[] depthBuffer,
+		float depthBias,
+		float z1,
+		float z2,
+		float z3,
 		Vector2 p1, Vector2 p2, Vector2 p3,
 		Vector2 t1, Vector2 t2, Vector2 t3,
 		Image<Rgba32> texture,
@@ -1082,9 +1202,14 @@ public sealed class MinecraftBlockRenderer : IDisposable
 		var texWidth = textureRect.Width - 1;
 		var texHeight = textureRect.Height - 1;
 
+		var width = canvas.Width;
+		const float depthTestEpsilon = 1e-6f;
+		const float alphaThreshold = 10f;
+
 		Parallel.For(minY, maxY + 1, y =>
 		{
 			var row = canvas.DangerousGetPixelRowMemory(y).Span;
+			var rowOffset = y * width;
 			for (var x = minX; x <= maxX; x++)
 			{
 				var point = new Vector2(x + 0.5f, y + 0.5f);
@@ -1096,16 +1221,27 @@ public sealed class MinecraftBlockRenderer : IDisposable
 					continue;
 				}
 
+				var depth = z1 * bary.X + z2 * bary.Y + z3 * bary.Z - depthBias;
+
 				var texCoord = t1 * bary.X + t2 * bary.Y + t3 * bary.Z;
 
 				var texX = (int)MathF.Max(0, MathF.Min(texCoord.X * textureRect.Width, texWidth));
 				var texY = (int)MathF.Max(0, MathF.Min(texCoord.Y * textureRect.Height, texHeight));
 
 				var color = texture[textureRect.X + texX, textureRect.Y + texY];
-				if (color.A > 10)
+				if (color.A <= alphaThreshold)
 				{
-					row[x] = color;
+					continue;
 				}
+
+				var bufferIndex = rowOffset + x;
+				if (depth >= depthBuffer[bufferIndex] - depthTestEpsilon)
+				{
+					continue;
+				}
+
+				depthBuffer[bufferIndex] = depth;
+				row[x] = color;
 			}
 		});
 	}

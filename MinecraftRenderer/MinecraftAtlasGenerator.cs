@@ -109,7 +109,11 @@ public static class MinecraftAtlasGenerator
 
 						try
 						{
-							using var tile = renderFunc(name, view.Options);
+							var effectiveOptions = category.Equals("items", StringComparison.OrdinalIgnoreCase)
+								? NormalizeItemRenderOptions(view.Options)
+								: view.Options;
+
+							using var tile = renderFunc(name, effectiveOptions);
 							tile.Mutate(ctx => ctx.Resize(tileSize, tileSize));
 							canvas.Mutate(ctx => ctx.DrawImage(tile, new Point(col * tileSize, row * tileSize), 1f));
 						}
@@ -148,6 +152,16 @@ public static class MinecraftAtlasGenerator
 				.Select(ch => invalidChars.Contains(ch) ? '_' : ch)
 				.ToArray());
 			return sanitized.Replace(' ', '_').ToLowerInvariant();
+		}
+
+		static MinecraftBlockRenderer.BlockRenderOptions NormalizeItemRenderOptions(MinecraftBlockRenderer.BlockRenderOptions options)
+		{
+			if (MathF.Abs(options.YawInDegrees) < 0.01f && MathF.Abs(options.PitchInDegrees) < 0.01f && MathF.Abs(options.RollInDegrees) < 0.01f)
+			{
+				return options;
+			}
+
+			return options with { YawInDegrees = 0f, PitchInDegrees = 0f, RollInDegrees = 0f };
 		}
 	}
 }

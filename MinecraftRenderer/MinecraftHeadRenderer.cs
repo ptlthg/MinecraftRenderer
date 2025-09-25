@@ -1,5 +1,6 @@
 ﻿namespace MinecraftRenderer;
 
+using System;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using SixLabors.ImageSharp;
@@ -128,6 +129,10 @@ public class MinecraftHeadRenderer
 		var canvas = new Image<Rgba32>(options.Size, options.Size, Color.Transparent);
 		var scale = options.Size / 1.75f;
 		var offset = new Vector2(options.Size / 2f);
+		var depthBuffer = new float[options.Size * options.Size];
+		Array.Fill(depthBuffer, float.PositiveInfinity);
+		var triangleOrder = 0;
+		const float DepthBiasPerTriangle = 1e-4f;
 
 		// Pre-calculate perspective parameters if needed
 		PerspectiveParams? perspectiveParams = options.PerspectiveAmount > 0.01f ? 
@@ -141,7 +146,24 @@ public class MinecraftHeadRenderer
 			var p2 = ProjectToScreen(tri.V2, scale, offset, perspectiveParams);
 			var p3 = ProjectToScreen(tri.V3, scale, offset, perspectiveParams);
 
-			RasterizeTriangle(canvas, p1, p2, p3, tri.T1, tri.T2, tri.T3, skin, tri.TextureRect);
+			var depthBias = triangleOrder * DepthBiasPerTriangle;
+			triangleOrder++;
+
+			RasterizeTriangle(
+				canvas,
+				depthBuffer,
+				depthBias,
+				tri.V1.Z,
+				tri.V2.Z,
+				tri.V3.Z,
+				p1,
+				p2,
+				p3,
+				tri.T1,
+				tri.T2,
+				tri.T3,
+				skin,
+				tri.TextureRect);
 		}
 
 		return canvas;
@@ -238,6 +260,11 @@ public class MinecraftHeadRenderer
 
 	private static void RasterizeTriangle(
 		Image<Rgba32> canvas,
+		float[] depthBuffer,
+		float depthBias,
+		float z1,
+		float z2,
+		float z3,
 		Vector2 p1, Vector2 p2, Vector2 p3,
 		Vector2 t1, Vector2 t2, Vector2 t3,
 		Image<Rgba32> skin, Rectangle textureRect)
@@ -269,11 +296,16 @@ public class MinecraftHeadRenderer
 		var texHeight = textureRect.Height - 1;
 
 		// Rasterize triangle
+		var width = canvas.Width;
+		const float depthTestEpsilon = 1e-6f;
+		const float alphaThreshold = 10f;
+
 		Parallel.For((long) minY, maxY + 1, y =>
 		{
 			// Get a span for the current row for direct memory access.
 			// Dangerous, but should be fine as canvas's lifetime is not at risk here.
 			var canvasRow = canvas.DangerousGetPixelRowMemory((int) y).Span;
+			var rowOffset = (int)y * width;
 
 			for (var x = minX; x <= maxX; x++)
 			{
@@ -283,16 +315,28 @@ public class MinecraftHeadRenderer
 				const float epsilon = 1e-5f;
 				if (bary.X < -epsilon || bary.Y < -epsilon || bary.Z < -epsilon) continue;
 
+				var depth = z1 * bary.X + z2 * bary.Y + z3 * bary.Z - depthBias;
+
 				var texCoord = t1 * bary.X + t2 * bary.Y + t3 * bary.Z;
          
 				var texX = (int)MathF.Max(0, MathF.Min(texCoord.X * textureRect.Width, texWidth));
 				var texY = (int)MathF.Max(0, MathF.Min(texCoord.Y * textureRect.Height, texHeight));
 
 				var color = skin[textureRect.X + texX, textureRect.Y + texY];
-         
-				if (color.A > 10) {
-					canvasRow[x] = color;
+		 
+				if (color.A <= alphaThreshold)
+				{
+					continue;
 				}
+
+				var bufferIndex = rowOffset + x;
+				if (depth >= depthBuffer[bufferIndex] - depthTestEpsilon)
+				{
+					continue;
+				}
+
+				depthBuffer[bufferIndex] = depth;
+				canvasRow[x] = color;
 			}
 		});
 	}
