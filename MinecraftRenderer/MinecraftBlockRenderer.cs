@@ -16,8 +16,8 @@ public sealed class MinecraftBlockRenderer : IDisposable
 {
 	public record BlockRenderOptions(
 		int Size = 512,
-		float YawInDegrees = -45f,
-		float PitchInDegrees = 30f,
+		float YawInDegrees = 0f,
+		float PitchInDegrees = 0f,
 		float RollInDegrees = 0f,
 		float PerspectiveAmount = 0f,
 		bool UseGuiTransform = true,
@@ -34,6 +34,8 @@ public sealed class MinecraftBlockRenderer : IDisposable
 	private readonly ItemRegistry? _itemRegistry;
 	private bool _disposed;
 
+	public TextureRepository TextureRepository => _textureRepository;
+
 	private static readonly (string Suffix, string Replacement)[] InventoryModelSuffixes =
 	{
 		("_fence", "_fence_inventory"),
@@ -43,7 +45,7 @@ public sealed class MinecraftBlockRenderer : IDisposable
 
 	private static readonly TransformDefinition DefaultGuiTransform = new()
 	{
-		Rotation = new[] { 30f, 225f, 0f },
+		Rotation = new[] { 30f, 45f, 0f },
 		Translation = new[] { 0f, 0f, 0f },
 		Scale = new[] { 0.625f, 0.625f, 0.625f }
 	};
@@ -222,6 +224,8 @@ public sealed class MinecraftBlockRenderer : IDisposable
 		totalTransform = Matrix4x4.Multiply(totalTransform, additionalRotation);
 		totalTransform = Matrix4x4.Multiply(totalTransform, scaleMatrix);
 		totalTransform = Matrix4x4.Multiply(totalTransform, translationMatrix);
+		var orientationCorrection = Matrix4x4.CreateRotationY(MathF.PI / 2f);
+		totalTransform = Matrix4x4.Multiply(orientationCorrection, totalTransform);
 
 		var triangles = BuildTriangles(model, totalTransform);
 
@@ -497,7 +501,7 @@ public sealed class MinecraftBlockRenderer : IDisposable
 		if (IsShulkerBox(itemName))
 		{
 			var textureReference = itemInfo?.Texture;
-			if (string.IsNullOrWhiteSpace(textureReference) && model is not null && model.Textures.TryGetValue("particle", out var particleTexture))
+			if (model?.Textures.TryGetValue("particle", out var particleTexture) == true)
 			{
 				textureReference = particleTexture;
 			}
@@ -891,8 +895,8 @@ public sealed class MinecraftBlockRenderer : IDisposable
 		float uNormalized = direction switch
 		{
 			BlockFaceDirection.South => SafeRatio(corner.X - element.From.X, element.To.X - element.From.X),
-			BlockFaceDirection.North => SafeRatio(element.To.X - corner.X, element.To.X - element.From.X),
-			BlockFaceDirection.East => SafeRatio(element.To.Z - corner.Z, element.To.Z - element.From.Z),
+			BlockFaceDirection.North => SafeRatio(corner.X - element.From.X, element.To.X - element.From.X),
+			BlockFaceDirection.East => SafeRatio(corner.Z - element.From.Z, element.To.Z - element.From.Z),
 			BlockFaceDirection.West => SafeRatio(corner.Z - element.From.Z, element.To.Z - element.From.Z),
 			BlockFaceDirection.Up => SafeRatio(corner.X - element.From.X, element.To.X - element.From.X),
 			BlockFaceDirection.Down => SafeRatio(corner.X - element.From.X, element.To.X - element.From.X),
@@ -902,7 +906,7 @@ public sealed class MinecraftBlockRenderer : IDisposable
 		float vNormalized = direction switch
 		{
 			BlockFaceDirection.South => SafeRatio(element.To.Y - corner.Y, element.To.Y - element.From.Y),
-			BlockFaceDirection.North => SafeRatio(element.To.Y - corner.Y, element.To.Y - element.From.Y),
+			BlockFaceDirection.North => SafeRatio(corner.Y - element.From.Y, element.To.Y - element.From.Y),
 			BlockFaceDirection.East => SafeRatio(element.To.Y - corner.Y, element.To.Y - element.From.Y),
 			BlockFaceDirection.West => SafeRatio(element.To.Y - corner.Y, element.To.Y - element.From.Y),
 			BlockFaceDirection.Up => SafeRatio(corner.Z - element.From.Z, element.To.Z - element.From.Z),
@@ -929,8 +933,8 @@ public sealed class MinecraftBlockRenderer : IDisposable
 				new Vector3(to.X, from.Y, to.Z),
 				new Vector3(from.X, from.Y, to.Z)
 			},
-			BlockFaceDirection.North => new[]
-			{
+            BlockFaceDirection.North => new[]
+            {
 				new Vector3(to.X, to.Y, from.Z),
 				new Vector3(from.X, to.Y, from.Z),
 				new Vector3(from.X, from.Y, from.Z),
@@ -1042,9 +1046,9 @@ public sealed class MinecraftBlockRenderer : IDisposable
 
 	private static Bounds ComputeReferenceBounds(Matrix4x4 transform)
 	{
-		Span<Vector3> corners = stackalloc Vector3[8]
-		{
-			new(-0.5f, -0.5f, -0.5f),
+		Span<Vector3> corners =
+        [
+            new(-0.5f, -0.5f, -0.5f),
 			new(0.5f, -0.5f, -0.5f),
 			new(0.5f, 0.5f, -0.5f),
 			new(-0.5f, 0.5f, -0.5f),
@@ -1052,7 +1056,7 @@ public sealed class MinecraftBlockRenderer : IDisposable
 			new(0.5f, -0.5f, 0.5f),
 			new(0.5f, 0.5f, 0.5f),
 			new(-0.5f, 0.5f, 0.5f)
-		};
+		];
 
 		var minX = float.MaxValue;
 		var minY = float.MaxValue;
@@ -1083,9 +1087,9 @@ public sealed class MinecraftBlockRenderer : IDisposable
 			return Matrix4x4.Identity;
 		}
 
-		var rotation = transform.Rotation ?? new[] { 0f, 0f, 0f };
-		var translation = transform.Translation ?? new[] { 0f, 0f, 0f };
-		var scale = transform.Scale ?? new[] { 1f, 1f, 1f };
+		var rotation = transform.Rotation ?? [0f, 0f, 0f];
+		var translation = transform.Translation ?? [0f, 0f, 0f];
+		var scale = transform.Scale ?? [1f, 1f, 1f];
 
 		var scaleMatrix = Matrix4x4.CreateScale(scale[0], scale[1], scale[2]);
 		var rotationMatrix = CreateRotationMatrix(rotation[1] * DegreesToRadians, rotation[0] * DegreesToRadians, rotation[2] * DegreesToRadians);
@@ -1264,6 +1268,7 @@ public sealed class MinecraftBlockRenderer : IDisposable
 
 	private static Matrix4x4 CreateRotationMatrix(float yaw, float pitch, float roll)
 	{
+		yaw = -yaw;
 		var cosY = MathF.Cos(yaw);
 		var sinY = MathF.Sin(yaw);
 		var cosP = MathF.Cos(pitch);

@@ -6,6 +6,7 @@
 
 - Render player heads with arbitrary rotations and overlays using `MinecraftHeadRenderer`.
 - Render block and item models (including GUI transforms and per-face textures) with `MinecraftBlockRenderer`.
+- Default block and item renders keep the Minecraft inventory GUI rotation while staying orthographic by default.
 - Loads vanilla model and texture metadata directly from the JSON files in the `data/` directory – no need to unzip `client.jar`.
 - Ships with a small unit test suite to verify rendering stays functional.
 

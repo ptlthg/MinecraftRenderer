@@ -57,7 +57,14 @@ var results = MinecraftAtlasGenerator.GenerateAtlases(
 	blockFilter,
 	itemFilter,
 	includeBlocks,
-	includeItems);
+	includeItems).ToList();
+
+if (options.GenerateDebugBlock)
+{
+	var debugOutput = Path.Combine(outputDirectory, "debug_block");
+	var debugResults = DebugBlockGenerator.GenerateDebugBlockAtlases(renderer, debugOutput, views, options.TileSize);
+	results.AddRange(debugResults);
+}
 
 Console.WriteLine();
 Console.WriteLine($"Generated {results.Count} atlas {(results.Count == 1 ? "file" : "files")}.");
@@ -110,6 +117,9 @@ static CliOptions ParseArguments(string[] arguments)
 				break;
 			case "--views":
 				options.ViewNames = ParseList(ReadNext(arguments, ref i, "--views")) ?? new List<string>();
+				break;
+			case "--debug-block":
+				options.GenerateDebugBlock = true;
 				break;
 			default:
 				Console.Error.WriteLine($"Unknown argument '{arg}'. Use --help for usage information.");
@@ -260,6 +270,7 @@ static void PrintHelp()
 	Console.WriteLine("  --no-blocks          Skip block rendering");
 	Console.WriteLine("  --no-items           Skip item rendering");
 	Console.WriteLine("  --views <names>      Comma-separated view names (default: all). Available: " + string.Join(", ", MinecraftAtlasGenerator.DefaultViews.Select(v => v.Name)));
+	Console.WriteLine("  --debug-block        Generate a synthetic debug cube with colored faces into its own atlas");
 	Console.WriteLine("  -h | --help          Show this help message");
 }
 
@@ -276,4 +287,5 @@ sealed class CliOptions
 	public bool IncludeBlocks { get; set; } = true;
 	public bool IncludeItems { get; set; } = true;
 	public List<string>? ViewNames { get; set; }
+	public bool GenerateDebugBlock { get; set; }
 }
