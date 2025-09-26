@@ -9,13 +9,15 @@ if (options.ShowHelp)
 	return;
 }
 
-var dataDirectory = ResolveDataDirectory(options.DataDirectory);
-if (dataDirectory is null)
+var assetDirectory = ResolveAssetDirectory(options.DataDirectory);
+if (assetDirectory is null)
 {
-	Console.Error.WriteLine("Unable to locate the 'data' directory. Provide --data <path> explicitly.");
+	Console.Error.WriteLine("Unable to locate Minecraft asset data. Provide --data <path> explicitly.");
 	Environment.ExitCode = 1;
 	return;
 }
+
+var resolvedAssetDirectory = assetDirectory!;
 
 var outputDirectory = options.OutputDirectory ?? Path.Combine(Directory.GetCurrentDirectory(), "atlases");
 Directory.CreateDirectory(outputDirectory);
@@ -41,11 +43,13 @@ if (!includeBlocks && !includeItems)
 	return;
 }
 
-Console.WriteLine($"Data directory: {dataDirectory}");
+Console.WriteLine($"Data directory: {resolvedAssetDirectory.Path}");
 Console.WriteLine($"Output directory: {outputDirectory}");
 Console.WriteLine($"Views: {string.Join(", ", views.Select(v => v.Name))}");
 
-using var renderer = MinecraftBlockRenderer.CreateFromDataDirectory(dataDirectory);
+using var renderer = resolvedAssetDirectory.IsAggregatedJson
+	? MinecraftBlockRenderer.CreateFromDataDirectory(resolvedAssetDirectory.Path)
+	: MinecraftBlockRenderer.CreateFromMinecraftAssets(resolvedAssetDirectory.Path);
 
 var results = MinecraftAtlasGenerator.GenerateAtlases(
 	renderer,
@@ -137,65 +141,104 @@ static CliOptions ParseArguments(string[] arguments)
 	}
 }
 
-static string? ResolveDataDirectory(string? provided)
+static AssetDirectory? ResolveAssetDirectory(string? provided)
 {
 	if (!string.IsNullOrWhiteSpace(provided))
 	{
 		var candidate = Path.GetFullPath(provided);
-		if (IsValidDataDirectory(candidate))
+		var kind = GetDirectoryKind(candidate);
+		if (kind != DirectoryKind.None)
 		{
-			return candidate;
+			return new AssetDirectory(candidate, kind == DirectoryKind.AggregatedJson);
 		}
-		Console.Error.WriteLine($"Provided --data path '{provided}' does not contain the expected JSON files.");
+
+		Console.Error.WriteLine($"Provided --data path '{provided}' does not contain aggregated JSON or Minecraft assets.");
 		return null;
 	}
 
-	if (TryLocateDataDirectory(Directory.GetCurrentDirectory(), out var fromCwd))
+	if (TryLocateAssetDirectory(Directory.GetCurrentDirectory(), out var locatedFromCwd))
 	{
-		return fromCwd;
+		return locatedFromCwd;
 	}
 
-	if (TryLocateDataDirectory(AppContext.BaseDirectory, out var fromBase))
+	if (TryLocateAssetDirectory(AppContext.BaseDirectory, out var locatedFromBase))
 	{
-		return fromBase;
+		return locatedFromBase;
 	}
 
 	return null;
 }
 
-static bool TryLocateDataDirectory(string startDirectory, out string? dataDirectory)
+static bool TryLocateAssetDirectory(string startDirectory, out AssetDirectory? assetDirectory)
 {
 	var current = new DirectoryInfo(Path.GetFullPath(startDirectory));
-	while (current != null)
+	while (current is not null)
 	{
-		var candidate = Path.Combine(current.FullName, "data");
-		if (IsValidDataDirectory(candidate))
+		foreach (var candidate in EnumerateCandidateDirectories(current))
 		{
-			dataDirectory = candidate;
+			var kind = GetDirectoryKind(candidate);
+			if (kind == DirectoryKind.None)
+			{
+				continue;
+			}
+
+			assetDirectory = new AssetDirectory(candidate, kind == DirectoryKind.AggregatedJson);
 			return true;
 		}
+
 		current = current.Parent;
 	}
 
-	dataDirectory = null;
+	assetDirectory = null;
 	return false;
 }
 
-static bool IsValidDataDirectory(string path)
+static IEnumerable<string> EnumerateCandidateDirectories(DirectoryInfo current)
+{
+	yield return current.FullName;
+	yield return Path.Combine(current.FullName, "data");
+	yield return Path.Combine(current.FullName, "Data");
+	yield return Path.Combine(current.FullName, "minecraft");
+	yield return Path.Combine(current.FullName, "Minecraft");
+}
+
+static DirectoryKind GetDirectoryKind(string path)
 {
 	if (string.IsNullOrWhiteSpace(path))
 	{
-		return false;
+		return DirectoryKind.None;
 	}
 
-	var hasAggregated = File.Exists(Path.Combine(path, "blocks_models.json"))
-		&& File.Exists(Path.Combine(path, "blocks_textures.json"));
+	var fullPath = Path.GetFullPath(path);
+	if (!Directory.Exists(fullPath))
+	{
+		return DirectoryKind.None;
+	}
 
-	var hasAssets = Directory.Exists(Path.Combine(path, "models"))
+	if (IsAggregatedDataDirectory(fullPath))
+	{
+		return DirectoryKind.AggregatedJson;
+	}
+
+	if (IsAssetsDirectory(fullPath))
+	{
+		return DirectoryKind.AssetFolder;
+	}
+
+	return DirectoryKind.None;
+}
+
+static bool IsAggregatedDataDirectory(string path)
+{
+	return File.Exists(Path.Combine(path, "blocks_models.json"))
+		&& File.Exists(Path.Combine(path, "blocks_textures.json"));
+}
+
+static bool IsAssetsDirectory(string path)
+{
+	return Directory.Exists(Path.Combine(path, "models"))
 		&& Directory.Exists(Path.Combine(path, "blockstates"))
 		&& Directory.Exists(Path.Combine(path, "textures"));
-
-	return hasAggregated || hasAssets;
 }
 
 static List<MinecraftAtlasGenerator.AtlasView> BuildViews(IReadOnlyList<string>? requested)
@@ -266,7 +309,7 @@ static void PrintHelp()
 	Console.WriteLine("  dotnet run --project CreateAtlases.csproj -- [options]");
 	Console.WriteLine();
 	Console.WriteLine("Options:");
-	Console.WriteLine("  --data <path>        Path to the data directory containing blocks_models.json (auto-discovered if omitted)");
+	Console.WriteLine("  --data <path>        Path to aggregated JSON data (blocks_models.json) or a minecraft asset root (auto-discovered if omitted)");
 	Console.WriteLine("  --output <path>      Output directory for the generated atlases (default: ./atlases)");
 	Console.WriteLine("  --tile-size <int>    Tile size in pixels per rendered asset (default: 160)");
 	Console.WriteLine("  --columns <int>      Number of columns per atlas page (default: 12)");
@@ -278,6 +321,15 @@ static void PrintHelp()
 	Console.WriteLine("  --views <names>      Comma-separated view names (default: all). Available: " + string.Join(", ", MinecraftAtlasGenerator.DefaultViews.Select(v => v.Name)));
 	Console.WriteLine("  --debug-block        Generate a synthetic debug cube with colored faces into its own atlas");
 	Console.WriteLine("  -h | --help          Show this help message");
+}
+
+sealed record AssetDirectory(string Path, bool IsAggregatedJson);
+
+enum DirectoryKind
+{
+	None,
+	AggregatedJson,
+	AssetFolder
 }
 
 sealed class CliOptions

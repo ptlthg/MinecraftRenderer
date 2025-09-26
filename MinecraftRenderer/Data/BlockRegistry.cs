@@ -32,12 +32,12 @@ public sealed class BlockRegistry
 		return new BlockRegistry(entries.Where(static entry => !string.IsNullOrWhiteSpace(entry.Name)));
 	}
 
-	public static BlockRegistry LoadFromMinecraftAssets(string assetsRoot, IReadOnlyDictionary<string, BlockModelDefinition> modelDefinitions)
+	public static BlockRegistry LoadFromMinecraftAssets(string assetsRoot, IReadOnlyDictionary<string, BlockModelDefinition> modelDefinitions, IEnumerable<string>? overlayRoots = null)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(assetsRoot);
 		ArgumentNullException.ThrowIfNull(modelDefinitions);
 
-		var entries = MinecraftAssetLoader.LoadBlockInfos(assetsRoot, modelDefinitions);
+		var entries = MinecraftAssetLoader.LoadBlockInfos(assetsRoot, modelDefinitions, overlayRoots);
 		return new BlockRegistry(entries.Where(static entry => !string.IsNullOrWhiteSpace(entry.Name)));
 	}
 

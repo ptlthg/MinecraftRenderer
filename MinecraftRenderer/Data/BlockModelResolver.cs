@@ -36,9 +36,9 @@ public sealed class BlockModelResolver
 		return new BlockModelResolver(new Dictionary<string, BlockModelDefinition>(definitions, StringComparer.OrdinalIgnoreCase));
 	}
 
-	public static BlockModelResolver LoadFromMinecraftAssets(string assetsRoot)
+	public static BlockModelResolver LoadFromMinecraftAssets(string assetsRoot, IEnumerable<string>? overlayRoots = null)
 	{
-		var definitions = MinecraftAssetLoader.LoadModelDefinitions(assetsRoot);
+		var definitions = MinecraftAssetLoader.LoadModelDefinitions(assetsRoot, overlayRoots);
 		return new BlockModelResolver(new Dictionary<string, BlockModelDefinition>(definitions, StringComparer.OrdinalIgnoreCase));
 	}
 

@@ -122,6 +122,33 @@ public sealed class BlockRendererTests
 	}
 
 	[Fact]
+	public void RenderChestUsesOverlayModels()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		using var image = renderer.RenderBlock("chest");
+
+		Assert.Equal(512, image.Width);
+		Assert.Equal(512, image.Height);
+
+		var hasNonMissingPixel = false;
+		for (var y = 0; y < image.Height && !hasNonMissingPixel; y += 16)
+		{
+			var row = image.DangerousGetPixelRowMemory(y).Span;
+			for (var x = 0; x < image.Width; x += 16)
+			{
+				var pixel = row[x];
+				if (pixel.A > 0 && !(pixel.R == 0xFF && pixel.G == 0x00 && pixel.B == 0xFF))
+				{
+					hasNonMissingPixel = true;
+					break;
+				}
+			}
+		}
+
+		Assert.True(hasNonMissingPixel, "Chest rendering should include non-missing texture pixels.");
+	}
+
+	[Fact]
 	public void CubeFaceUvsAreOrientedCorrectly()
 	{
 		var createUvMap = typeof(MinecraftBlockRenderer)

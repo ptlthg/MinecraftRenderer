@@ -13,15 +13,15 @@ using SixLabors.ImageSharp.PixelFormats;
 
 public sealed class TextureRepository : IDisposable
 {
-	private readonly string _dataRoot;
+	private readonly IReadOnlyList<string> _dataRoots;
 	private readonly ConcurrentDictionary<string, Image<Rgba32>> _cache = new(StringComparer.OrdinalIgnoreCase);
 	private readonly Dictionary<string, string> _embedded = new(StringComparer.OrdinalIgnoreCase);
 	private readonly Image<Rgba32> _missingTexture;
 	private bool _disposed;
 
-	public TextureRepository(string dataRoot, string? embeddedTextureFile = null)
+	public TextureRepository(string dataRoot, string? embeddedTextureFile = null, IEnumerable<string>? overlayRoots = null)
 	{
-		_dataRoot = dataRoot;
+		_dataRoots = BuildRootList(dataRoot, overlayRoots);
 		_missingTexture = CreateMissingTexture();
 
 		if (!string.IsNullOrWhiteSpace(embeddedTextureFile) && File.Exists(embeddedTextureFile))
@@ -137,8 +137,12 @@ public sealed class TextureRepository : IDisposable
 				return;
 			}
 
-			var combined = Path.Combine(_dataRoot, relativePath.Replace('/', Path.DirectorySeparatorChar) + ".png");
-			candidates.Add(combined);
+			var withExtension = relativePath.Replace('/', Path.DirectorySeparatorChar) + ".png";
+			foreach (var root in _dataRoots)
+			{
+				var combined = Path.Combine(root, withExtension);
+				candidates.Add(combined);
+			}
 		}
 
 		AddCandidate(sanitized);
@@ -174,6 +178,47 @@ public sealed class TextureRepository : IDisposable
 		{
 			yield return candidate;
 		}
+	}
+
+	private static IReadOnlyList<string> BuildRootList(string primaryRoot, IEnumerable<string>? overlayRoots)
+	{
+		var ordered = new List<string>();
+
+		void TryAddDirectory(string? candidate)
+		{
+			if (string.IsNullOrWhiteSpace(candidate))
+			{
+				return;
+			}
+
+			var fullPath = Path.GetFullPath(candidate);
+			if (!Directory.Exists(fullPath))
+			{
+				return;
+			}
+
+			if (!ordered.Contains(fullPath, StringComparer.OrdinalIgnoreCase))
+			{
+				ordered.Add(fullPath);
+			}
+
+			var texturesSubdirectory = Path.Combine(fullPath, "textures");
+			if (Directory.Exists(texturesSubdirectory) && !ordered.Contains(texturesSubdirectory, StringComparer.OrdinalIgnoreCase))
+			{
+				ordered.Add(texturesSubdirectory);
+			}
+		}
+
+		TryAddDirectory(primaryRoot);
+		if (overlayRoots is not null)
+		{
+			foreach (var overlay in overlayRoots)
+			{
+				TryAddDirectory(overlay);
+			}
+		}
+
+		return ordered;
 	}
 
 	private static IEnumerable<string> EnumerateFolderCandidates(string folder)

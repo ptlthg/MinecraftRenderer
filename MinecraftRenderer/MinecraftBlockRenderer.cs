@@ -74,15 +74,51 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(assetsDirectory);
 
-		var modelResolver = BlockModelResolver.LoadFromMinecraftAssets(assetsDirectory);
-		var blockRegistry = BlockRegistry.LoadFromMinecraftAssets(assetsDirectory, modelResolver.Definitions);
+		var overlayRoots = DiscoverOverlayRoots(assetsDirectory);
+		var modelResolver = BlockModelResolver.LoadFromMinecraftAssets(assetsDirectory, overlayRoots);
+		var blockRegistry = BlockRegistry.LoadFromMinecraftAssets(assetsDirectory, modelResolver.Definitions, overlayRoots);
 		var itemRegistry = ItemRegistry.LoadFromMinecraftAssets(assetsDirectory, modelResolver.Definitions);
 		var texturesRoot = Directory.Exists(Path.Combine(assetsDirectory, "textures"))
 			? Path.Combine(assetsDirectory, "textures")
 			: assetsDirectory;
-		var textureRepository = new TextureRepository(texturesRoot);
+		var textureRepository = new TextureRepository(texturesRoot, overlayRoots: overlayRoots);
 
 		return new MinecraftBlockRenderer(modelResolver, textureRepository, blockRegistry, itemRegistry);
+	}
+
+	private static IReadOnlyList<string> DiscoverOverlayRoots(string assetsDirectory)
+	{
+		var overlays = new List<string>();
+		var assetRoot = Path.GetFullPath(assetsDirectory);
+		var parent = Directory.GetParent(assetRoot)?.FullName;
+
+		void TryAdd(string? candidate)
+		{
+			if (string.IsNullOrWhiteSpace(candidate))
+			{
+				return;
+			}
+
+			var fullPath = Path.GetFullPath(candidate);
+			if (!Directory.Exists(fullPath))
+			{
+				return;
+			}
+
+			if (!overlays.Contains(fullPath, StringComparer.OrdinalIgnoreCase))
+			{
+				overlays.Add(fullPath);
+			}
+		}
+
+		if (parent is not null)
+		{
+			TryAdd(Path.Combine(parent, "customdata"));
+		}
+
+		TryAdd(Path.Combine(assetRoot, "customdata"));
+
+		return overlays;
 	}
 
 	private static bool IsMinecraftAssetsRoot(string path)

@@ -47,30 +47,39 @@ internal static class MinecraftAssetLoader
 		"particle"
 	];
 
-	public static Dictionary<string, BlockModelDefinition> LoadModelDefinitions(string assetsRoot)
+	public static Dictionary<string, BlockModelDefinition> LoadModelDefinitions(string assetsRoot, IEnumerable<string>? overlayRoots = null)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(assetsRoot);
 
-		var modelsRoot = Path.Combine(assetsRoot, "models");
-		if (!Directory.Exists(modelsRoot))
-		{
-			throw new DirectoryNotFoundException($"Models directory not found at '{modelsRoot}'.");
-		}
-
+		var roots = BuildRootList(assetsRoot, overlayRoots);
 		var definitions = new Dictionary<string, BlockModelDefinition>(StringComparer.OrdinalIgnoreCase);
 
-		foreach (var file in Directory.EnumerateFiles(modelsRoot, "*.json", SearchOption.AllDirectories))
+		var hasAnyModels = false;
+		foreach (var root in roots)
 		{
-			var relativePath = Path.GetRelativePath(modelsRoot, file);
-			var key = NormalizeModelKey(relativePath);
-			if (string.IsNullOrWhiteSpace(key))
+			foreach (var directory in EnumerateModelDirectories(root))
 			{
-				continue;
-			}
+				hasAnyModels = true;
+				foreach (var file in Directory.EnumerateFiles(directory, "*.json", SearchOption.AllDirectories))
+				{
+					var relativePath = Path.GetRelativePath(directory, file);
+					var key = NormalizeModelKey(relativePath);
+					if (string.IsNullOrWhiteSpace(key))
+					{
+						continue;
+					}
 
-			var json = File.ReadAllText(file);
-			var definition = JsonSerializer.Deserialize<BlockModelDefinition>(json, SerializerOptions) ?? new BlockModelDefinition();
-			definitions[key] = definition;
+					var json = File.ReadAllText(file);
+					var definition = JsonSerializer.Deserialize<BlockModelDefinition>(json, SerializerOptions) ?? new BlockModelDefinition();
+					definitions[key] = definition;
+				}
+			}
+		}
+
+		if (!hasAnyModels)
+		{
+			var modelsRoot = Path.Combine(assetsRoot, "models");
+			throw new DirectoryNotFoundException($"Models directory not found at '{modelsRoot}'.");
 		}
 
 		foreach (var (key, definition) in GetBuiltinModelDefinitions())
@@ -81,39 +90,48 @@ internal static class MinecraftAssetLoader
 		return definitions;
 	}
 
-	public static List<BlockRegistry.BlockInfo> LoadBlockInfos(string assetsRoot, IReadOnlyDictionary<string, BlockModelDefinition> models)
+	public static List<BlockRegistry.BlockInfo> LoadBlockInfos(string assetsRoot, IReadOnlyDictionary<string, BlockModelDefinition> models, IEnumerable<string>? overlayRoots = null)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(assetsRoot);
 		ArgumentNullException.ThrowIfNull(models);
 
-		var blockstatesRoot = Path.Combine(assetsRoot, "blockstates");
-		if (!Directory.Exists(blockstatesRoot))
+		var roots = BuildRootList(assetsRoot, overlayRoots);
+		var entries = new Dictionary<string, BlockRegistry.BlockInfo>(StringComparer.OrdinalIgnoreCase);
+		var hasAnyBlockstates = false;
+		foreach (var root in roots)
 		{
+			foreach (var directory in EnumerateBlockstateDirectories(root))
+			{
+				hasAnyBlockstates = true;
+				foreach (var file in Directory.EnumerateFiles(directory, "*.json", SearchOption.AllDirectories))
+				{
+					var relativePath = Path.GetRelativePath(directory, file);
+					var blockName = NormalizeBlockStateName(relativePath);
+
+					using var stream = File.OpenRead(file);
+					using var document = JsonDocument.Parse(stream, new JsonDocumentOptions { AllowTrailingCommas = true });
+
+					var modelReference = ResolveDefaultModel(blockName, document.RootElement, models);
+					var textureReference = ResolveRepresentativeTexture(modelReference, models);
+
+					entries[blockName] = new BlockRegistry.BlockInfo
+					{
+						Name = blockName,
+						BlockState = blockName,
+						Model = modelReference,
+						Texture = textureReference
+					};
+				}
+			}
+		}
+
+		if (!hasAnyBlockstates)
+		{
+			var blockstatesRoot = Path.Combine(assetsRoot, "blockstates");
 			throw new DirectoryNotFoundException($"Blockstates directory not found at '{blockstatesRoot}'.");
 		}
 
-		var entries = new List<BlockRegistry.BlockInfo>();
-		foreach (var file in Directory.EnumerateFiles(blockstatesRoot, "*.json", SearchOption.AllDirectories))
-		{
-			var relativePath = Path.GetRelativePath(blockstatesRoot, file);
-			var blockName = NormalizeBlockStateName(relativePath);
-
-			using var stream = File.OpenRead(file);
-			using var document = JsonDocument.Parse(stream, new JsonDocumentOptions { AllowTrailingCommas = true });
-
-			var modelReference = ResolveDefaultModel(blockName, document.RootElement, models);
-			var textureReference = ResolveRepresentativeTexture(modelReference, models);
-
-			entries.Add(new BlockRegistry.BlockInfo
-			{
-				Name = blockName,
-				BlockState = blockName,
-				Model = modelReference,
-				Texture = textureReference
-			});
-		}
-
-		return entries;
+		return entries.Values.ToList();
 	}
 
 	public static List<ItemRegistry.ItemInfo> LoadItemInfos(string assetsRoot, IReadOnlyDictionary<string, BlockModelDefinition> models)
@@ -188,6 +206,65 @@ internal static class MinecraftAssetLoader
 				["particle"] = "minecraft:block/missingno"
 			}
 		});
+	}
+
+	private static IReadOnlyList<string> BuildRootList(string primaryRoot, IEnumerable<string>? overlayRoots)
+	{
+		var ordered = new List<string>();
+		void TryAdd(string? candidate)
+		{
+			if (string.IsNullOrWhiteSpace(candidate))
+			{
+				return;
+			}
+
+			var full = Path.GetFullPath(candidate);
+			if (!ordered.Contains(full, StringComparer.OrdinalIgnoreCase))
+			{
+				ordered.Add(full);
+			}
+		}
+
+		TryAdd(primaryRoot);
+		if (overlayRoots is not null)
+		{
+			foreach (var overlay in overlayRoots)
+			{
+				TryAdd(overlay);
+			}
+		}
+
+		return ordered;
+	}
+
+	private static IEnumerable<string> EnumerateModelDirectories(string root)
+	{
+		var modelsRoot = Path.Combine(root, "models");
+		if (Directory.Exists(modelsRoot))
+		{
+			yield return modelsRoot;
+		}
+
+		var blockEntityModels = Path.Combine(root, "blockentities", "blockModels");
+		if (Directory.Exists(blockEntityModels))
+		{
+			yield return blockEntityModels;
+		}
+	}
+
+	private static IEnumerable<string> EnumerateBlockstateDirectories(string root)
+	{
+		var blockstatesRoot = Path.Combine(root, "blockstates");
+		if (Directory.Exists(blockstatesRoot))
+		{
+			yield return blockstatesRoot;
+		}
+
+		var blockEntityStates = Path.Combine(root, "blockentities", "blockStates");
+		if (Directory.Exists(blockEntityStates))
+		{
+			yield return blockEntityStates;
+		}
 	}
 
 	private static string NormalizeBlockStateName(string relativePath)
