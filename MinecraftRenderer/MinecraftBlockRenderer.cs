@@ -48,16 +48,53 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		var textureContentPath = Path.Combine(dataDirectory, "texture_content.json");
 		var itemsPath = Path.Combine(dataDirectory, "items_textures.json");
 
-		var modelResolver = BlockModelResolver.LoadFromFile(modelsPath);
-		var blockRegistry = BlockRegistry.LoadFromFile(texturesPath);
-		var textureRepository = new TextureRepository(dataDirectory, File.Exists(textureContentPath) ? textureContentPath : null);
-		ItemRegistry? itemRegistry = null;
-		if (File.Exists(itemsPath))
+		if (File.Exists(modelsPath) && File.Exists(texturesPath))
 		{
-			itemRegistry = ItemRegistry.LoadFromFile(itemsPath);
+			var modelResolver = BlockModelResolver.LoadFromFile(modelsPath);
+			var blockRegistry = BlockRegistry.LoadFromFile(texturesPath);
+			var textureRepository = new TextureRepository(dataDirectory, File.Exists(textureContentPath) ? textureContentPath : null);
+			ItemRegistry? itemRegistry = null;
+			if (File.Exists(itemsPath))
+			{
+				itemRegistry = ItemRegistry.LoadFromFile(itemsPath);
+			}
+
+			return new MinecraftBlockRenderer(modelResolver, textureRepository, blockRegistry, itemRegistry);
 		}
 
+		if (IsMinecraftAssetsRoot(dataDirectory))
+		{
+			return CreateFromMinecraftAssets(dataDirectory);
+		}
+
+		throw new DirectoryNotFoundException($"The directory '{dataDirectory}' does not contain the expected aggregated JSON files or Minecraft asset folders.");
+	}
+
+	public static MinecraftBlockRenderer CreateFromMinecraftAssets(string assetsDirectory)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(assetsDirectory);
+
+		var modelResolver = BlockModelResolver.LoadFromMinecraftAssets(assetsDirectory);
+		var blockRegistry = BlockRegistry.LoadFromMinecraftAssets(assetsDirectory, modelResolver.Definitions);
+		var itemRegistry = ItemRegistry.LoadFromMinecraftAssets(assetsDirectory, modelResolver.Definitions);
+		var texturesRoot = Directory.Exists(Path.Combine(assetsDirectory, "textures"))
+			? Path.Combine(assetsDirectory, "textures")
+			: assetsDirectory;
+		var textureRepository = new TextureRepository(texturesRoot);
+
 		return new MinecraftBlockRenderer(modelResolver, textureRepository, blockRegistry, itemRegistry);
+	}
+
+	private static bool IsMinecraftAssetsRoot(string path)
+	{
+		if (string.IsNullOrWhiteSpace(path))
+		{
+			return false;
+		}
+
+		return Directory.Exists(Path.Combine(path, "models"))
+			&& Directory.Exists(Path.Combine(path, "blockstates"))
+			&& Directory.Exists(Path.Combine(path, "textures"));
 	}
 
 	public IReadOnlyList<string> GetKnownBlockNames() => _blockRegistry.GetAllBlockNames();

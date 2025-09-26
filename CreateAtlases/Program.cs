@@ -188,8 +188,14 @@ static bool IsValidDataDirectory(string path)
 		return false;
 	}
 
-	return File.Exists(Path.Combine(path, "blocks_models.json"))
+	var hasAggregated = File.Exists(Path.Combine(path, "blocks_models.json"))
 		&& File.Exists(Path.Combine(path, "blocks_textures.json"));
+
+	var hasAssets = Directory.Exists(Path.Combine(path, "models"))
+		&& Directory.Exists(Path.Combine(path, "blockstates"))
+		&& Directory.Exists(Path.Combine(path, "textures"));
+
+	return hasAggregated || hasAssets;
 }
 
 static List<MinecraftAtlasGenerator.AtlasView> BuildViews(IReadOnlyList<string>? requested)

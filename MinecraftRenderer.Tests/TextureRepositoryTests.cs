@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Numerics;
@@ -10,12 +11,12 @@ namespace MinecraftRenderer.Tests;
 
 public sealed class TextureRepositoryTests : IDisposable
 {
-	private static readonly string DataDirectory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "data"));
+	private static readonly string TexturesDirectory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "minecraft", "textures"));
 	private readonly TextureRepository _repository;
 
 	public TextureRepositoryTests()
 	{
-		_repository = new TextureRepository(DataDirectory);
+		_repository = new TextureRepository(TexturesDirectory);
 	}
 
 	[Fact]
@@ -35,6 +36,7 @@ public sealed class TextureRepositoryTests : IDisposable
 
 public sealed class BillboardOrientationTests
 {
+	private static readonly string AssetsDirectory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "minecraft"));
 	private readonly ITestOutputHelper _output;
 
 	public BillboardOrientationTests(ITestOutputHelper output)
@@ -45,8 +47,7 @@ public sealed class BillboardOrientationTests
 	[Fact]
 	public void DeadBrainCoralFan_RendersWithoutException()
 	{
-		var dataDirectory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "data"));
-		using var renderer = MinecraftBlockRenderer.CreateFromDataDirectory(dataDirectory);
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
 		using var image = renderer.RenderBlock("dead_brain_coral_fan");
 		_output.WriteLine($"Rendered image: {image.Width}x{image.Height}");
 	}
@@ -54,9 +55,7 @@ public sealed class BillboardOrientationTests
 	[Fact]
 	public void DeadBrainCoralFan_UpFaceUvsMatchExpectedOrientation()
 	{
-		var dataDirectory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "data"));
-		var modelsPath = Path.Combine(dataDirectory, "blocks_models.json");
-		var resolver = BlockModelResolver.LoadFromFile(modelsPath);
+		var resolver = BlockModelResolver.LoadFromMinecraftAssets(AssetsDirectory);
 		var model = resolver.Resolve("dead_brain_coral_fan");
 
 		var createUvMapMethod = typeof(MinecraftBlockRenderer)
@@ -105,11 +104,68 @@ public sealed class BillboardOrientationTests
 	}
 
 	[Fact]
+	public void DeadBrainCoralFan_NorthSouthFacesPointOutward()
+	{
+		var resolver = BlockModelResolver.LoadFromMinecraftAssets(AssetsDirectory);
+		var model = resolver.Resolve("dead_brain_coral_fan");
+
+		var buildVertices = typeof(MinecraftBlockRenderer)
+			.GetMethod("BuildElementVertices", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
+			?? throw new InvalidOperationException("BuildElementVertices not found");
+		var applyRotation = typeof(MinecraftBlockRenderer)
+			.GetMethod("ApplyElementRotation", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
+			?? throw new InvalidOperationException("ApplyElementRotation not found");
+		var faceVertexIndicesField = typeof(MinecraftBlockRenderer)
+			.GetField("FaceVertexIndices", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
+			?? throw new InvalidOperationException("FaceVertexIndices not found");
+		var faceVertexIndices = (Dictionary<BlockFaceDirection, int[]>)faceVertexIndicesField.GetValue(null)!;
+		var upIndices = faceVertexIndices[BlockFaceDirection.Up];
+
+		for (var elementIndex = 0; elementIndex < model.Elements.Count; elementIndex++)
+		{
+			var element = model.Elements[elementIndex];
+			if (element.Rotation is null || !string.Equals(element.Rotation.Axis, "x", StringComparison.OrdinalIgnoreCase))
+			{
+				continue;
+			}
+
+			if (!element.Faces.TryGetValue(BlockFaceDirection.Up, out _))
+			{
+				continue;
+			}
+
+			var vertices = (Vector3[])(buildVertices.Invoke(null, new object[] { element })
+				?? throw new InvalidOperationException("Failed to build vertices"));
+			applyRotation.Invoke(null, new object[] { element, vertices });
+
+			var v0 = vertices[upIndices[0]];
+			var v1 = vertices[upIndices[1]];
+			var v2 = vertices[upIndices[2]];
+			var normal = Vector3.Cross(v1 - v0, v2 - v0);
+			if (normal == Vector3.Zero)
+			{
+				continue;
+			}
+
+			normal = Vector3.Normalize(normal);
+			var outward = element.Rotation.AngleInDegrees < 0 ? Vector3.UnitZ : -Vector3.UnitZ;
+			var alignment = Vector3.Dot(normal, outward);
+			if (alignment < 0)
+			{
+				normal = -normal;
+				alignment = -alignment;
+			}
+
+			Assert.True(alignment > 0.2f,
+				$"Element {elementIndex} expected to face {outward} but normal was {normal} (alignment {alignment:F3})");
+		}
+	}
+
+
+	[Fact]
 	public void TntSideFacesAreNotMirrored()
 	{
-		var dataDirectory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "data"));
-		var modelsPath = Path.Combine(dataDirectory, "blocks_models.json");
-		var resolver = BlockModelResolver.LoadFromFile(modelsPath);
+		var resolver = BlockModelResolver.LoadFromMinecraftAssets(AssetsDirectory);
 		var model = resolver.Resolve("tnt");
 
 		var createUvMapMethod = typeof(MinecraftBlockRenderer)
@@ -212,7 +268,7 @@ public sealed class BillboardOrientationTests
 			for (var i = 0; i < uv.Length; i++)
 			{
 				var relative = uv[i] - center;
-				relative = new Vector2(-relative.Y, relative.X);
+				relative = new Vector2(relative.Y, -relative.X);
 				uv[i] = relative + center;
 			}
 		}

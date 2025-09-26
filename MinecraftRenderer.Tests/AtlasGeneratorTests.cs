@@ -8,12 +8,12 @@ namespace MinecraftRenderer.Tests;
 
 public sealed class AtlasGeneratorTests
 {
-    private static readonly string DataDirectory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "data"));
+    private static readonly string AssetsDirectory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "minecraft"));
 
     [Fact]
     public void GenerateAtlasesProducesImagesAndManifests()
     {
-        using var renderer = MinecraftBlockRenderer.CreateFromDataDirectory(DataDirectory);
+    using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
 
         var tempDirectory = Path.Combine(Path.GetTempPath(), "MinecraftRenderer.AtlasTests", Guid.NewGuid().ToString());
         Directory.CreateDirectory(tempDirectory);
@@ -57,7 +57,7 @@ public sealed class AtlasGeneratorTests
     [Fact(Skip = "Manual integration example – use CreateAtlases console tool instead.")]
     public void GenerateAtlases()
     {
-        using var renderer = MinecraftBlockRenderer.CreateFromDataDirectory(DataDirectory);
+    using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
 
         var outputPath = Path.Combine(Environment.CurrentDirectory, "atlases");
         Directory.CreateDirectory(outputPath);

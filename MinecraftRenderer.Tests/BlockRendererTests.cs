@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Numerics;
+using System.Linq;
 using System.Reflection;
 using MinecraftRenderer;
 using SixLabors.ImageSharp;
@@ -14,7 +15,7 @@ namespace MinecraftRenderer.Tests;
 
 public sealed class BlockRendererTests
 {
-	private static readonly string DataDirectory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "data"));
+	private static readonly string AssetsDirectory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "minecraft"));
 	private readonly ITestOutputHelper _output;
 
 	public BlockRendererTests(ITestOutputHelper output)
@@ -25,7 +26,7 @@ public sealed class BlockRendererTests
 	[Fact]
 	public void RenderStoneProducesOpaquePixels()
 	{
-		using var renderer = MinecraftBlockRenderer.CreateFromDataDirectory(DataDirectory);
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
 		using var image = renderer.RenderBlock("stone");
 
 		Assert.Equal(512, image.Width);
@@ -51,7 +52,7 @@ public sealed class BlockRendererTests
 	[Fact]
 	public void DefaultInventoryOrientationShowsFrontOnRight()
 	{
-		using var renderer = MinecraftBlockRenderer.CreateFromDataDirectory(DataDirectory);
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
 
 		var faceColors = new Dictionary<BlockFaceDirection, Rgba32>
 		{
@@ -167,9 +168,219 @@ public sealed class BlockRendererTests
 	}
 
 	[Fact]
+	public void BillboardTexturesAreNotUpsideDown()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+
+		using (var customTexture = CreateVerticalSplitTexture(new Rgba32(0xE6, 0x3B, 0x3B, 0xFF), new Rgba32(0x3B, 0x6B, 0xE6, 0xFF)))
+		{
+			renderer.TextureRepository.RegisterTexture("minecraft:block/birch_sapling", customTexture, overwrite: true);
+		}
+
+		var testOptions = new List<MinecraftBlockRenderer.BlockRenderOptions>
+		{
+			MinecraftBlockRenderer.BlockRenderOptions.Default
+		};
+
+		foreach (var yaw in new[] { 0f, 45f, 90f, 135f, 180f, 225f, 270f, 315f })
+		{
+			testOptions.Add(MinecraftBlockRenderer.BlockRenderOptions.Default with
+			{
+				UseGuiTransform = false,
+				YawInDegrees = yaw,
+				PitchInDegrees = 0f,
+				RollInDegrees = 0f,
+				Padding = 0.05f,
+				Size = 256
+			});
+		}
+
+		foreach (var options in testOptions)
+		{
+			using var rendered = renderer.RenderBlock("birch_sapling", options);
+			var topColor = FindOpaquePixel(rendered, searchFromTop: true);
+			var bottomColor = FindOpaquePixel(rendered, searchFromTop: false);
+			_output.WriteLine($"Options (gui={options.UseGuiTransform}, yaw={options.YawInDegrees}) -> top {topColor}, bottom {bottomColor}");
+			Assert.True(topColor.R > topColor.B, $"Top of billboarded texture should preserve the top-half color for {options}.");
+			Assert.True(bottomColor.B > bottomColor.R, $"Bottom of billboarded texture should preserve the bottom-half color for {options}.");
+		}
+	}
+
+	[Fact]
+	public void BillboardNorthFaceIsUpright()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+
+		const string textureId = "minecraft:block/unit_test_cross_north";
+		using (var customTexture = CreateVerticalSplitTexture(new Rgba32(0xE6, 0x3B, 0x3B, 0xFF), new Rgba32(0x3B, 0x6B, 0xE6, 0xFF)))
+		{
+			renderer.TextureRepository.RegisterTexture(textureId, customTexture, overwrite: true);
+		}
+
+		var element = new ModelElement(
+			new Vector3(0.8f, 0f, 8f),
+			new Vector3(15.2f, 16f, 8f),
+			new ElementRotation(45f, new Vector3(8f, 8f, 8f), "y", rescale: true),
+			new Dictionary<BlockFaceDirection, ModelFace>
+			{
+				[BlockFaceDirection.North] = new("#cross", new Vector4(0f, 0f, 16f, 16f), null, null, null)
+			},
+			shade: false);
+
+		var model = new BlockModelInstance(
+			"unit_test:cross_north",
+			Array.Empty<string>(),
+			new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+			{
+				["cross"] = textureId
+			},
+			new Dictionary<string, TransformDefinition>(StringComparer.OrdinalIgnoreCase),
+			new List<ModelElement> { element });
+
+		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with
+		{
+			UseGuiTransform = false,
+			YawInDegrees = 180f,
+			PitchInDegrees = 0f,
+			RollInDegrees = 0f,
+			Padding = 0.05f,
+			Size = 256
+		};
+
+		using var rendered = renderer.RenderModel(model, options);
+		var topColor = FindOpaquePixel(rendered, searchFromTop: true);
+		var bottomColor = FindOpaquePixel(rendered, searchFromTop: false);
+
+		Assert.True(topColor.R > topColor.B, "North billboard face should display the top-half color at the top.");
+		Assert.True(bottomColor.B > bottomColor.R, "North billboard face should display the bottom-half color at the bottom.");
+	}
+
+	[Fact]
+	public void BillboardNorthFaceUvTopIsNotFlipped()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+
+		var element = new ModelElement(
+			new Vector3(0.8f, 0f, 8f),
+			new Vector3(15.2f, 16f, 8f),
+			new ElementRotation(45f, new Vector3(8f, 8f, 8f), "y", rescale: true),
+			new Dictionary<BlockFaceDirection, ModelFace>
+			{
+				[BlockFaceDirection.North] = new("#cross", new Vector4(0f, 0f, 16f, 16f), null, null, null)
+			},
+			shade: false);
+
+		var model = new BlockModelInstance(
+			"unit_test:cross_north",
+			Array.Empty<string>(),
+			new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+			{
+				["cross"] = "minecraft:block/birch_sapling"
+			},
+			new Dictionary<string, TransformDefinition>(StringComparer.OrdinalIgnoreCase),
+			new List<ModelElement> { element });
+
+		var buildTriangles = typeof(MinecraftBlockRenderer)
+			.GetMethod("BuildTriangles", BindingFlags.NonPublic | BindingFlags.Instance)
+			?? throw new InvalidOperationException("BuildTriangles method not found");
+
+		var triangles = (System.Collections.IEnumerable)buildTriangles.Invoke(renderer, new object[] { model, Matrix4x4.Identity })!;
+		var v1Prop = triangles.GetType().GetGenericArguments().First().GetProperty("V1")
+			?? throw new InvalidOperationException("V1 property not found");
+		var v2Prop = triangles.GetType().GetGenericArguments().First().GetProperty("V2")!;
+		var v3Prop = triangles.GetType().GetGenericArguments().First().GetProperty("V3")!;
+		var t1Prop = triangles.GetType().GetGenericArguments().First().GetProperty("T1")!;
+		var t2Prop = triangles.GetType().GetGenericArguments().First().GetProperty("T2")!;
+		var t3Prop = triangles.GetType().GetGenericArguments().First().GetProperty("T3")!;
+
+		var topUvValues = new List<float>();
+		foreach (var triangle in triangles)
+		{
+			var v1 = (Vector3)v1Prop.GetValue(triangle)!;
+			var v2 = (Vector3)v2Prop.GetValue(triangle)!;
+			var v3 = (Vector3)v3Prop.GetValue(triangle)!;
+			var t1 = (Vector2)t1Prop.GetValue(triangle)!;
+			var t2 = (Vector2)t2Prop.GetValue(triangle)!;
+			var t3 = (Vector2)t3Prop.GetValue(triangle)!;
+
+			var topVertexUv = t1;
+			var topVertexY = v1.Y;
+			if (v2.Y > topVertexY)
+			{
+				topVertexUv = t2;
+				topVertexY = v2.Y;
+			}
+			if (v3.Y > topVertexY)
+			{
+				topVertexUv = t3;
+			}
+
+			topUvValues.Add(topVertexUv.Y);
+		}
+
+		var maxTopUv = topUvValues.Max();
+		_output.WriteLine($"Top UV values: {string.Join(", ", topUvValues.Select(v => v.ToString("F3")))}");
+		Assert.True(maxTopUv <= 0.05f, $"Expected billboard north face top UV to be near 0 but found max {maxTopUv:F3}.");
+	}
+
+
+	private static Rgba32 FindOpaquePixel(Image<Rgba32> image, bool searchFromTop)
+	{
+		if (searchFromTop)
+		{
+			for (var y = 0; y < image.Height; y++)
+			{
+				var row = image.DangerousGetPixelRowMemory(y).Span;
+				for (var x = 0; x < image.Width; x++)
+				{
+					var pixel = row[x];
+					if (pixel.A > 200)
+					{
+						return pixel;
+					}
+				}
+			}
+		}
+		else
+		{
+			for (var y = image.Height - 1; y >= 0; y--)
+			{
+				var row = image.DangerousGetPixelRowMemory(y).Span;
+				for (var x = 0; x < image.Width; x++)
+				{
+					var pixel = row[x];
+					if (pixel.A > 200)
+					{
+						return pixel;
+					}
+				}
+			}
+		}
+
+		throw new InvalidOperationException("No opaque pixels were found in the rendered image.");
+	}
+
+	private static Image<Rgba32> CreateVerticalSplitTexture(Rgba32 topColor, Rgba32 bottomColor, int size = 16)
+	{
+		var image = new Image<Rgba32>(size, size);
+		var half = size / 2;
+		for (var y = 0; y < size; y++)
+		{
+			var row = image.DangerousGetPixelRowMemory(y).Span;
+			var color = y < half ? topColor : bottomColor;
+			for (var x = 0; x < size; x++)
+			{
+				row[x] = color;
+			}
+		}
+
+		return image;
+	}
+
+	[Fact]
 	public void CrafterFrontFaceMatchesNorthTexture()
 	{
-		using var renderer = MinecraftBlockRenderer.CreateFromDataDirectory(DataDirectory);
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
 		using var rendered = renderer.RenderBlock("crafter", MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 256 });
 
 		var rightColor = SampleAverageColor(rendered, (int)(rendered.Width * 0.70f), rendered.Width - 1, rendered.Height / 2 - 20, rendered.Height / 2 + 20);
