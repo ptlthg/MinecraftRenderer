@@ -77,7 +77,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		var overlayRoots = DiscoverOverlayRoots(assetsDirectory);
 		var modelResolver = BlockModelResolver.LoadFromMinecraftAssets(assetsDirectory, overlayRoots);
 		var blockRegistry = BlockRegistry.LoadFromMinecraftAssets(assetsDirectory, modelResolver.Definitions, overlayRoots);
-		var itemRegistry = ItemRegistry.LoadFromMinecraftAssets(assetsDirectory, modelResolver.Definitions);
+		var itemRegistry = ItemRegistry.LoadFromMinecraftAssets(assetsDirectory, modelResolver.Definitions, overlayRoots);
 		var texturesRoot = Directory.Exists(Path.Combine(assetsDirectory, "textures"))
 			? Path.Combine(assetsDirectory, "textures")
 			: assetsDirectory;
@@ -153,103 +153,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 	}
 
 	public Image<Rgba32> RenderItem(string itemName, BlockRenderOptions? options = null)
-	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(itemName);
-		options ??= BlockRenderOptions.Default;
-		EnsureNotDisposed();
-
-		ItemRegistry.ItemInfo? itemInfo = null;
-		if (_itemRegistry is not null)
-		{
-			_itemRegistry.TryGetInfo(itemName, out itemInfo);
-		}
-
-		var modelName = itemInfo?.Model;
-		if (string.IsNullOrWhiteSpace(modelName))
-		{
-			if (_blockRegistry.TryGetModel(itemName, out var blockModel) && !string.IsNullOrWhiteSpace(blockModel))
-			{
-				modelName = blockModel;
-			}
-			else
-			{
-				modelName = itemName;
-			}
-		}
-
-		BlockModelInstance? model = null;
-		var hasModel = false;
-		foreach (var candidate in BuildModelCandidates(modelName!, itemName))
-		{
-			try
-			{
-				model = _modelResolver.Resolve(candidate);
-				hasModel = true;
-				break;
-			}
-			catch (KeyNotFoundException)
-			{
-				continue;
-			}
-			catch (InvalidOperationException)
-			{
-				continue;
-			}
-		}
-
-		var usesBuiltinGenerated = UsesBuiltinGenerated(model);
-		var isBuiltinEntityItem = UsesBuiltinEntity(model) || IsBuiltinEntityItemName(itemName);
-
-		if (isBuiltinEntityItem && TryRenderBuiltinEntityItem(itemName, itemInfo, options, out var builtinEntityRender))
-		{
-			return builtinEntityRender;
-		}
-
-		if (model is not null && IsBillboardModel(model))
-		{
-			var billboardLayers = CollectBillboardTextures(model, itemInfo);
-			var resolvedBillboardLayers = ResolveTextureIdentifiers(billboardLayers, model);
-			if (resolvedBillboardLayers.Count > 0)
-			{
-				return RenderFlatItem(resolvedBillboardLayers, options);
-			}
-		}
-
-		var layerIdentifiers = CollectItemLayerTextures(model, itemInfo);
-		if (!hasModel || model is null || model.Elements.Count == 0 || usesBuiltinGenerated)
-		{
-			if (TryRenderGeneratedGeometry(itemName, model, itemInfo, options, out var generated))
-			{
-				return generated;
-			}
-
-			if (layerIdentifiers.Count > 0)
-			{
-				var resolvedLayers = ResolveTextureIdentifiers(layerIdentifiers, model);
-				if (resolvedLayers.Count > 0)
-				{
-					return RenderFlatItem(resolvedLayers, options);
-				}
-			}
-
-			if (TryRenderEmbeddedTexture(itemName, options, out var embeddedFlat))
-			{
-				return embeddedFlat;
-			}
-		}
-
-		if (hasModel && model is not null && model.Elements.Count > 0)
-		{
-			return RenderModel(model, options);
-		}
-
-		if (TryRenderEmbeddedTexture(itemName, options, out var fallbackFlat))
-		{
-			return fallbackFlat;
-		}
-
-		throw new InvalidOperationException($"Unable to resolve a model or texture for item '{itemName}'.");
-	}
+		=> RenderGuiItem(itemName, options);
 
 	public void Dispose()
 	{

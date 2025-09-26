@@ -3,7 +3,6 @@ namespace MinecraftRenderer;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Numerics;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
@@ -16,6 +15,326 @@ public sealed partial class MinecraftBlockRenderer
 		("_wall", "_wall_inventory"),
 		("_button", "_button_inventory")
 	};
+
+	public Image<Rgba32> RenderGuiItem(string itemName, BlockRenderOptions? options = null)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(itemName);
+		options ??= BlockRenderOptions.Default;
+		EnsureNotDisposed();
+
+		ItemRegistry.ItemInfo? itemInfo = null;
+		if (_itemRegistry is not null)
+		{
+			_itemRegistry.TryGetInfo(itemName, out itemInfo);
+		}
+
+		var (model, modelCandidates) = ResolveItemModel(itemName, itemInfo);
+
+		if (TryRenderGuiTextureLayers(itemName, itemInfo, model, options, out var flatRender))
+		{
+			return flatRender;
+		}
+
+		if (model is not null && IsBillboardModel(model))
+		{
+			var billboardTextures = CollectBillboardTextures(model, itemInfo);
+			if (TryRenderFlatItemFromIdentifiers(billboardTextures, model, options, out flatRender))
+			{
+				return flatRender;
+			}
+		}
+
+		if (model is not null && model.Elements.Count > 0)
+		{
+			return RenderModel(model, options);
+		}
+
+		if (TryRenderBlockEntityFallback(itemName, itemInfo, model, modelCandidates, options, out var blockRender))
+		{
+			return blockRender;
+		}
+
+		return RenderFallbackTexture(itemName, itemInfo, model, options);
+	}
+
+	private (BlockModelInstance? Model, IReadOnlyList<string> Candidates) ResolveItemModel(string itemName, ItemRegistry.ItemInfo? itemInfo)
+	{
+		var modelName = itemInfo?.Model;
+		if (string.IsNullOrWhiteSpace(modelName))
+		{
+			if (_blockRegistry.TryGetModel(itemName, out var blockModel) && !string.IsNullOrWhiteSpace(blockModel))
+			{
+				modelName = blockModel;
+			}
+			else
+			{
+				modelName = itemName;
+			}
+		}
+
+		var candidates = BuildModelCandidates(modelName!, itemName).ToList();
+		BlockModelInstance? model = null;
+
+		foreach (var candidate in candidates)
+		{
+			try
+			{
+				model = _modelResolver.Resolve(candidate);
+				break;
+			}
+			catch (KeyNotFoundException)
+			{
+				continue;
+			}
+			catch (InvalidOperationException)
+			{
+				continue;
+			}
+		}
+
+		return (model, candidates);
+	}
+
+	private bool TryRenderGuiTextureLayers(string itemName, ItemRegistry.ItemInfo? itemInfo, BlockModelInstance? model, BlockRenderOptions options, out Image<Rgba32> rendered)
+	{
+		var candidates = new List<string>();
+		var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+		void TryAdd(string? candidate)
+		{
+			if (!string.IsNullOrWhiteSpace(candidate) && IsGuiTexture(candidate) && seen.Add(candidate))
+			{
+				candidates.Add(candidate);
+			}
+		}
+
+		if (model is not null)
+		{
+			var orderedLayers = model.Textures
+				.Where(static kvp => kvp.Key.StartsWith("layer", StringComparison.OrdinalIgnoreCase))
+				.OrderBy(static kvp => kvp.Key, StringComparer.OrdinalIgnoreCase);
+
+			foreach (var layer in orderedLayers)
+			{
+				TryAdd(layer.Value);
+			}
+		}
+
+		if (itemInfo is not null && !string.IsNullOrWhiteSpace(itemInfo.Texture))
+		{
+			TryAdd(itemInfo.Texture);
+		}
+
+		var normalized = NormalizeItemTextureKey(itemName);
+		TryAdd($"minecraft:item/{normalized}");
+		TryAdd($"minecraft:item/{normalized}_overlay");
+		TryAdd($"item/{normalized}");
+		TryAdd($"textures/item/{normalized}");
+
+		if (candidates.Count == 0)
+		{
+			rendered = null!;
+			return false;
+		}
+
+		return TryRenderFlatItemFromIdentifiers(candidates, model, options, out rendered);
+	}
+
+	private bool TryRenderFlatItemFromIdentifiers(IEnumerable<string> identifiers, BlockModelInstance? model, BlockRenderOptions options, out Image<Rgba32> rendered)
+	{
+		var resolved = ResolveTextureIdentifiers(identifiers, model);
+		var available = new List<string>();
+
+		foreach (var textureId in resolved)
+		{
+			if (_textureRepository.TryGetTexture(textureId, out _))
+			{
+				available.Add(textureId);
+			}
+		}
+
+		if (available.Count == 0)
+		{
+			rendered = null!;
+			return false;
+		}
+
+		rendered = RenderFlatItem(available, options);
+		return true;
+	}
+
+	private bool TryRenderBlockEntityFallback(string itemName, ItemRegistry.ItemInfo? itemInfo, BlockModelInstance? model, IReadOnlyList<string> modelCandidates, BlockRenderOptions options, out Image<Rgba32> rendered)
+	{
+		foreach (var candidate in EnumerateBlockFallbackNames(itemName, itemInfo, model, modelCandidates))
+		{
+			if (TryRenderBlockItem(candidate, options, out rendered))
+			{
+				return true;
+			}
+		}
+
+		rendered = null!;
+		return false;
+	}
+
+	private static IReadOnlyList<string> EnumerateBlockFallbackNames(string itemName, ItemRegistry.ItemInfo? itemInfo, BlockModelInstance? model, IReadOnlyList<string> modelCandidates)
+	{
+		var results = new List<string>();
+		var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+		void AddRange(IEnumerable<string> values)
+		{
+			foreach (var value in values)
+			{
+				if (seen.Add(value))
+				{
+					results.Add(value);
+				}
+			}
+		}
+
+		AddRange(NormalizeToBlockCandidates(itemName));
+		AddRange(NormalizeToBlockCandidates(itemInfo?.Model));
+		AddRange(NormalizeToBlockCandidates(itemInfo?.Texture));
+		AddRange(modelCandidates.SelectMany(NormalizeToBlockCandidates));
+
+		if (model is not null)
+		{
+			AddRange(NormalizeToBlockCandidates(model.Name));
+
+			foreach (var parent in model.ParentChain)
+			{
+				AddRange(NormalizeToBlockCandidates(parent));
+			}
+
+			foreach (var texture in model.Textures.Values)
+			{
+				AddRange(NormalizeToBlockCandidates(texture));
+			}
+		}
+
+		return results;
+	}
+
+	private static IEnumerable<string> NormalizeToBlockCandidates(string? value)
+	{
+		if (string.IsNullOrWhiteSpace(value))
+		{
+			yield break;
+		}
+
+		var normalized = value.Trim().Replace('\\', '/');
+
+		if (normalized.StartsWith("#", StringComparison.Ordinal))
+		{
+			yield break;
+		}
+
+		if (normalized.StartsWith("minecraft:", StringComparison.OrdinalIgnoreCase))
+		{
+			normalized = normalized[10..];
+		}
+
+		normalized = normalized.TrimStart('/');
+
+		if (normalized.StartsWith("textures/", StringComparison.OrdinalIgnoreCase))
+		{
+			normalized = normalized[9..];
+		}
+
+		if (normalized.StartsWith("models/", StringComparison.OrdinalIgnoreCase))
+		{
+			normalized = normalized[7..];
+		}
+
+		if (normalized.StartsWith("block/", StringComparison.OrdinalIgnoreCase))
+		{
+			normalized = normalized[6..];
+		}
+		else if (normalized.StartsWith("blocks/", StringComparison.OrdinalIgnoreCase))
+		{
+			normalized = normalized[7..];
+		}
+
+		if (normalized.StartsWith("item/", StringComparison.OrdinalIgnoreCase) || normalized.StartsWith("items/", StringComparison.OrdinalIgnoreCase))
+		{
+			yield break;
+		}
+
+		if (normalized.StartsWith("builtin/", StringComparison.OrdinalIgnoreCase))
+		{
+			yield break;
+		}
+
+		normalized = normalized.Trim('/');
+		if (string.IsNullOrWhiteSpace(normalized))
+		{
+			yield break;
+		}
+
+		yield return normalized;
+	}
+
+	private static bool IsGuiTexture(string textureId)
+	{
+		if (string.IsNullOrWhiteSpace(textureId))
+		{
+			return false;
+		}
+
+		var normalized = textureId.Replace('\\', '/');
+		return normalized.Contains("/item/", StringComparison.OrdinalIgnoreCase)
+			|| normalized.Contains(":item/", StringComparison.OrdinalIgnoreCase)
+			|| normalized.Contains("/items/", StringComparison.OrdinalIgnoreCase)
+			|| normalized.Contains(":items/", StringComparison.OrdinalIgnoreCase)
+			|| normalized.Contains("textures/item/", StringComparison.OrdinalIgnoreCase);
+	}
+
+	private static string NormalizeItemTextureKey(string itemName)
+	{
+		var normalized = itemName.Trim();
+		if (normalized.StartsWith("minecraft:", StringComparison.OrdinalIgnoreCase))
+		{
+			normalized = normalized[10..];
+		}
+
+		return normalized.Replace('\\', '/').Trim('/');
+	}
+
+	private Image<Rgba32> RenderFallbackTexture(string itemName, ItemRegistry.ItemInfo? itemInfo, BlockModelInstance? model, BlockRenderOptions options)
+	{
+		if (TryRenderFlatItemFromIdentifiers(CollectItemLayerTextures(model, itemInfo), model, options, out var rendered))
+		{
+			return rendered;
+		}
+
+		if (itemInfo is not null && !string.IsNullOrWhiteSpace(itemInfo.Texture) && TryRenderEmbeddedTexture(itemInfo.Texture, options, out rendered))
+		{
+			return rendered;
+		}
+
+		foreach (var candidate in EnumerateTextureFallbackCandidates(itemName))
+		{
+			if (TryRenderEmbeddedTexture(candidate, options, out rendered))
+			{
+				return rendered;
+			}
+		}
+
+		return RenderFlatItem(new[] { "minecraft:missingno" }, options);
+	}
+
+	private static IEnumerable<string> EnumerateTextureFallbackCandidates(string itemName)
+	{
+		var normalized = NormalizeItemTextureKey(itemName);
+
+		yield return normalized;
+		yield return $"minecraft:item/{normalized}";
+		yield return $"item/{normalized}";
+		yield return $"textures/item/{normalized}";
+		yield return $"minecraft:block/{normalized}";
+		yield return $"block/{normalized}";
+	}
 
 	private static IEnumerable<string> BuildModelCandidates(string primaryName, string itemName)
 	{
@@ -208,54 +527,6 @@ public sealed partial class MinecraftBlockRenderer
 		return resolved;
 	}
 
-	private bool TryRenderGeneratedGeometry(string itemName, BlockModelInstance? model, ItemRegistry.ItemInfo? itemInfo, BlockRenderOptions options, out Image<Rgba32> generated)
-	{
-		generated = null!;
-
-		if (IsShulkerBox(itemName))
-		{
-			var textureReference = itemInfo?.Texture;
-			if (model?.Textures.TryGetValue("particle", out var particleTexture) == true)
-			{
-				textureReference = particleTexture;
-			}
-
-			if (!string.IsNullOrWhiteSpace(textureReference))
-			{
-				var resolvedTexture = ResolveTexture(textureReference!, model);
-				if (!string.IsNullOrWhiteSpace(resolvedTexture) && !resolvedTexture.Equals("minecraft:missingno", StringComparison.OrdinalIgnoreCase))
-				{
-					var generatedModel = CreateGeneratedCubeModel(itemName, resolvedTexture);
-					generated = RenderModel(generatedModel, options);
-					return true;
-				}
-			}
-		}
-
-		return false;
-	}
-
-	private bool TryRenderBuiltinEntityItem(string itemName, ItemRegistry.ItemInfo? itemInfo, BlockRenderOptions options, out Image<Rgba32> rendered)
-	{
-		if (TryRenderEmbeddedTexture(itemName, options, out rendered))
-		{
-			return true;
-		}
-
-		if (itemInfo is not null && !string.IsNullOrWhiteSpace(itemInfo.Texture))
-		{
-			var resolved = ResolveTexture(itemInfo.Texture, null);
-			if (!string.IsNullOrWhiteSpace(resolved) && _textureRepository.TryGetTexture(resolved, out _))
-			{
-				rendered = RenderFlatItem(new[] { resolved }, options);
-				return true;
-			}
-		}
-
-		rendered = null!;
-		return false;
-	}
-
 	private bool TryRenderEmbeddedTexture(string textureId, BlockRenderOptions options, out Image<Rgba32> rendered)
 	{
 		if (_textureRepository.TryGetTexture(textureId, out _))
@@ -268,40 +539,18 @@ public sealed partial class MinecraftBlockRenderer
 		return false;
 	}
 
-	private static bool IsShulkerBox(string itemName)
-		=> itemName.EndsWith("_shulker_box", StringComparison.OrdinalIgnoreCase)
-		|| string.Equals(itemName, "shulker_box", StringComparison.OrdinalIgnoreCase);
-
-	private static BlockModelInstance CreateGeneratedCubeModel(string name, string textureId)
+	private bool TryRenderBlockItem(string blockName, BlockRenderOptions options, out Image<Rgba32> rendered)
 	{
-		var textures = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+		try
 		{
-			["all"] = textureId
-		};
-
-		var faces = new Dictionary<BlockFaceDirection, ModelFace>
+			rendered = RenderBlock(blockName, options);
+			return true;
+		}
+		catch (Exception)
 		{
-			[BlockFaceDirection.North] = new ModelFace("#all", new Vector4(0, 0, 16, 16), 0, null, null),
-			[BlockFaceDirection.South] = new ModelFace("#all", new Vector4(0, 0, 16, 16), 0, null, null),
-			[BlockFaceDirection.East] = new ModelFace("#all", new Vector4(0, 0, 16, 16), 0, null, null),
-			[BlockFaceDirection.West] = new ModelFace("#all", new Vector4(0, 0, 16, 16), 0, null, null),
-			[BlockFaceDirection.Up] = new ModelFace("#all", new Vector4(0, 0, 16, 16), 0, null, null),
-			[BlockFaceDirection.Down] = new ModelFace("#all", new Vector4(0, 0, 16, 16), 0, null, null)
-		};
-
-		var element = new ModelElement(
-			new Vector3(0, 0, 0),
-			new Vector3(16, 16, 16),
-			null,
-			faces,
-			true);
-
-		return new BlockModelInstance(
-			$"{name}_generated",
-			Array.Empty<string>(),
-			textures,
-			new Dictionary<string, TransformDefinition>(StringComparer.OrdinalIgnoreCase),
-			new List<ModelElement> { element });
+			rendered = null!;
+			return false;
+		}
 	}
 
 	private Image<Rgba32> RenderFlatItem(IReadOnlyList<string> layerTextureIds, BlockRenderOptions options)
@@ -329,81 +578,4 @@ public sealed partial class MinecraftBlockRenderer
 		return canvas;
 	}
 
-	private static bool UsesBuiltinGenerated(BlockModelInstance? model)
-		=> UsesModelReference(model, "generated");
-
-	private static bool UsesBuiltinEntity(BlockModelInstance? model)
-		=> UsesModelReference(model, "entity");
-
-	private static bool UsesModelReference(BlockModelInstance? model, string reference)
-	{
-		if (model is null)
-		{
-			return false;
-		}
-
-		if (MatchesModelReference(model.Name, reference))
-		{
-			return true;
-		}
-
-		foreach (var parent in model.ParentChain)
-		{
-			if (MatchesModelReference(parent, reference))
-			{
-				return true;
-			}
-		}
-
-		return false;
-	}
-
-	private static bool MatchesModelReference(string candidate, string reference)
-	{
-		if (string.IsNullOrWhiteSpace(candidate))
-		{
-			return false;
-		}
-
-		var normalized = NormalizeModelReference(candidate);
-
-		if (normalized.Equals(reference, StringComparison.OrdinalIgnoreCase))
-		{
-			return true;
-		}
-
-		if (normalized.Equals($"item/{reference}", StringComparison.OrdinalIgnoreCase))
-		{
-			return true;
-		}
-
-		if (normalized.Equals($"builtin/{reference}", StringComparison.OrdinalIgnoreCase))
-		{
-			return true;
-		}
-
-		if (normalized.StartsWith($"builtin/{reference}/", StringComparison.OrdinalIgnoreCase))
-		{
-			return true;
-		}
-
-		return false;
-	}
-
-	private static string NormalizeModelReference(string value)
-	{
-		var normalized = value.Trim().Replace('\\', '/');
-
-		if (normalized.StartsWith("minecraft:", StringComparison.OrdinalIgnoreCase))
-		{
-			normalized = normalized[10..];
-		}
-
-		return normalized;
-	}
-
-	private static bool IsBuiltinEntityItemName(string itemName)
-		=> !string.IsNullOrWhiteSpace(itemName)
-		&& (itemName.EndsWith("_bed", StringComparison.OrdinalIgnoreCase)
-			|| string.Equals(itemName, "bed", StringComparison.OrdinalIgnoreCase));
 }

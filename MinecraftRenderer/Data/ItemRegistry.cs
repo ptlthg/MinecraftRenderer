@@ -1,5 +1,6 @@
 namespace MinecraftRenderer;
 
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -33,12 +34,12 @@ public sealed class ItemRegistry
 		return new ItemRegistry(entries.Where(static entry => !string.IsNullOrWhiteSpace(entry.Name)));
 	}
 
-	public static ItemRegistry LoadFromMinecraftAssets(string assetsRoot, IReadOnlyDictionary<string, BlockModelDefinition> modelDefinitions)
+	public static ItemRegistry LoadFromMinecraftAssets(string assetsRoot, IReadOnlyDictionary<string, BlockModelDefinition> modelDefinitions, IEnumerable<string>? overlayRoots = null)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(assetsRoot);
 		ArgumentNullException.ThrowIfNull(modelDefinitions);
 
-		var entries = MinecraftAssetLoader.LoadItemInfos(assetsRoot, modelDefinitions);
+		var entries = MinecraftAssetLoader.LoadItemInfos(assetsRoot, modelDefinitions, overlayRoots);
 		return new ItemRegistry(entries.Where(static entry => !string.IsNullOrWhiteSpace(entry.Name)));
 	}
 

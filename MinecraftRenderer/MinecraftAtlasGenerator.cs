@@ -76,7 +76,7 @@ public static class MinecraftAtlasGenerator
 
 		if (itemNames.Count > 0)
 		{
-			categories.Add(("items", itemNames, (name, opts) => renderer.RenderItem(name, opts)));
+			categories.Add(("items", itemNames, (name, opts) => renderer.RenderGuiItem(name, opts)));
 		}
 
 		foreach (var (category, names, renderFunc) in categories)

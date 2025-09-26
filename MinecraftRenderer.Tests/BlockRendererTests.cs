@@ -50,6 +50,30 @@ public sealed class BlockRendererTests
 	}
 
 	[Fact]
+	public void ItemRegistryIncludesBlockInventoryItems()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		var knownItems = renderer.GetKnownItemNames();
+		Assert.Contains("oak_fence", knownItems);
+		Assert.Contains("white_shulker_box", knownItems);
+
+		using var fence = renderer.RenderGuiItem("oak_fence");
+		Assert.True(HasOpaquePixels(fence), "Oak fence item render should contain opaque pixels.");
+
+		using var shulker = renderer.RenderGuiItem("white_shulker_box");
+		Assert.True(HasOpaquePixels(shulker), "White shulker box item render should contain opaque pixels.");
+	}
+
+		[Fact]
+		public void RenderBedItemUsesBlockModelFallback()
+		{
+			using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+
+			using var bed = renderer.RenderGuiItem("white_bed");
+			Assert.True(HasOpaquePixels(bed), "White bed item render should contain opaque pixels.");
+		}
+
+	[Fact]
 	public void DefaultInventoryOrientationShowsFrontOnRight()
 	{
 		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
@@ -146,6 +170,33 @@ public sealed class BlockRendererTests
 		}
 
 		Assert.True(hasNonMissingPixel, "Chest rendering should include non-missing texture pixels.");
+	}
+
+	[Fact]
+	public void RenderCandleCakeIncludesSideFaces()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		using var image = renderer.RenderBlock("candle_cake");
+
+		Assert.Equal(512, image.Width);
+		Assert.Equal(512, image.Height);
+
+		static Rgba32 SamplePixel(Image<Rgba32> source, int x, int y)
+		{
+			var row = source.DangerousGetPixelRowMemory(y).Span;
+			return row[x];
+		}
+
+		static bool IsTransparent(Rgba32 pixel) => pixel.A <= 5;
+
+		var leftPixel = SamplePixel(image, 240, 125);
+		var rightPixel = SamplePixel(image, 380, 125);
+
+		_output.WriteLine($"Left pixel @ (240,125): {leftPixel}");
+		_output.WriteLine($"Right pixel @ (380,125): {rightPixel}");
+
+		var bothTransparent = IsTransparent(leftPixel) && IsTransparent(rightPixel);
+		Assert.False(bothTransparent, "Rendered candle cake should render side faces; sample pixels were both transparent.");
 	}
 
 	[Fact]
@@ -493,6 +544,23 @@ public sealed class BlockRendererTests
 			(byte)(totalG / count),
 			(byte)(totalB / count),
 			(byte)(totalA / count));
+	}
+
+	private static bool HasOpaquePixels(Image<Rgba32> image)
+	{
+		for (var y = 0; y < image.Height; y += 4)
+		{
+			var row = image.DangerousGetPixelRowMemory(y).Span;
+			for (var x = 0; x < image.Width; x += 4)
+			{
+				if (row[x].A > 10)
+				{
+					return true;
+				}
+			}
+		}
+
+		return false;
 	}
 
 	private static Vector3 ComputeAverageColor(Image<Rgba32> image)

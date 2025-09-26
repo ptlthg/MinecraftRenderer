@@ -134,12 +134,12 @@ internal static class MinecraftAssetLoader
 		return entries.Values.ToList();
 	}
 
-	public static List<ItemRegistry.ItemInfo> LoadItemInfos(string assetsRoot, IReadOnlyDictionary<string, BlockModelDefinition> models)
+	public static List<ItemRegistry.ItemInfo> LoadItemInfos(string assetsRoot, IReadOnlyDictionary<string, BlockModelDefinition> models, IEnumerable<string>? overlayRoots = null)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(assetsRoot);
 		ArgumentNullException.ThrowIfNull(models);
 
-		var results = new List<ItemRegistry.ItemInfo>();
+		var entries = new Dictionary<string, ItemRegistry.ItemInfo>(StringComparer.OrdinalIgnoreCase);
 
 		foreach (var (key, definition) in models)
 		{
@@ -156,15 +156,52 @@ internal static class MinecraftAssetLoader
 
 			var texture = ResolvePrimaryTexture(definition, models);
 
-			results.Add(new ItemRegistry.ItemInfo
+			if (!entries.TryGetValue(itemName, out var info))
 			{
-				Name = itemName,
-				Model = key,
-				Texture = texture
-			});
+				info = new ItemRegistry.ItemInfo { Name = itemName };
+				entries[itemName] = info;
+			}
+
+			info.Model = key;
+			if (string.IsNullOrWhiteSpace(info.Texture) && !string.IsNullOrWhiteSpace(texture))
+			{
+				info.Texture = texture;
+			}
 		}
 
-		return results;
+		foreach (var (itemName, modelReference) in EnumerateItemDefinitions(assetsRoot, overlayRoots))
+		{
+			if (string.IsNullOrWhiteSpace(itemName) || IsTemplateItem(itemName))
+			{
+				continue;
+			}
+
+			if (!entries.TryGetValue(itemName, out var info))
+			{
+				info = new ItemRegistry.ItemInfo { Name = itemName };
+				entries[itemName] = info;
+			}
+
+			if (!string.IsNullOrWhiteSpace(modelReference))
+			{
+				info.Model = modelReference;
+
+				if (string.IsNullOrWhiteSpace(info.Texture))
+				{
+					var normalized = NormalizeModelReference(modelReference);
+					if (!string.IsNullOrWhiteSpace(normalized) && models.TryGetValue(normalized, out var definition))
+					{
+						var texture = ResolvePrimaryTexture(definition, models);
+						if (!string.IsNullOrWhiteSpace(texture))
+						{
+							info.Texture = texture;
+						}
+					}
+				}
+			}
+		}
+
+		return entries.Values.ToList();
 	}
 
 	private static string NormalizeModelKey(string relativePath)
@@ -267,7 +304,57 @@ internal static class MinecraftAssetLoader
 		}
 	}
 
+	private static IEnumerable<(string Name, string? ModelReference)> EnumerateItemDefinitions(string assetsRoot, IEnumerable<string>? overlayRoots)
+	{
+		var roots = BuildRootList(assetsRoot, overlayRoots);
+
+		foreach (var root in roots)
+		{
+			var itemsRoot = Path.Combine(root, "items");
+			if (!Directory.Exists(itemsRoot))
+			{
+				continue;
+			}
+
+			foreach (var file in Directory.EnumerateFiles(itemsRoot, "*.json", SearchOption.AllDirectories))
+			{
+				var relativePath = Path.GetRelativePath(itemsRoot, file);
+				var itemName = NormalizeItemName(relativePath);
+				if (string.IsNullOrWhiteSpace(itemName))
+				{
+					continue;
+				}
+
+				string? modelReference = null;
+
+				try
+				{
+					using var stream = File.OpenRead(file);
+					using var document = JsonDocument.Parse(stream, new JsonDocumentOptions { AllowTrailingCommas = true });
+					modelReference = ResolveModelReferenceFromItemDefinition(document.RootElement);
+				}
+				catch (JsonException)
+				{
+					continue;
+				}
+
+				yield return (itemName, modelReference);
+			}
+		}
+	}
+
 	private static string NormalizeBlockStateName(string relativePath)
+	{
+		var normalized = relativePath.Replace('\\', '/');
+		if (normalized.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+		{
+			normalized = normalized[..^5];
+		}
+
+		return normalized.Trim('/');
+	}
+
+	private static string NormalizeItemName(string relativePath)
 	{
 		var normalized = relativePath.Replace('\\', '/');
 		if (normalized.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
@@ -446,6 +533,37 @@ internal static class MinecraftAssetLoader
 					}
 				}
 				break;
+		}
+
+		return null;
+	}
+
+	private static string? ResolveModelReferenceFromItemDefinition(JsonElement root)
+	{
+		if (root.ValueKind != JsonValueKind.Object)
+		{
+			return null;
+		}
+
+		if (root.TryGetProperty("model", out var modelElement))
+		{
+			var reference = ExtractModelReference(modelElement);
+			if (!string.IsNullOrWhiteSpace(reference))
+			{
+				return reference;
+			}
+		}
+
+		if (root.TryGetProperty("components", out var components) && components.ValueKind == JsonValueKind.Object)
+		{
+			if (components.TryGetProperty("minecraft:model", out var componentModel))
+			{
+				var reference = ExtractModelReference(componentModel);
+				if (!string.IsNullOrWhiteSpace(reference))
+				{
+					return reference;
+				}
+			}
 		}
 
 		return null;
