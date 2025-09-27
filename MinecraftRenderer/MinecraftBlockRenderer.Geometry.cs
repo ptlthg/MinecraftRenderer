@@ -22,16 +22,17 @@ public sealed partial class MinecraftBlockRenderer
 	{
 		var triangles = new List<VisibleTriangle>(model.Elements.Count * 12);
 
-		foreach (var element in model.Elements)
+		for (var elementIndex = 0; elementIndex < model.Elements.Count; elementIndex++)
 		{
-			var elementTriangles = BuildTrianglesForElement(model, element, transform);
+			var element = model.Elements[elementIndex];
+			var elementTriangles = BuildTrianglesForElement(model, element, transform, elementIndex);
 			triangles.AddRange(elementTriangles);
 		}
 
 		return triangles;
 	}
 
-	private List<VisibleTriangle> BuildTrianglesForElement(BlockModelInstance model, ModelElement element, Matrix4x4 transform)
+	private List<VisibleTriangle> BuildTrianglesForElement(BlockModelInstance model, ModelElement element, Matrix4x4 transform, int elementIndex)
 	{
 		var vertices = BuildElementVertices(element);
 		ApplyElementRotation(element, vertices);
@@ -119,20 +120,32 @@ public sealed partial class MinecraftBlockRenderer
 			}
 
 			var depth = (transformed[0].Z + transformed[1].Z + transformed[2].Z + transformed[3].Z) * 0.25f;
+			var triangle1Normal = Vector3.Cross(transformed[1] - transformed[0], transformed[2] - transformed[0]);
+			var triangle2Normal = Vector3.Cross(transformed[2] - transformed[0], transformed[3] - transformed[0]);
+			var triangle1Centroid = (transformed[0] + transformed[1] + transformed[2]) / 3f;
+			var triangle2Centroid = (transformed[0] + transformed[2] + transformed[3]) / 3f;
 
 			results.Add(new VisibleTriangle(
 				transformed[0], transformed[1], transformed[2],
 				uvMap[0], uvMap[1], uvMap[2],
 				texture,
 				textureRect,
-				depth));
+				depth,
+				triangle1Normal,
+				triangle1Centroid,
+				direction,
+				elementIndex));
 
 			results.Add(new VisibleTriangle(
 				transformed[0], transformed[2], transformed[3],
 				uvMap[0], uvMap[2], uvMap[3],
 				texture,
 				textureRect,
-				depth));
+				depth,
+				triangle2Normal,
+				triangle2Centroid,
+				direction,
+				elementIndex));
 		}
 
 		return results;

@@ -3,6 +3,7 @@ namespace MinecraftRenderer;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
@@ -33,6 +34,11 @@ public sealed partial class MinecraftBlockRenderer
 		if (TryRenderGuiTextureLayers(itemName, itemInfo, model, options, out var flatRender))
 		{
 			return flatRender;
+		}
+
+		if (TryRenderBedItem(itemName, model, options, out var bedComposite))
+		{
+			return bedComposite;
 		}
 
 		if (model is not null && IsBillboardModel(model))
@@ -323,6 +329,283 @@ public sealed partial class MinecraftBlockRenderer
 
 		return RenderFlatItem(new[] { "minecraft:missingno" }, options);
 	}
+
+		private bool TryRenderBedItem(string itemName, BlockModelInstance? itemModel, BlockRenderOptions options, out Image<Rgba32> rendered)
+		{
+			rendered = null!;
+
+			var normalizedName = NormalizeItemTextureKey(itemName);
+			if (!normalizedName.EndsWith("_bed", StringComparison.OrdinalIgnoreCase) && !string.Equals(normalizedName, "bed", StringComparison.OrdinalIgnoreCase))
+			{
+				return false;
+			}
+
+			var colorName = string.Equals(normalizedName, "bed", StringComparison.OrdinalIgnoreCase)
+				? "red"
+				: normalizedName[..^4];
+
+			var bedTextureId = $"minecraft:entity/bed/{colorName}";
+			if (!_textureRepository.TryGetTexture(bedTextureId, out _))
+			{
+				bedTextureId = "minecraft:entity/bed/red";
+				if (!_textureRepository.TryGetTexture(bedTextureId, out _))
+				{
+					return false;
+				}
+			}
+
+			var headModel = ResolveModelOrNull("bed/bed_head");
+			var footModel = ResolveModelOrNull("bed/bed_foot");
+			if (headModel is null || footModel is null)
+			{
+				return false;
+			}
+
+			var elements = new List<ModelElement>();
+			elements.AddRange(CloneAndTranslateElements(headModel, new Vector3(0f, 0f, -16f), flipBottomFaces: false, flipNorthSouthFaces: false));
+			elements.AddRange(CloneAndTranslateElements(footModel, Vector3.Zero, flipBottomFaces: true, flipNorthSouthFaces: true));
+
+			if (elements.Count == 0)
+			{
+				return false;
+			}
+
+			var textures = CloneTextureDictionary(itemModel);
+			textures["bed"] = bedTextureId;
+			if (!textures.ContainsKey("particle"))
+			{
+				textures["particle"] = DetermineBedParticleTexture(colorName, bedTextureId);
+			}
+
+			var displaySource = itemModel;
+			if (displaySource is null || displaySource.Display.Count == 0)
+			{
+				displaySource = ResolveModelOrNull("item/template_bed") ?? displaySource;
+			}
+
+			var display = CloneDisplayDictionary(displaySource);
+			AdjustBedGuiTransform(display);
+			var parentChain = itemModel is not null
+				? new List<string>(itemModel.ParentChain)
+				: new List<string>();
+
+			var composite = new BlockModelInstance(
+				"minecraft:generated/bed_composite",
+				parentChain,
+				textures,
+				display,
+				elements);
+
+			rendered = RenderModel(composite, options);
+			return true;
+		}
+
+		private BlockModelInstance? ResolveModelOrNull(string name)
+		{
+			try
+			{
+				return _modelResolver.Resolve(name);
+			}
+			catch (KeyNotFoundException)
+			{
+				return null;
+			}
+			catch (InvalidOperationException)
+			{
+				return null;
+			}
+		}
+
+		private static List<ModelElement> CloneAndTranslateElements(BlockModelInstance source, Vector3 translation, bool flipBottomFaces, bool flipNorthSouthFaces)
+		{
+			var result = new List<ModelElement>(source.Elements.Count);
+			for (var i = 0; i < source.Elements.Count; i++)
+			{
+				result.Add(CloneAndTranslateElement(source.Elements[i], translation, flipBottomFaces, flipNorthSouthFaces));
+			}
+
+			return result;
+		}
+
+		private static ModelElement CloneAndTranslateElement(ModelElement element, Vector3 translation, bool flipBottomFaces, bool flipNorthSouthFaces)
+		{
+			var from = element.From + translation;
+			var to = element.To + translation;
+
+			ElementRotation? rotation = null;
+			if (element.Rotation is not null)
+			{
+				rotation = new ElementRotation(
+					element.Rotation.AngleInDegrees,
+					element.Rotation.Origin + translation,
+					element.Rotation.Axis,
+					element.Rotation.Rescale);
+			}
+
+			var faces = new Dictionary<BlockFaceDirection, ModelFace>(element.Faces.Count);
+			var elementHeight = element.To.Y - element.From.Y;
+			var shouldFlipLargeFaces = elementHeight > 3.01f;
+			foreach (var (direction, face) in element.Faces)
+			{
+				if (flipBottomFaces && direction == BlockFaceDirection.Down && shouldFlipLargeFaces)
+				{
+					var uv = face.Uv;
+					if (uv.HasValue)
+					{
+						var raw = uv.Value;
+						uv = new Vector4(raw.Z, raw.Y, raw.X, raw.W);
+					}
+
+					var rotated = face.Rotation.HasValue ? NormalizeRotation(face.Rotation.Value + 180) : (int?)null;
+					faces[direction] = new ModelFace(face.Texture, uv, rotated, face.TintIndex, face.CullFace);
+				}
+				else if (flipNorthSouthFaces && shouldFlipLargeFaces && (direction == BlockFaceDirection.North || direction == BlockFaceDirection.South))
+				{
+					var uv = face.Uv;
+					if (uv.HasValue)
+					{
+						var raw = uv.Value;
+						uv = new Vector4(raw.X, raw.W, raw.Z, raw.Y);
+					}
+
+					var rotated = NormalizeRotation((face.Rotation ?? 0) + 180);
+					faces[direction] = new ModelFace(face.Texture, uv, rotated, face.TintIndex, face.CullFace);
+				}
+				else
+				{
+					faces[direction] = new ModelFace(face.Texture, face.Uv, face.Rotation, face.TintIndex, face.CullFace);
+				}
+			}
+
+			return new ModelElement(from, to, rotation, faces, element.Shade);
+		}
+
+		private static Dictionary<string, string> CloneTextureDictionary(BlockModelInstance? source)
+		{
+			var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+			if (source is null || source.Textures.Count == 0)
+			{
+				return result;
+			}
+
+			foreach (var (key, value) in source.Textures)
+			{
+				result[key] = value;
+			}
+
+			return result;
+		}
+
+		private Dictionary<string, TransformDefinition> CloneDisplayDictionary(BlockModelInstance? source)
+		{
+			var result = new Dictionary<string, TransformDefinition>(StringComparer.OrdinalIgnoreCase);
+			if (source is null || source.Display.Count == 0)
+			{
+				return result;
+			}
+
+			foreach (var (key, transform) in source.Display)
+			{
+				result[key] = new TransformDefinition
+				{
+					Rotation = transform.Rotation is null ? null : (float[])transform.Rotation.Clone(),
+					Translation = transform.Translation is null ? null : (float[])transform.Translation.Clone(),
+					Scale = transform.Scale is null ? null : (float[])transform.Scale.Clone()
+				};
+			}
+
+			return result;
+		}
+
+		private static void AdjustBedGuiTransform(Dictionary<string, TransformDefinition> display)
+		{
+			const float RotationAdjustment = -45f;
+
+			if (!display.TryGetValue("gui", out var gui))
+			{
+				var rotation = new[] { 30f, 160f + RotationAdjustment, 0f };
+				display["gui"] = new TransformDefinition
+				{
+					Rotation = rotation,
+					Translation = new[] { 2f, 3f, 0f },
+					Scale = new[] { 0.5325f, 0.5325f, 0.5325f }
+				};
+				return;
+			}
+
+			var rotationArray = gui.Rotation is null ? new float[3] : CloneVector(gui.Rotation, 3);
+			EnsureLength(ref rotationArray, 3);
+			rotationArray[1] = NormalizeRotation(rotationArray[1] + RotationAdjustment);
+
+			var translationArray = gui.Translation is null ? null : CloneVector(gui.Translation, gui.Translation.Length);
+			var scaleArray = gui.Scale is null ? null : CloneVector(gui.Scale, gui.Scale.Length);
+
+			display["gui"] = new TransformDefinition
+			{
+				Rotation = rotationArray,
+				Translation = translationArray,
+				Scale = scaleArray
+			};
+		}
+
+		private static float[] CloneVector(float[] source, int length)
+		{
+			var result = new float[length];
+			var copyLength = Math.Min(length, source.Length);
+			Array.Copy(source, result, copyLength);
+			return result;
+		}
+
+		private static void EnsureLength(ref float[] array, int length)
+		{
+			if (array.Length == length)
+			{
+				return;
+			}
+
+			Array.Resize(ref array, length);
+		}
+
+		private static int NormalizeRotation(int rotation)
+		{
+			var normalized = rotation % 360;
+			if (normalized < 0)
+			{
+				normalized += 360;
+			}
+
+			return normalized;
+		}
+
+		private static float NormalizeRotation(float rotation)
+		{
+			var normalized = rotation % 360f;
+			if (normalized < 0f)
+			{
+				normalized += 360f;
+			}
+
+			return normalized;
+		}
+
+		private string DetermineBedParticleTexture(string colorName, string fallbackTextureId)
+		{
+			var candidates = new List<string>
+			{
+				$"minecraft:block/{colorName}_wool",
+				fallbackTextureId
+			};
+
+			foreach (var candidate in candidates)
+			{
+				if (_textureRepository.TryGetTexture(candidate, out _))
+				{
+					return candidate;
+				}
+			}
+
+			return fallbackTextureId;
+		}
 
 	private static IEnumerable<string> EnumerateTextureFallbackCandidates(string itemName)
 	{

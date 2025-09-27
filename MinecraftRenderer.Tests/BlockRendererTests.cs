@@ -71,6 +71,11 @@ public sealed class BlockRendererTests
 
 			using var bed = renderer.RenderGuiItem("white_bed");
 			Assert.True(HasOpaquePixels(bed), "White bed item render should contain opaque pixels.");
+
+			var (minX, maxX) = GetOpaqueHorizontalBounds(bed);
+			Assert.True(minX >= 0 && maxX >= minX, "White bed render should contain opaque horizontal coverage.");
+			var horizontalSpan = maxX - minX;
+			Assert.True(horizontalSpan > bed.Width / 2, $"White bed render should span more than half the image width, but spanned {horizontalSpan} pixels out of {bed.Width}.");
 		}
 
 	[Fact]
@@ -401,6 +406,72 @@ public sealed class BlockRendererTests
 		Assert.True(maxTopUv <= 0.05f, $"Expected billboard north face top UV to be near 0 but found max {maxTopUv:F3}.");
 	}
 
+	[Fact]
+	public void BillboardBackFaceIsCulled()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+
+		var frontColor = new Rgba32(0xE6, 0x3B, 0x3B, 0xFF);
+		var backColor = new Rgba32(0x3B, 0x6B, 0xE6, 0xFF);
+
+		using (var frontTexture = CreateSolidTexture(frontColor))
+		{
+			renderer.TextureRepository.RegisterTexture("unit_test:block/flat_front", frontTexture, overwrite: true);
+		}
+
+		using (var backTexture = CreateSolidTexture(backColor))
+		{
+			renderer.TextureRepository.RegisterTexture("unit_test:block/flat_back", backTexture, overwrite: true);
+		}
+
+		var element = new ModelElement(
+			new Vector3(0f, 0f, 8f),
+			new Vector3(16f, 16f, 8f),
+			null,
+			new Dictionary<BlockFaceDirection, ModelFace>
+			{
+				[BlockFaceDirection.North] = new("#front", new Vector4(0f, 0f, 16f, 16f), null, null, null),
+				[BlockFaceDirection.South] = new("#back", new Vector4(0f, 0f, 16f, 16f), null, null, null)
+			},
+			shade: false);
+
+		var model = new BlockModelInstance(
+			"unit_test:flat_panel",
+			Array.Empty<string>(),
+			new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+			{
+				["front"] = "unit_test:block/flat_front",
+				["back"] = "unit_test:block/flat_back"
+			},
+			new Dictionary<string, TransformDefinition>(StringComparer.OrdinalIgnoreCase),
+			new List<ModelElement> { element });
+
+		var baseOptions = MinecraftBlockRenderer.BlockRenderOptions.Default with
+		{
+			UseGuiTransform = false,
+			Padding = 0.05f,
+			Size = 256
+		};
+
+		using var facingDefault = renderer.RenderModel(model, baseOptions);
+		var defaultColor = SampleSolidColor(facingDefault, facingDefault.Width / 2, facingDefault.Width / 2, facingDefault.Height / 2, facingDefault.Height / 2);
+		var matchesDefaultFront = ColorsApproxEqual(defaultColor, frontColor, tolerance: 4);
+		var matchesDefaultBack = ColorsApproxEqual(defaultColor, backColor, tolerance: 4);
+		_output.WriteLine($"Default center color {defaultColor}; front match={matchesDefaultFront}; back match={matchesDefaultBack}");
+		Assert.True(matchesDefaultFront, "Default orientation should display the front texture.");
+		Assert.False(matchesDefaultBack, "Default orientation should not display the back texture.");
+
+		using var facingOpposite = renderer.RenderModel(model, baseOptions with { YawInDegrees = 180f });
+		var oppositeColor = SampleSolidColor(facingOpposite, facingOpposite.Width / 2, facingOpposite.Width / 2, facingOpposite.Height / 2, facingOpposite.Height / 2);
+		var matchesOppositeFront = ColorsApproxEqual(oppositeColor, frontColor, tolerance: 4);
+		var matchesOppositeBack = ColorsApproxEqual(oppositeColor, backColor, tolerance: 4);
+		_output.WriteLine($"Opposite center color {oppositeColor}; front match={matchesOppositeFront}; back match={matchesOppositeBack}");
+		Assert.True(matchesOppositeBack, "Opposite orientation should display the back texture when rotated 180 degrees.");
+		Assert.False(matchesOppositeFront, "Opposite orientation should not display the front texture when rotated 180 degrees.");
+
+		Assert.NotEqual(matchesDefaultFront, matchesOppositeFront);
+	}
+
 
 	private static Rgba32 FindOpaquePixel(Image<Rgba32> image, bool searchFromTop)
 	{
@@ -446,6 +517,21 @@ public sealed class BlockRendererTests
 		{
 			var row = image.DangerousGetPixelRowMemory(y).Span;
 			var color = y < half ? topColor : bottomColor;
+			for (var x = 0; x < size; x++)
+			{
+				row[x] = color;
+			}
+		}
+
+		return image;
+	}
+
+	private static Image<Rgba32> CreateSolidTexture(Rgba32 color, int size = 16)
+	{
+		var image = new Image<Rgba32>(size, size);
+		for (var y = 0; y < size; y++)
+		{
+			var row = image.DangerousGetPixelRowMemory(y).Span;
 			for (var x = 0; x < size; x++)
 			{
 				row[x] = color;
@@ -563,6 +649,38 @@ public sealed class BlockRendererTests
 		return false;
 	}
 
+	private static (int Min, int Max) GetOpaqueHorizontalBounds(Image<Rgba32> image)
+	{
+		var min = image.Width;
+		var max = -1;
+
+		for (var y = 0; y < image.Height; y++)
+		{
+			var row = image.DangerousGetPixelRowMemory(y).Span;
+			for (var x = 0; x < image.Width; x++)
+			{
+				if (row[x].A > 10)
+				{
+					if (x < min)
+					{
+						min = x;
+					}
+					if (x > max)
+					{
+						max = x;
+					}
+				}
+			}
+		}
+
+		if (max < min)
+		{
+			return (-1, -1);
+		}
+
+		return (min, max);
+	}
+
 	private static Vector3 ComputeAverageColor(Image<Rgba32> image)
 	{
 		long totalR = 0;
@@ -620,5 +738,12 @@ public sealed class BlockRendererTests
 		Assert.True(Math.Abs(expected.R - actual.R) <= tolerance, $"Expected R≈{expected.R} but got {actual.R}");
 		Assert.True(Math.Abs(expected.G - actual.G) <= tolerance, $"Expected G≈{expected.G} but got {actual.G}");
 		Assert.True(Math.Abs(expected.B - actual.B) <= tolerance, $"Expected B≈{expected.B} but got {actual.B}");
+	}
+
+	private static bool ColorsApproxEqual(Rgba32 left, Rgba32 right, int tolerance = 4)
+	{
+		return Math.Abs(left.R - right.R) <= tolerance
+			&& Math.Abs(left.G - right.G) <= tolerance
+			&& Math.Abs(left.B - right.B) <= tolerance;
 	}
 }

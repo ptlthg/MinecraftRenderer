@@ -42,6 +42,11 @@ public sealed partial class MinecraftBlockRenderer
 		totalTransform = Matrix4x4.Multiply(orientationCorrection, totalTransform);
 
 		var triangles = BuildTriangles(model, totalTransform);
+		var cullTargets = DetermineCullTargets(model);
+		if (cullTargets.Count > 0)
+		{
+			CullBackfaces(triangles, cullTargets);
+		}
 
 		if (triangles.Count == 0)
 		{
@@ -115,6 +120,72 @@ public sealed partial class MinecraftBlockRenderer
 		}
 
 		return canvas;
+	}
+
+	private static void CullBackfaces(List<VisibleTriangle> triangles, HashSet<CullTarget> cullTargets)
+	{
+		const float NormalLengthThreshold = 1e-6f;
+		const float DotCullThreshold = 5e-3f;
+		var cameraForward = new Vector3(0f, 0f, 1f);
+		for (var i = triangles.Count - 1; i >= 0; i--)
+		{
+			var triangle = triangles[i];
+			if (!cullTargets.Contains(new CullTarget(triangle.ElementIndex, triangle.FaceDirection)))
+			{
+				continue;
+			}
+
+			var normal = triangle.Normal;
+			if (normal.LengthSquared() < NormalLengthThreshold)
+			{
+				continue;
+			}
+
+			var dot = Vector3.Dot(normal, cameraForward);
+			if (dot < -DotCullThreshold)
+			{
+				triangles.RemoveAt(i);
+			}
+		}
+	}
+
+	private static HashSet<CullTarget> DetermineCullTargets(BlockModelInstance model)
+	{
+		const float ThicknessThreshold = 1e-3f;
+		var targets = new HashSet<CullTarget>();
+		for (var elementIndex = 0; elementIndex < model.Elements.Count; elementIndex++)
+		{
+			var element = model.Elements[elementIndex];
+			var thicknessX = MathF.Abs(element.To.X - element.From.X);
+			var thicknessY = MathF.Abs(element.To.Y - element.From.Y);
+			var thicknessZ = MathF.Abs(element.To.Z - element.From.Z);
+
+			if (thicknessZ <= ThicknessThreshold
+				&& element.Faces.ContainsKey(BlockFaceDirection.North)
+				&& element.Faces.ContainsKey(BlockFaceDirection.South))
+			{
+				targets.Add(new CullTarget(elementIndex, BlockFaceDirection.North));
+				targets.Add(new CullTarget(elementIndex, BlockFaceDirection.South));
+			}
+
+			if (thicknessX <= ThicknessThreshold
+				&& element.Faces.ContainsKey(BlockFaceDirection.East)
+				&& element.Faces.ContainsKey(BlockFaceDirection.West))
+			{
+				targets.Add(new CullTarget(elementIndex, BlockFaceDirection.East));
+				targets.Add(new CullTarget(elementIndex, BlockFaceDirection.West));
+			}
+
+			if (thicknessY <= ThicknessThreshold
+				&& element.Faces.ContainsKey(BlockFaceDirection.Up)
+				&& element.Faces.ContainsKey(BlockFaceDirection.Down))
+			{
+				targets.Add(new CullTarget(elementIndex, BlockFaceDirection.Up));
+				targets.Add(new CullTarget(elementIndex, BlockFaceDirection.Down));
+			}
+		}
+
+		return targets;
 	}
 
 	private static Bounds ComputeBounds(IEnumerable<VisibleTriangle> triangles)
@@ -334,11 +405,17 @@ public sealed partial class MinecraftBlockRenderer
 		Vector2 T3,
 		Image<Rgba32> Texture,
 		Rectangle TextureRect,
-		float Depth);
+		float Depth,
+		Vector3 Normal,
+		Vector3 Centroid,
+		BlockFaceDirection FaceDirection,
+		int ElementIndex);
 
 	private readonly record struct Bounds(float MinX, float MaxX, float MinY, float MaxY);
 
 	private readonly record struct BarycentricData(Vector2 V0, Vector2 V1, float D00, float D01, float D11, float Denom);
 
 	private readonly record struct PerspectiveParams(float Amount, float CameraDistance, float FocalLength);
+
+	private readonly record struct CullTarget(int ElementIndex, BlockFaceDirection FaceDirection);
 }
