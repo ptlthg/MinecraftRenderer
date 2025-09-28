@@ -105,10 +105,21 @@ public sealed partial class MinecraftBlockRenderer
 	{
 		var candidates = new List<string>();
 		var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		var isBillboardModel = model is not null && IsBillboardModel(model);
 
-		void TryAdd(string? candidate)
+		void TryAdd(string? candidate, bool allowNonGuiTexture = false)
 		{
-			if (!string.IsNullOrWhiteSpace(candidate) && IsGuiTexture(candidate) && seen.Add(candidate))
+			if (string.IsNullOrWhiteSpace(candidate))
+			{
+				return;
+			}
+
+			if (!allowNonGuiTexture && !IsGuiTexture(candidate))
+			{
+				return;
+			}
+
+			if (seen.Add(candidate))
 			{
 				candidates.Add(candidate);
 			}
@@ -122,13 +133,13 @@ public sealed partial class MinecraftBlockRenderer
 
 			foreach (var layer in orderedLayers)
 			{
-				TryAdd(layer.Value);
+				TryAdd(layer.Value, allowNonGuiTexture: isBillboardModel);
 			}
 		}
 
 		if (itemInfo is not null && !string.IsNullOrWhiteSpace(itemInfo.Texture))
 		{
-			TryAdd(itemInfo.Texture);
+				TryAdd(itemInfo.Texture, allowNonGuiTexture: isBillboardModel);
 		}
 
 		var normalized = NormalizeItemTextureKey(itemName);
@@ -698,11 +709,6 @@ public sealed partial class MinecraftBlockRenderer
 
 	private static bool IsBillboardModel(BlockModelInstance model)
 	{
-		if (model.Elements.Count == 0)
-		{
-			return false;
-		}
-
 		if (model.Textures.ContainsKey("cross"))
 		{
 			return true;
@@ -720,8 +726,9 @@ public sealed partial class MinecraftBlockRenderer
 
 		static bool ParentIndicatesBillboard(string value)
 			=> value.Contains("cross", StringComparison.OrdinalIgnoreCase)
-			|| value.Contains("tinted_cross", StringComparison.OrdinalIgnoreCase)
-			|| value.Contains("seagrass", StringComparison.OrdinalIgnoreCase);
+			   || value.Contains("tinted_cross", StringComparison.OrdinalIgnoreCase)
+			   || value.Contains("seagrass", StringComparison.OrdinalIgnoreCase)
+			   || value.Contains("item/generated", StringComparison.OrdinalIgnoreCase);
 	}
 
 	private static List<string> CollectBillboardTextures(BlockModelInstance model, ItemRegistry.ItemInfo? itemInfo)

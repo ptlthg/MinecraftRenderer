@@ -23,7 +23,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		public static BlockRenderOptions Default { get; } = new();
 	}
 	
-	public static bool DebugDisableCulling = false;
+	public static bool DebugDisableCulling = true;
 
 	private readonly BlockModelResolver _modelResolver;
 	private readonly TextureRepository _textureRepository;

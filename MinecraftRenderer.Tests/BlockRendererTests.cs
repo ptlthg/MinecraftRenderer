@@ -428,11 +428,8 @@ public sealed class BlockRendererTests
 	public void BigDripleafHasRenderedStem()
 	{
 		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
-		// This test should pass without disabling culling
-		// MinecraftBlockRenderer.DebugDisableCulling = true;
 		using var image = renderer.RenderGuiItem("big_dripleaf");
-		image.SaveAsPng("big_dripleaf.png");
-		// MinecraftBlockRenderer.DebugDisableCulling = false;
+		// image.SaveAsPng("big_dripleaf.png");
 
 		// One pixel that should be in the stem area
 		var stemPixel = SamplePixel(image, 200, 300);
