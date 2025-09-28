@@ -142,7 +142,7 @@ public sealed partial class MinecraftBlockRenderer
 			}
 
 			var dot = Vector3.Dot(normal, cameraForward);
-			if (dot < -DotCullThreshold)
+			if (dot > DotCullThreshold)
 			{
 				triangles.RemoveAt(i);
 			}
@@ -160,32 +160,77 @@ public sealed partial class MinecraftBlockRenderer
 			var thicknessY = MathF.Abs(element.To.Y - element.From.Y);
 			var thicknessZ = MathF.Abs(element.To.Z - element.From.Z);
 
-			if (thicknessZ <= ThicknessThreshold
-				&& element.Faces.ContainsKey(BlockFaceDirection.North)
-				&& element.Faces.ContainsKey(BlockFaceDirection.South))
-			{
-				targets.Add(new CullTarget(elementIndex, BlockFaceDirection.North));
-				targets.Add(new CullTarget(elementIndex, BlockFaceDirection.South));
-			}
-
-			if (thicknessX <= ThicknessThreshold
-				&& element.Faces.ContainsKey(BlockFaceDirection.East)
-				&& element.Faces.ContainsKey(BlockFaceDirection.West))
-			{
-				targets.Add(new CullTarget(elementIndex, BlockFaceDirection.East));
-				targets.Add(new CullTarget(elementIndex, BlockFaceDirection.West));
-			}
-
-			if (thicknessY <= ThicknessThreshold
-				&& element.Faces.ContainsKey(BlockFaceDirection.Up)
-				&& element.Faces.ContainsKey(BlockFaceDirection.Down))
-			{
-				targets.Add(new CullTarget(elementIndex, BlockFaceDirection.Up));
-				targets.Add(new CullTarget(elementIndex, BlockFaceDirection.Down));
-			}
+			TryAddCullPair(model, targets, elementIndex, element, BlockFaceDirection.North, BlockFaceDirection.South, thicknessZ, ThicknessThreshold);
+			TryAddCullPair(model, targets, elementIndex, element, BlockFaceDirection.East, BlockFaceDirection.West, thicknessX, ThicknessThreshold);
+			TryAddCullPair(model, targets, elementIndex, element, BlockFaceDirection.Up, BlockFaceDirection.Down, thicknessY, ThicknessThreshold);
 		}
 
 		return targets;
+	}
+
+	private static void TryAddCullPair(
+		BlockModelInstance model,
+		HashSet<CullTarget> targets,
+		int elementIndex,
+		ModelElement element,
+		BlockFaceDirection primary,
+		BlockFaceDirection opposite,
+		float thickness,
+		float threshold)
+	{
+		if (thickness > threshold)
+		{
+			return;
+		}
+
+		if (!element.Faces.TryGetValue(primary, out var primaryFace)
+			|| !element.Faces.TryGetValue(opposite, out var oppositeFace))
+		{
+			return;
+		}
+
+		if (!FacesShareDuplicateTexture(model, element, primary, primaryFace, opposite, oppositeFace))
+		{
+			return;
+		}
+
+		targets.Add(new CullTarget(elementIndex, primary));
+		targets.Add(new CullTarget(elementIndex, opposite));
+	}
+
+	private static bool FacesShareDuplicateTexture(
+		BlockModelInstance model,
+		ModelElement element,
+		BlockFaceDirection primaryDirection,
+		ModelFace primaryFace,
+		BlockFaceDirection oppositeDirection,
+		ModelFace oppositeFace)
+	{
+		var primaryTexture = ResolveTexture(primaryFace.Texture, model);
+		var oppositeTexture = ResolveTexture(oppositeFace.Texture, model);
+		if (!primaryTexture.Equals(oppositeTexture, StringComparison.OrdinalIgnoreCase))
+		{
+			return false;
+		}
+
+		var primaryRotation = primaryFace.Rotation ?? 0;
+		var oppositeRotation = oppositeFace.Rotation ?? 0;
+		if (primaryRotation != oppositeRotation)
+		{
+			return false;
+		}
+
+		var primaryUv = GetFaceUv(primaryFace, primaryDirection, element);
+		var oppositeUv = GetFaceUv(oppositeFace, oppositeDirection, element);
+		return Vector4ApproximatelyEquals(primaryUv, oppositeUv);
+	}
+
+	private static bool Vector4ApproximatelyEquals(Vector4 left, Vector4 right, float epsilon = 1e-4f)
+	{
+		return MathF.Abs(left.X - right.X) <= epsilon
+			&& MathF.Abs(left.Y - right.Y) <= epsilon
+			&& MathF.Abs(left.Z - right.Z) <= epsilon
+			&& MathF.Abs(left.W - right.W) <= epsilon;
 	}
 
 	private static Bounds ComputeBounds(IEnumerable<VisibleTriangle> triangles)

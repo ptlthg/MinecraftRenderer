@@ -381,16 +381,22 @@ public sealed partial class MinecraftBlockRenderer
 
 	private static Vector2[] NormalizeFaceCoordinates(Vector2[] absoluteUv, Vector4 faceUv)
 	{
-		var width = faceUv.Z - faceUv.X;
-		var height = faceUv.W - faceUv.Y;
+		var uMin = MathF.Min(faceUv.X, faceUv.Z);
+		var uMax = MathF.Max(faceUv.X, faceUv.Z);
+		var vMin = MathF.Min(faceUv.Y, faceUv.W);
+		var vMax = MathF.Max(faceUv.Y, faceUv.W);
+
+		var width = uMax - uMin;
+		var height = vMax - vMin;
+
 		var invWidth = MathF.Abs(width) < 1e-5f ? 0f : 1f / width;
 		var invHeight = MathF.Abs(height) < 1e-5f ? 0f : 1f / height;
 
 		var normalized = new Vector2[absoluteUv.Length];
 		for (var i = 0; i < absoluteUv.Length; i++)
 		{
-			var u = (absoluteUv[i].X - faceUv.X) * invWidth;
-			var v = (absoluteUv[i].Y - faceUv.Y) * invHeight;
+			var u = (absoluteUv[i].X - uMin) * invWidth;
+			var v = (absoluteUv[i].Y - vMin) * invHeight;
 			normalized[i] = new Vector2(Clamp01(u), Clamp01(v));
 		}
 
