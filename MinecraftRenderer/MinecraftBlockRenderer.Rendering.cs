@@ -124,6 +124,8 @@ public sealed partial class MinecraftBlockRenderer
 
 	private static void CullBackfaces(List<VisibleTriangle> triangles, HashSet<CullTarget> cullTargets)
 	{
+		if (MinecraftBlockRenderer.DebugDisableCulling) return;
+		
 		const float NormalLengthThreshold = 1e-6f;
 		const float DotCullThreshold = 5e-3f;
 		var cameraForward = new Vector3(0f, 0f, 1f);

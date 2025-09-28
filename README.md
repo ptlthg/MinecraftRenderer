@@ -7,7 +7,7 @@
 - Render player heads with arbitrary rotations and overlays using `MinecraftHeadRenderer`.
 - Render block and item models (including GUI transforms and per-face textures) with `MinecraftBlockRenderer`.
 - Default block and item renders keep the Minecraft inventory GUI rotation while staying orthographic by default.
-- Loads vanilla model and texture metadata directly from the JSON files in the `data/` directory – no need to unzip `client.jar`.
+- Loads vanilla model and texture metadata directly from the JSON files in the `minecraft/` directory – You need to unzip `client.jar` for this (it's the assets directory).
 - Ships with a small unit test suite to verify rendering stays functional.
 
 ## Getting started
@@ -23,7 +23,7 @@
 	```csharp
 	using MinecraftRenderer;
 
-	var dataPath = Path.Combine(Environment.CurrentDirectory, "data");
+	var dataPath = Path.Combine(Environment.CurrentDirectory, "minecraft");
 
 	using var renderer = MinecraftBlockRenderer.CreateFromDataDirectory(dataPath);
 	using var image = renderer.RenderBlock("stone", new MinecraftBlockRenderer.BlockRenderOptions(Size: 256));
@@ -45,12 +45,12 @@
 
 ## Data files
 
-The project expects the vanilla JSON metadata and textures located under the `data/` directory:
+The project expects the vanilla JSON metadata and textures located under the `minecraft/` directory:
 
 - `blocks_models.json`: merged block model definitions.
 - `blocks_textures.json`: mappings from block names to model IDs.
 - `items_textures.json`: mappings for item names (used when available).
-- `texture_content.json` plus the resource folders (e.g. `data/blocks/`, `data/items/`): PNG texture data.
+- `texture_content.json` plus the resource folders (e.g. `minecraft/blocks/`, `minecraft/items/`): PNG texture data.
 
 To integrate other Minecraft versions or resource packs, replace these files with your own exported data.
 
@@ -62,7 +62,7 @@ Quickly inspect all rendered assets by exporting atlas images across multiple ca
 dotnet run --project CreateAtlases/CreateAtlases.csproj -- --output atlases
 ```
 
-The CLI auto-discovers the `data/` directory when run from the repo root. Customise the export with options such as:
+The CLI auto-discovers the `minecraft/` directory when run from the repo root. Customise the export with options such as:
 
 ```powershell
 dotnet run --project CreateAtlases/CreateAtlases.csproj -- --tile-size 192 --columns 10 --rows 10 --views isometric_right,front

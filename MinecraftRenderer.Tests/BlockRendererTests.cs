@@ -188,14 +188,8 @@ public sealed class BlockRendererTests
 	// 	Assert.Equal(512, image.Width);
 	// 	Assert.Equal(512, image.Height);
 
-	// 	static Rgba32 SamplePixel(Image<Rgba32> source, int x, int y)
-	// 	{
-	// 		var row = source.DangerousGetPixelRowMemory(y).Span;
-	// 		return row[x];
-	// 	}
 
-	// 	static bool IsTransparent(Rgba32 pixel) => pixel.A <= 5;
-
+	
 	// 	var leftPixel = SamplePixel(image, 240, 125);
 	// 	var rightPixel = SamplePixel(image, 380, 125);
 
@@ -206,6 +200,14 @@ public sealed class BlockRendererTests
 	// 	Assert.False(bothTransparent, "Rendered candle cake should render side faces; sample pixels were both transparent.");
 	// }
 
+	static bool IsTransparent(Rgba32 pixel) => pixel.A <= 5;
+	
+	static Rgba32 SamplePixel(Image<Rgba32> source, int x, int y)
+	{
+		var row = source.DangerousGetPixelRowMemory(y).Span;
+		return row[x];
+	}
+	
 	[Fact]
 	public void CubeFaceUvsAreOrientedCorrectly()
 	{
@@ -422,6 +424,22 @@ public sealed class BlockRendererTests
 		Assert.True(HasOpaquePixels(image), "Spore blossom viewed from above should contain visible pixels.");
 	}
 
+	[Fact]
+	public void BigDripleafHasRenderedStem()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		// This test should pass without disabling culling
+		// MinecraftBlockRenderer.DebugDisableCulling = true;
+		using var image = renderer.RenderGuiItem("big_dripleaf");
+		image.SaveAsPng("big_dripleaf.png");
+		// MinecraftBlockRenderer.DebugDisableCulling = false;
+
+		// One pixel that should be in the stem area
+		var stemPixel = SamplePixel(image, 200, 300);
+
+		_output.WriteLine($"Stem pixel @ (200,300): {stemPixel}");
+		Assert.True(stemPixel.A > 10, "Rendered big dripleaf should include the stem.");
+	}
 
 	private static Rgba32 FindOpaquePixel(Image<Rgba32> image, bool searchFromTop)
 	{
