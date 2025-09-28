@@ -200,6 +200,22 @@ public sealed partial class MinecraftBlockRenderer
 
 		var rotationMatrix = Matrix4x4.CreateFromAxisAngle(axis, angle);
 
+		// Currently disabled, as it seems to just squash 2d textures in an undesirable way.
+		// TODO: Re-evaluate this in the future.
+		
+		// if (element.Rotation.Rescale == true)
+		// {
+		// 	var scale = 1.0f / MathF.Cos(angle);
+		// 	var scaleMatrix = axis switch
+		// 	{
+		// 		var a when a == Vector3.UnitX => Matrix4x4.CreateScale(1, scale, scale),
+		// 		var a when a == Vector3.UnitY => Matrix4x4.CreateScale(scale, 1, scale),
+		// 		_ => Matrix4x4.CreateScale(scale, scale, 1)
+		// 	};
+		// 	rotationMatrix *= scaleMatrix;
+		// }
+
+
 		for (var i = 0; i < vertices.Length; i++)
 		{
 			var relative = vertices[i] - pivot;
