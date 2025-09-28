@@ -1,5 +1,3 @@
-namespace MinecraftRenderer;
-
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -9,6 +7,8 @@ using System.Text.Json;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
+
+namespace MinecraftRenderer;
 
 public static class MinecraftAtlasGenerator
 {
@@ -41,19 +41,19 @@ public static class MinecraftAtlasGenerator
 		ArgumentNullException.ThrowIfNull(outputDirectory);
 		ArgumentNullException.ThrowIfNull(views);
 
-		if (tileSize <= 0) throw new ArgumentOutOfRangeException(nameof(tileSize));
-		if (columns <= 0) throw new ArgumentOutOfRangeException(nameof(columns));
-		if (rows <= 0) throw new ArgumentOutOfRangeException(nameof(rows));
-		if (views.Count == 0) throw new ArgumentException("At least one view must be provided", nameof(views));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(tileSize);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(columns);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(rows);
+        if (views.Count == 0) throw new ArgumentException("At least one view must be provided", nameof(views));
 
 		Directory.CreateDirectory(outputDirectory);
 
 		var blockNames = includeBlocks
 			? (blockFilter?.ToList() ?? renderer.GetKnownBlockNames().ToList())
-			: new List<string>();
+			: [];
 		var itemNames = includeItems
 			? (itemFilter?.ToList() ?? renderer.GetKnownItemNames().ToList())
-			: new List<string>();
+			: [];
 
 		blockNames.Sort(StringComparer.OrdinalIgnoreCase);
 		itemNames.Sort(StringComparer.OrdinalIgnoreCase);
@@ -71,12 +71,12 @@ public static class MinecraftAtlasGenerator
 
 		if (blockNames.Count > 0)
 		{
-			categories.Add(("blocks", blockNames, (name, opts) => renderer.RenderBlock(name, opts)));
+			categories.Add(("blocks", blockNames, renderer.RenderBlock));
 		}
 
 		if (itemNames.Count > 0)
 		{
-			categories.Add(("items", itemNames, (name, opts) => renderer.RenderGuiItem(name, opts)));
+			categories.Add(("items", itemNames, renderer.RenderGuiItem));
 		}
 
 		foreach (var (category, names, renderFunc) in categories)
@@ -115,6 +115,7 @@ public static class MinecraftAtlasGenerator
 
 							using var tile = renderFunc(name, effectiveOptions);
 							tile.Mutate(ctx => ctx.Resize(tileSize, tileSize));
+							// ReSharper disable once AccessToDisposedClosure
 							canvas.Mutate(ctx => ctx.DrawImage(tile, new Point(col * tileSize, row * tileSize), 1f));
 						}
 						catch (Exception ex)
@@ -127,8 +128,8 @@ public static class MinecraftAtlasGenerator
 
 					var baseFileName = string.Join("_", new[]
 					{
-						sanitize(category),
-						sanitize(view.Name),
+						Sanitize(category),
+						Sanitize(view.Name),
 						$"page{(page + 1).ToString("D2", CultureInfo.InvariantCulture)}"
 					}.Where(static s => !string.IsNullOrWhiteSpace(s)));
 
@@ -145,7 +146,7 @@ public static class MinecraftAtlasGenerator
 
 		return results;
 
-		static string sanitize(string input)
+		static string Sanitize(string input)
 		{
 			var invalidChars = Path.GetInvalidFileNameChars();
 			var sanitized = new string(input

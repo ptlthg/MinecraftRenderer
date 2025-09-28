@@ -10,12 +10,12 @@ public sealed partial class MinecraftBlockRenderer
 {
 	private static readonly Dictionary<BlockFaceDirection, int[]> FaceVertexIndices = new()
 	{
-		{ BlockFaceDirection.South, new[] { 7, 6, 5, 4 } },
-		{ BlockFaceDirection.North, new[] { 0, 1, 2, 3 } },
-		{ BlockFaceDirection.East, new[] { 6, 2, 1, 5 } },
-		{ BlockFaceDirection.West, new[] { 3, 7, 4, 0 } },
-		{ BlockFaceDirection.Up, new[] { 3, 2, 6, 7 } },
-		{ BlockFaceDirection.Down, new[] { 4, 5, 1, 0 } }
+		{ BlockFaceDirection.South, [7, 6, 5, 4] },
+		{ BlockFaceDirection.North, [0, 1, 2, 3] },
+		{ BlockFaceDirection.East, [6, 2, 1, 5] },
+		{ BlockFaceDirection.West, [3, 7, 4, 0] },
+		{ BlockFaceDirection.Up, [3, 2, 6, 7] },
+		{ BlockFaceDirection.Down, [4, 5, 1, 0] }
 	};
 
 	private List<VisibleTriangle> BuildTriangles(BlockModelInstance model, Matrix4x4 transform, string? blockName = null)
@@ -204,7 +204,7 @@ public sealed partial class MinecraftBlockRenderer
 		// Currently disabled, as it seems to just squash 2d textures in an undesirable way.
 		// TODO: Re-evaluate this in the future.
 		
-		// if (element.Rotation.Rescale == true)
+		// if (element.Rotation.Rescale)
 		// {
 		// 	var scale = 1.0f / MathF.Cos(angle);
 		// 	var scaleMatrix = axis switch
@@ -323,49 +323,49 @@ public sealed partial class MinecraftBlockRenderer
 
 		return direction switch
 		{
-			BlockFaceDirection.South => new[]
-			{
+			BlockFaceDirection.South =>
+			[
 				new Vector3(from.X, to.Y, to.Z),
 				new Vector3(to.X, to.Y, to.Z),
 				new Vector3(to.X, from.Y, to.Z),
 				new Vector3(from.X, from.Y, to.Z)
-			},
-			BlockFaceDirection.North => new[]
-			{
+			],
+			BlockFaceDirection.North =>
+			[
 				new Vector3(to.X, to.Y, from.Z),
 				new Vector3(from.X, to.Y, from.Z),
 				new Vector3(from.X, from.Y, from.Z),
 				new Vector3(to.X, from.Y, from.Z)
-			},
-			BlockFaceDirection.East => new[]
-			{
+			],
+			BlockFaceDirection.East =>
+			[
 				new Vector3(to.X, to.Y, from.Z),
 				new Vector3(to.X, to.Y, to.Z),
 				new Vector3(to.X, from.Y, to.Z),
 				new Vector3(to.X, from.Y, from.Z)
-			},
-			BlockFaceDirection.West => new[]
-			{
+			],
+			BlockFaceDirection.West =>
+			[
 				new Vector3(from.X, to.Y, to.Z),
 				new Vector3(from.X, to.Y, from.Z),
 				new Vector3(from.X, from.Y, from.Z),
 				new Vector3(from.X, from.Y, to.Z)
-			},
-			BlockFaceDirection.Up => new[]
-			{
+			],
+			BlockFaceDirection.Up =>
+			[
 				new Vector3(from.X, to.Y, from.Z),
 				new Vector3(to.X, to.Y, from.Z),
 				new Vector3(to.X, to.Y, to.Z),
 				new Vector3(from.X, to.Y, to.Z)
-			},
-			BlockFaceDirection.Down => new[]
-			{
+			],
+			BlockFaceDirection.Down =>
+			[
 				new Vector3(from.X, from.Y, to.Z),
 				new Vector3(to.X, from.Y, to.Z),
 				new Vector3(to.X, from.Y, from.Z),
 				new Vector3(from.X, from.Y, from.Z)
-			},
-			_ => Array.Empty<Vector3>()
+			],
+			_ => []
 		};
 	}
 

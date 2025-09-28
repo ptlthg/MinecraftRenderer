@@ -8,6 +8,11 @@ using System.Text.Json;
 public sealed class ItemRegistry
 {
 	private readonly Dictionary<string, ItemInfo> _entries;
+	private static readonly JsonSerializerOptions Options = new JsonSerializerOptions
+	{
+		PropertyNameCaseInsensitive = true,
+		ReadCommentHandling = JsonCommentHandling.Skip
+	};
 
 	private ItemRegistry(IEnumerable<ItemInfo> entries)
 	{
@@ -22,13 +27,8 @@ public sealed class ItemRegistry
 		}
 
 		var json = File.ReadAllText(path);
-		var options = new JsonSerializerOptions
-		{
-			PropertyNameCaseInsensitive = true,
-			ReadCommentHandling = JsonCommentHandling.Skip
-		};
 
-		var entries = JsonSerializer.Deserialize<List<ItemInfo>>(json, options)
+		var entries = JsonSerializer.Deserialize<List<ItemInfo>>(json, Options)
 			?? throw new InvalidOperationException($"Failed to parse item registry data from '{path}'.");
 
 		return new ItemRegistry(entries.Where(static entry => !string.IsNullOrWhiteSpace(entry.Name)));

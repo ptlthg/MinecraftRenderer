@@ -325,7 +325,7 @@ internal static class MinecraftAssetLoader
 					continue;
 				}
 
-				string? modelReference = null;
+				string? modelReference;
 
 				try
 				{
@@ -474,7 +474,7 @@ internal static class MinecraftAssetLoader
 	{
 		if (!string.IsNullOrWhiteSpace(originalReference))
 		{
-			return originalReference!;
+			return originalReference;
 		}
 
 		if (normalized.StartsWith("item/", StringComparison.OrdinalIgnoreCase))
