@@ -52,7 +52,7 @@ public sealed partial class MinecraftBlockRenderer
 
 		if (model is not null && model.Elements.Count > 0)
 		{
-			return RenderModel(model, options);
+			return RenderModel(model, options, itemName);
 		}
 
 		if (TryRenderBlockEntityFallback(itemName, itemInfo, model, modelCandidates, options, out var blockRender))

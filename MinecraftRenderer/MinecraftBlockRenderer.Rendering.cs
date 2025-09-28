@@ -20,7 +20,7 @@ public sealed partial class MinecraftBlockRenderer
 
 	private const float DegreesToRadians = MathF.PI / 180f;
 
-	public Image<Rgba32> RenderModel(BlockModelInstance model, BlockRenderOptions options)
+	public Image<Rgba32> RenderModel(BlockModelInstance model, BlockRenderOptions options, string? blockName = null)
 	{
 		EnsureNotDisposed();
 
@@ -41,7 +41,7 @@ public sealed partial class MinecraftBlockRenderer
 		var orientationCorrection = Matrix4x4.CreateRotationY(MathF.PI / 2f);
 		totalTransform = Matrix4x4.Multiply(orientationCorrection, totalTransform);
 
-		var triangles = BuildTriangles(model, totalTransform);
+		var triangles = BuildTriangles(model, totalTransform, blockName);
 		var cullTargets = DetermineCullTargets(model);
 		if (cullTargets.Count > 0)
 		{

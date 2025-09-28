@@ -151,7 +151,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		}
 
 		var model = _modelResolver.Resolve(modelName);
-		return RenderModel(model, options);
+		return RenderModel(model, options, blockName);
 	}
 
 	public Image<Rgba32> RenderItem(string itemName, BlockRenderOptions? options = null)
@@ -170,5 +170,49 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		{
 			throw new ObjectDisposedException(nameof(MinecraftBlockRenderer));
 		}
+	}
+
+	private static readonly Dictionary<string, Color> ColorMap = new(StringComparer.OrdinalIgnoreCase)
+	{
+		{ "white", new Color(new Rgb24(249, 255, 254)) },
+		{ "orange", new Color(new Rgb24(249, 128, 29)) },
+		{ "magenta", new Color(new Rgb24(199, 78, 189)) },
+		{ "light_blue", new Color(new Rgb24(58, 179, 218)) },
+		{ "yellow", new Color(new Rgb24(254, 216, 61)) },
+		{ "lime", new Color(new Rgb24(128, 199, 31)) },
+		{ "pink", new Color(new Rgb24(243, 139, 170)) },
+		{ "gray", new Color(new Rgb24(71, 79, 82)) },
+		{ "light_gray", new Color(new Rgb24(157, 157, 151)) },
+		{ "cyan", new Color(new Rgb24(22, 156, 156)) },
+		{ "purple", new Color(new Rgb24(137, 50, 184)) },
+		{ "blue", new Color(new Rgb24(60, 68, 170)) },
+		{ "brown", new Color(new Rgb24(131, 84, 50)) },
+		{ "green", new Color(new Rgb24(94, 124, 22)) },
+		{ "red", new Color(new Rgb24(176, 46, 38)) },
+		{ "black", new Color(new Rgb24(29, 29, 33)) }
+	};
+
+	private static Color? GetColorFromBlockName(string? blockName)
+	{
+		if (string.IsNullOrWhiteSpace(blockName))
+		{
+			return null;
+		}
+
+		var name = blockName.ToLowerInvariant();
+		if (name.Contains(':'))
+		{
+			name = name.Split(':')[1];
+		}
+
+		foreach (var (colorName, color) in ColorMap)
+		{
+			if (name.StartsWith(colorName))
+			{
+				return color;
+			}
+		}
+
+		return null;
 	}
 }

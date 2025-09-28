@@ -18,21 +18,21 @@ public sealed partial class MinecraftBlockRenderer
 		{ BlockFaceDirection.Down, new[] { 4, 5, 1, 0 } }
 	};
 
-	private List<VisibleTriangle> BuildTriangles(BlockModelInstance model, Matrix4x4 transform)
+	private List<VisibleTriangle> BuildTriangles(BlockModelInstance model, Matrix4x4 transform, string? blockName = null)
 	{
 		var triangles = new List<VisibleTriangle>(model.Elements.Count * 12);
 
 		for (var elementIndex = 0; elementIndex < model.Elements.Count; elementIndex++)
 		{
 			var element = model.Elements[elementIndex];
-			var elementTriangles = BuildTrianglesForElement(model, element, transform, elementIndex);
+			var elementTriangles = BuildTrianglesForElement(model, element, transform, elementIndex, blockName);
 			triangles.AddRange(elementTriangles);
 		}
 
 		return triangles;
 	}
 
-	private List<VisibleTriangle> BuildTrianglesForElement(BlockModelInstance model, ModelElement element, Matrix4x4 transform, int elementIndex)
+	private List<VisibleTriangle> BuildTrianglesForElement(BlockModelInstance model, ModelElement element, Matrix4x4 transform, int elementIndex, string? blockName)
 	{
 		var vertices = BuildElementVertices(element);
 		ApplyElementRotation(element, vertices);
@@ -41,7 +41,8 @@ public sealed partial class MinecraftBlockRenderer
 		foreach (var (direction, face) in element.Faces)
 		{
 			var textureId = ResolveTexture(face.Texture, model);
-			var texture = _textureRepository.GetTexture(textureId);
+			var tint = face.TintIndex.HasValue ? GetColorFromBlockName(blockName) : null;
+			var texture = tint.HasValue ? _textureRepository.GetTintedTexture(textureId, tint.Value) : _textureRepository.GetTexture(textureId);
 
 			var faceUv = GetFaceUv(face, direction, element);
 			var textureRect = ComputeTextureRectangle(faceUv, texture);

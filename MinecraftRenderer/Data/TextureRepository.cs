@@ -5,11 +5,12 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Numerics;
 using System.Text.Json;
-using SixLabors.ImageSharp.Advanced;
-using SixLabors.ImageSharp.Processing;
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Advanced;
 using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp.Processing;
 
 public sealed class TextureRepository : IDisposable
 {
@@ -65,6 +66,46 @@ public sealed class TextureRepository : IDisposable
 	{
 		texture = GetTexture(textureId);
 		return !ReferenceEquals(texture, _missingTexture);
+	}
+
+	public Image<Rgba32> GetTintedTexture(string textureId, Color tint)
+	{
+		var tintRgba = tint.ToPixel<Rgba32>();
+		if (tintRgba.A == 0)
+		{
+			return GetTexture(textureId);
+		}
+
+		var normalized = NormalizeTextureId(textureId);
+		var cacheKey = $"{normalized}_{tint.ToHex()}";
+
+		return _cache.GetOrAdd(cacheKey, _ =>
+		{
+			var original = GetTexture(textureId);
+			if (ReferenceEquals(original, _missingTexture))
+			{
+				return _missingTexture;
+			}
+
+			var tinted = original.Clone();
+			var tintVector = new Vector4(tintRgba.R / 255f, tintRgba.G / 255f, tintRgba.B / 255f, tintRgba.A / 255f);
+
+			tinted.ProcessPixelRows(accessor =>
+			{
+				for (var y = 0; y < accessor.Height; y++)
+				{
+					var row = accessor.GetRowSpan(y);
+					for (var x = 0; x < row.Length; x++)
+					{
+						var pixelVector = row[x].ToVector4();
+						var tintedVector = pixelVector * tintVector;
+						row[x].FromVector4(tintedVector);
+					}
+				}
+			});
+
+			return tinted;
+		});
 	}
 
 	public void RegisterTexture(string textureId, Image<Rgba32> image, bool overwrite = true)

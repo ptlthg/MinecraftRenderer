@@ -371,7 +371,7 @@ public sealed class BlockRendererTests
 			.GetMethod("BuildTriangles", BindingFlags.NonPublic | BindingFlags.Instance)
 			?? throw new InvalidOperationException("BuildTriangles method not found");
 
-		var triangles = (System.Collections.IEnumerable)buildTriangles.Invoke(renderer, new object[] { model, Matrix4x4.Identity })!;
+		var triangles = (System.Collections.IEnumerable)buildTriangles.Invoke(renderer, new object?[] { model, Matrix4x4.Identity, null })!;
 		var v1Prop = triangles.GetType().GetGenericArguments().First().GetProperty("V1")
 			?? throw new InvalidOperationException("V1 property not found");
 		var v2Prop = triangles.GetType().GetGenericArguments().First().GetProperty("V2")!;
