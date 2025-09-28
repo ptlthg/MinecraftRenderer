@@ -1,0 +1,19 @@
+{
+    "variants": {
+        "facing=east": {
+            "model": "entity/player_wall_head",
+            "y": 90
+        },
+        "facing=south": {
+            "model": "entity/player_wall_head",
+            "y": 180
+        },
+        "facing=west": {
+            "model": "entity/player_wall_head",
+            "y": 270
+        },
+        "facing=north": {
+            "model": "entity/player_wall_head"
+        }
+    }
+}

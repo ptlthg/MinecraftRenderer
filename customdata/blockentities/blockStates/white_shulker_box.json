@@ -1,0 +1,30 @@
+{
+    "variants": {
+        "facing=up": {
+            "model": "entity/dyed_shulker_box"
+        },
+        "facing=down": {
+            "model": "entity/dyed_shulker_box",
+            "x": 180
+        },
+        "facing=north": {
+            "model": "entity/dyed_shulker_box",
+            "x": 90
+        },
+        "facing=east": {
+            "model": "entity/dyed_shulker_box",
+            "y": 90,
+            "x": 90
+        },
+        "facing=south": {
+            "model": "entity/dyed_shulker_box",
+            "y": 180,
+            "x": 90
+        },
+        "facing=west": {
+            "model": "entity/dyed_shulker_box",
+            "y": 270,
+            "x": 90
+        }
+    }
+}

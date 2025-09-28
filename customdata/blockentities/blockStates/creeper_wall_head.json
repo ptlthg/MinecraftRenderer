@@ -1,0 +1,19 @@
+{
+    "variants": {
+        "facing=east": {
+            "model": "entity/creeper_wall_head",
+            "y": 90
+        },
+        "facing=south": {
+            "model": "entity/creeper_wall_head",
+            "y": 180
+        },
+        "facing=west": {
+            "model": "entity/creeper_wall_head",
+            "y": 270
+        },
+        "facing=north": {
+            "model": "entity/creeper_wall_head"
+        }
+    }
+}

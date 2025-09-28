@@ -1,0 +1,12 @@
+{
+    "parent": "block/cube",
+    "textures": {
+        "particle": "block/end_portal_top",
+        "down": "block/end_portal_top",
+        "up": "block/end_portal_top",
+        "north": "block/end_portal_top",
+        "east": "block/end_portal_top",
+        "south": "block/end_portal_top",
+        "west": "block/end_portal_top"
+    }
+}

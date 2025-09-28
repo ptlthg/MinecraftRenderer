@@ -1,0 +1,19 @@
+{
+    "variants": {
+        "facing=east": {
+            "model": "entity/decorated_pot",
+            "y": 90
+        },
+        "facing=south": {
+            "model": "entity/decorated_pot",
+            "y": 180
+        },
+        "facing=west": {
+            "model": "entity/decorated_pot",
+            "y": 270
+        },
+        "facing=north": {
+            "model": "entity/decorated_pot"
+        }
+    }
+}

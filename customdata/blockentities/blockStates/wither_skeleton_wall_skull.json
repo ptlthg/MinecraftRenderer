@@ -1,0 +1,19 @@
+{
+    "variants": {
+        "facing=east": {
+            "model": "entity/wither_skeleton_wall_skull",
+            "y": 90
+        },
+        "facing=south": {
+            "model": "entity/wither_skeleton_wall_skull",
+            "y": 180
+        },
+        "facing=west": {
+            "model": "entity/wither_skeleton_wall_skull",
+            "y": 270
+        },
+        "facing=north": {
+            "model": "entity/wither_skeleton_wall_skull"
+        }
+    }
+}
