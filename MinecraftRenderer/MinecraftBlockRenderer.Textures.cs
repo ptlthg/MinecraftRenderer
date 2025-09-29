@@ -12,18 +12,34 @@ public sealed partial class MinecraftBlockRenderer
 			return "minecraft:missingno";
 		}
 
-		if (!texture.StartsWith('#'))
-		{
-			return texture;
-		}
-
 		if (model is null)
 		{
-			return "minecraft:missingno";
+			return texture.StartsWith('#') ? "minecraft:missingno" : texture;
+		}
+
+		static string ExpandTextureReference(string candidate, BlockModelInstance instance)
+		{
+			if (string.IsNullOrWhiteSpace(candidate))
+			{
+				return string.Empty;
+			}
+
+			var trimmed = candidate.Trim();
+			if (trimmed.StartsWith('#'))
+			{
+				return trimmed;
+			}
+
+			if (instance.Textures.TryGetValue(trimmed, out _))
+			{
+				return "#" + trimmed;
+			}
+
+			return trimmed;
 		}
 
 		var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-		var current = texture;
+		var current = ExpandTextureReference(texture, model);
 
 		while (current.StartsWith('#'))
 		{
@@ -38,7 +54,11 @@ public sealed partial class MinecraftBlockRenderer
 				return "minecraft:missingno";
 			}
 
-			current = mapped;
+			current = ExpandTextureReference(mapped, model);
+			if (string.IsNullOrWhiteSpace(current))
+			{
+				return "minecraft:missingno";
+			}
 		}
 
 		return current;

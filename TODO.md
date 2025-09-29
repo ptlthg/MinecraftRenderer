@@ -1,8 +1,8 @@
 ## Existing issues
 - [x] Fix mob heads being tiny, we might just need to remove padding for gui items?
 - [x] Align carpets/trapdoors/pressure plates to bottom of slot like in game
-- [ ] Conduit in GUI doesn't render at all
-- [ ] Heavy core is a black cube with a purple top texture
+- [x] Conduit in GUI doesn't render at all
+- [x] Heavy core is a black cube with a purple top texture
 - [ ] Spore blossom render has its fans flipped upside down
 - [ ] Banners in the gui are facing the wrong way, we see the back of them
 - [x] Compass/recovery compass/clock items should use the _00 suffix texture if they don't have one
