@@ -30,6 +30,13 @@ public sealed partial class MinecraftBlockRenderer
 		"_banner"
 	};
 
+	private static readonly HashSet<string> AnimatedDialItems = new(StringComparer.OrdinalIgnoreCase)
+	{
+		"compass",
+		"recovery_compass",
+		"clock"
+	};
+
 	public Image<Rgba32> RenderGuiItem(string itemName, BlockRenderOptions? options = null)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(itemName);
@@ -698,13 +705,36 @@ public sealed partial class MinecraftBlockRenderer
 	private static IEnumerable<string> EnumerateTextureFallbackCandidates(string itemName)
 	{
 		var normalized = NormalizeItemTextureKey(itemName);
+		var yielded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-		yield return normalized;
-		yield return $"minecraft:item/{normalized}";
-		yield return $"item/{normalized}";
-		yield return $"textures/item/{normalized}";
-		yield return $"minecraft:block/{normalized}";
-		yield return $"block/{normalized}";
+		foreach (var candidate in EnumerateTextureNameVariants(normalized))
+		{
+			if (yielded.Add(candidate))
+			{
+				yield return candidate;
+			}
+		}
+
+		if (AnimatedDialItems.Contains(normalized))
+		{
+			foreach (var candidate in EnumerateTextureNameVariants(normalized + "_00"))
+			{
+				if (yielded.Add(candidate))
+				{
+					yield return candidate;
+				}
+			}
+		}
+	}
+
+	private static IEnumerable<string> EnumerateTextureNameVariants(string textureKey)
+	{
+		yield return textureKey;
+		yield return $"minecraft:item/{textureKey}";
+		yield return $"item/{textureKey}";
+		yield return $"textures/item/{textureKey}";
+		yield return $"minecraft:block/{textureKey}";
+		yield return $"block/{textureKey}";
 	}
 
 	private static IEnumerable<string> BuildModelCandidates(string primaryName, string itemName)
