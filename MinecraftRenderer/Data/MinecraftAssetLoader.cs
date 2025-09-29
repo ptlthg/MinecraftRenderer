@@ -521,8 +521,27 @@ internal static class MinecraftAssetLoader
 	{
 		switch (element.ValueKind)
 		{
-			case JsonValueKind.Object when element.TryGetProperty("model", out var modelProperty) && modelProperty.ValueKind == JsonValueKind.String:
-				return modelProperty.GetString();
+			case JsonValueKind.Object:
+				if (element.TryGetProperty("model", out var modelProperty))
+				{
+					if (modelProperty.ValueKind == JsonValueKind.String)
+					{
+						return modelProperty.GetString();
+					}
+
+					var nested = ExtractModelReference(modelProperty);
+					if (!string.IsNullOrWhiteSpace(nested))
+					{
+						return nested;
+					}
+				}
+
+				if (element.TryGetProperty("base", out var baseProperty) && baseProperty.ValueKind == JsonValueKind.String)
+				{
+					return baseProperty.GetString();
+				}
+
+				break;
 			case JsonValueKind.Array:
 				foreach (var entry in element.EnumerateArray())
 				{

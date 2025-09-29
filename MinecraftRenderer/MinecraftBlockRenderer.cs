@@ -18,7 +18,8 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		bool UseGuiTransform = true,
 		float Padding = 0.12f,
 		float AdditionalScale = 1f,
-		Vector3 AdditionalTranslation = default)
+		Vector3 AdditionalTranslation = default,
+		TransformDefinition? OverrideGuiTransform = null)
 	{
 		public static BlockRenderOptions Default { get; } = new();
 	}

@@ -4,6 +4,7 @@
         64,
         32
     ],
+    "parent": "minecraft:block/skull",    
     "elements": [
         {
             "name": "Skull",
@@ -147,5 +148,24 @@
                 }
             }
         }
-    ]
+    ],
+    "display": {
+        "gui": {
+            "rotation": [
+                30,
+                45,
+                0
+            ],
+            "translation": [
+                0,
+                -1.5,
+                0
+            ],
+            "scale": [
+                1,
+                1,
+                1
+            ]
+        }
+    }
 }

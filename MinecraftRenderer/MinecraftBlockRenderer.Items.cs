@@ -17,11 +17,44 @@ public sealed partial class MinecraftBlockRenderer
 		("_button", "_button_inventory")
 	};
 
+	private static readonly string[] BottomAlignedItemSuffixes =
+	{
+		"_carpet",
+		"_trapdoor",
+		"_pressure_plate",
+		"_weighted_pressure_plate"
+	};
+
+	private static readonly string[] BannerSuffixes =
+	{
+		"_banner"
+	};
+
 	public Image<Rgba32> RenderGuiItem(string itemName, BlockRenderOptions? options = null)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(itemName);
 		options ??= BlockRenderOptions.Default;
+		options = options with { Padding = 0f };
 		EnsureNotDisposed();
+
+		var normalizedItemKey = NormalizeItemTextureKey(itemName);
+		var alignToBottom = ShouldAlignGuiItemToBottom(normalizedItemKey);
+		float? postScale = null;
+
+		Image<Rgba32> FinalizeGuiResult(Image<Rgba32> image)
+		{
+			if (postScale.HasValue)
+			{
+				ApplyCenteredScale(image, postScale.Value);
+			}
+
+			if (alignToBottom)
+			{
+				AlignImageToBottom(image);
+			}
+
+			return image;
+		}
 
 		ItemRegistry.ItemInfo? itemInfo = null;
 		if (_itemRegistry is not null)
@@ -30,15 +63,25 @@ public sealed partial class MinecraftBlockRenderer
 		}
 
 		var (model, modelCandidates) = ResolveItemModel(itemName, itemInfo);
+		if (options.OverrideGuiTransform is null && options.UseGuiTransform && model is not null)
+		{
+			var guiOverride = model.GetDisplayTransform("gui");
+			if (guiOverride is not null)
+			{
+				options = options with { OverrideGuiTransform = guiOverride };
+			}
+		}
+
+		postScale = GetPostRenderScale(normalizedItemKey);
 
 		if (TryRenderGuiTextureLayers(itemName, itemInfo, model, options, out var flatRender))
 		{
-			return flatRender;
+			return FinalizeGuiResult(flatRender);
 		}
 
 		if (TryRenderBedItem(itemName, model, options, out var bedComposite))
 		{
-			return bedComposite;
+			return FinalizeGuiResult(bedComposite);
 		}
 
 		if (model is not null && IsBillboardModel(model))
@@ -46,21 +89,21 @@ public sealed partial class MinecraftBlockRenderer
 			var billboardTextures = CollectBillboardTextures(model, itemInfo);
 			if (TryRenderFlatItemFromIdentifiers(billboardTextures, model, options, itemName, out flatRender))
 			{
-				return flatRender;
+				return FinalizeGuiResult(flatRender);
 			}
 		}
 
 		if (model is not null && model.Elements.Count > 0)
 		{
-			return RenderModel(model, options, itemName);
+			return FinalizeGuiResult(RenderModel(model, options, itemName));
 		}
 
 		if (TryRenderBlockEntityFallback(itemName, itemInfo, model, modelCandidates, options, out var blockRender))
 		{
-			return blockRender;
+			return FinalizeGuiResult(blockRender);
 		}
 
-		return RenderFallbackTexture(itemName, itemInfo, model, options);
+		return FinalizeGuiResult(RenderFallbackTexture(itemName, itemInfo, model, options));
 	}
 
 	private (BlockModelInstance? Model, IReadOnlyList<string> Candidates) ResolveItemModel(string itemName, ItemRegistry.ItemInfo? itemInfo)
@@ -399,6 +442,15 @@ public sealed partial class MinecraftBlockRenderer
 			var parentChain = itemModel is not null
 				? new List<string>(itemModel.ParentChain)
 				: new List<string>();
+			var renderOptions = options;
+			if (display.TryGetValue("gui", out var adjustedGui))
+			{
+				renderOptions = renderOptions with { OverrideGuiTransform = adjustedGui };
+			}
+			else
+			{
+				renderOptions = renderOptions with { OverrideGuiTransform = null };
+			}
 
 			var composite = new BlockModelInstance(
 				"minecraft:generated/bed_composite",
@@ -407,7 +459,7 @@ public sealed partial class MinecraftBlockRenderer
 				display,
 				elements);
 
-			rendered = RenderModel(composite, options);
+			rendered = RenderModel(composite, renderOptions);
 			return true;
 		}
 
@@ -530,16 +582,18 @@ public sealed partial class MinecraftBlockRenderer
 
 		private static void AdjustBedGuiTransform(Dictionary<string, TransformDefinition> display)
 		{
-			const float RotationAdjustment = -45f;
+			const float RotationAdjustment = -55f;
+			const float ScaleMultiplier = 0.9f;
+			var defaultScale = new[] { 0.48f, 0.48f, 0.48f };
+			var defaultTranslation = new[] { 2f, 2.5f, 0f };
 
 			if (!display.TryGetValue("gui", out var gui))
 			{
-				var rotation = new[] { 30f, 160f + RotationAdjustment, 0f };
 				display["gui"] = new TransformDefinition
 				{
-					Rotation = rotation,
-					Translation = new[] { 2f, 3f, 0f },
-					Scale = new[] { 0.5325f, 0.5325f, 0.5325f }
+					Rotation = new[] { 30f, 160f + RotationAdjustment, 0f },
+					Translation = (float[])defaultTranslation.Clone(),
+					Scale = (float[])defaultScale.Clone()
 				};
 				return;
 			}
@@ -548,8 +602,31 @@ public sealed partial class MinecraftBlockRenderer
 			EnsureLength(ref rotationArray, 3);
 			rotationArray[1] = NormalizeRotation(rotationArray[1] + RotationAdjustment);
 
-			var translationArray = gui.Translation is null ? null : CloneVector(gui.Translation, gui.Translation.Length);
-			var scaleArray = gui.Scale is null ? null : CloneVector(gui.Scale, gui.Scale.Length);
+			float[] translationArray;
+			if (gui.Translation is null || gui.Translation.Length == 0)
+			{
+				translationArray = (float[])defaultTranslation.Clone();
+			}
+			else
+			{
+				translationArray = CloneVector(gui.Translation, gui.Translation.Length);
+			}
+			EnsureLength(ref translationArray, 3);
+
+			float[] scaleArray;
+			if (gui.Scale is null || gui.Scale.Length == 0)
+			{
+				scaleArray = (float[])defaultScale.Clone();
+			}
+			else
+			{
+				scaleArray = CloneVector(gui.Scale, gui.Scale.Length);
+				EnsureLength(ref scaleArray, 3);
+				for (var i = 0; i < scaleArray.Length; i++)
+				{
+					scaleArray[i] *= ScaleMultiplier;
+				}
+			}
 
 			display["gui"] = new TransformDefinition
 			{
@@ -866,6 +943,167 @@ public sealed partial class MinecraftBlockRenderer
 		}
 
 		return canvas;
+	}
+
+	private static bool ShouldAlignGuiItemToBottom(string? normalizedItemKey)
+	{
+		if (string.IsNullOrWhiteSpace(normalizedItemKey))
+		{
+			return false;
+		}
+
+		foreach (var suffix in BottomAlignedItemSuffixes)
+		{
+			if (normalizedItemKey.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+			{
+				return true;
+			}
+		}
+
+		return string.Equals(normalizedItemKey, "carpet", StringComparison.OrdinalIgnoreCase)
+			|| string.Equals(normalizedItemKey, "trapdoor", StringComparison.OrdinalIgnoreCase)
+			|| string.Equals(normalizedItemKey, "pressure_plate", StringComparison.OrdinalIgnoreCase);
+	}
+
+	private static float? GetPostRenderScale(string? normalizedItemKey)
+	{
+		if (string.IsNullOrWhiteSpace(normalizedItemKey))
+		{
+			return null;
+		}
+
+		if (IsBedItem(normalizedItemKey))
+		{
+			return 0.92f;
+		}
+
+		if (IsBannerItem(normalizedItemKey))
+		{
+			return 0.9f;
+		}
+
+		return null;
+	}
+
+	private static bool IsBedItem(string normalizedItemKey)
+		=> normalizedItemKey.EndsWith("_bed", StringComparison.OrdinalIgnoreCase)
+		   || string.Equals(normalizedItemKey, "bed", StringComparison.OrdinalIgnoreCase);
+
+	private static bool IsBannerItem(string normalizedItemKey)
+	{
+		foreach (var suffix in BannerSuffixes)
+		{
+			if (normalizedItemKey.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+			{
+				return true;
+			}
+		}
+
+		return string.Equals(normalizedItemKey, "banner", StringComparison.OrdinalIgnoreCase);
+	}
+
+	private static void AlignImageToBottom(Image<Rgba32> image)
+	{
+		var bounds = FindOpaqueBounds(image);
+		if (bounds.Height <= 0)
+		{
+			return;
+		}
+
+		var desiredTop = image.Height - bounds.Height;
+		var deltaY = desiredTop - bounds.Y;
+		if (deltaY == 0)
+		{
+			return;
+		}
+
+		using var clone = image.Clone();
+		ClearImage(image);
+		image.Mutate(ctx => ctx.DrawImage(clone, new Point(0, deltaY), 1f));
+	}
+
+	private static void ApplyCenteredScale(Image<Rgba32> image, float scaleFactor)
+	{
+		if (scaleFactor <= 0f || MathF.Abs(scaleFactor - 1f) < 1e-3f)
+		{
+			return;
+		}
+
+		var targetWidth = Math.Max(1, (int)MathF.Round(image.Width * scaleFactor));
+		var targetHeight = Math.Max(1, (int)MathF.Round(image.Height * scaleFactor));
+
+		using var clone = image.Clone();
+		using var resized = clone.Clone(ctx => ctx.Resize(new ResizeOptions
+		{
+			Size = new Size(targetWidth, targetHeight),
+			Sampler = KnownResamplers.NearestNeighbor,
+			Mode = ResizeMode.Stretch
+		}));
+
+		ClearImage(image);
+		var offset = new Point((image.Width - targetWidth) / 2, (image.Height - targetHeight) / 2);
+		image.Mutate(ctx => ctx.DrawImage(resized, offset, 1f));
+	}
+
+	private static void ClearImage(Image<Rgba32> image)
+	{
+		image.ProcessPixelRows(accessor =>
+		{
+			for (var y = 0; y < accessor.Height; y++)
+			{
+				accessor.GetRowSpan(y).Clear();
+			}
+		});
+	}
+
+	private static Rectangle FindOpaqueBounds(Image<Rgba32> image)
+	{
+		var minX = image.Width;
+		var minY = image.Height;
+		var maxX = -1;
+		var maxY = -1;
+
+		image.ProcessPixelRows(accessor =>
+		{
+			for (var y = 0; y < accessor.Height; y++)
+			{
+				var row = accessor.GetRowSpan(y);
+				for (var x = 0; x < row.Length; x++)
+				{
+					if (row[x].A == 0)
+					{
+						continue;
+					}
+
+					if (x < minX)
+					{
+						minX = x;
+					}
+
+					if (y < minY)
+					{
+						minY = y;
+					}
+
+					if (x > maxX)
+					{
+						maxX = x;
+					}
+
+					if (y > maxY)
+					{
+						maxY = y;
+					}
+				}
+			}
+		});
+
+		if (maxX < 0 || maxY < 0)
+		{
+			return Rectangle.Empty;
+		}
+
+		return Rectangle.FromLTRB(minX, minY, maxX + 1, maxY + 1);
 	}
 
 	private Image<Rgba32> ResolveItemLayerTexture(string textureId, string? tintContext)

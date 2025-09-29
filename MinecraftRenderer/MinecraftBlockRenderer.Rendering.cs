@@ -18,13 +18,23 @@ public sealed partial class MinecraftBlockRenderer
 		Scale = new[] { 0.625f, 0.625f, 0.625f }
 	};
 
+	private static readonly float DefaultGuiScaleMagnitude = ComputeTransformScaleMagnitude(DefaultGuiTransform);
+	private static readonly float DefaultGuiScaleNormalization = DefaultGuiScaleMagnitude > 1e-6f ? 1f / DefaultGuiScaleMagnitude : 1f;
+
 	private const float DegreesToRadians = MathF.PI / 180f;
 
 	public Image<Rgba32> RenderModel(BlockModelInstance model, BlockRenderOptions options, string? blockName = null)
 	{
 		EnsureNotDisposed();
 
-		var displayTransform = BuildDisplayTransform(options.UseGuiTransform ? model.GetDisplayTransform("gui") ?? DefaultGuiTransform : DefaultGuiTransform);
+		var guiTransform = options.OverrideGuiTransform;
+		if (guiTransform is null && options.UseGuiTransform)
+		{
+			guiTransform = model.GetDisplayTransform("gui");
+		}
+		guiTransform ??= DefaultGuiTransform;
+		var displayTransform = BuildDisplayTransform(guiTransform);
+		var displayTransformWithoutScale = BuildDisplayTransform(guiTransform, includeScale: false);
 		var additionalRotation = CreateRotationMatrix(options.YawInDegrees * DegreesToRadians, options.PitchInDegrees * DegreesToRadians, options.RollInDegrees * DegreesToRadians);
 		var scaleMatrix = Matrix4x4.CreateScale(options.AdditionalScale);
 		var translationVector = new Vector3(
@@ -32,14 +42,20 @@ public sealed partial class MinecraftBlockRenderer
 			options.AdditionalTranslation.Y / 16f,
 			options.AdditionalTranslation.Z / 16f);
 		var translationMatrix = Matrix4x4.CreateTranslation(translationVector);
+		var orientationCorrection = Matrix4x4.CreateRotationY(MathF.PI / 2f);
 
 		Matrix4x4 totalTransform = Matrix4x4.Identity;
 		totalTransform = Matrix4x4.Multiply(totalTransform, displayTransform);
 		totalTransform = Matrix4x4.Multiply(totalTransform, additionalRotation);
 		totalTransform = Matrix4x4.Multiply(totalTransform, scaleMatrix);
 		totalTransform = Matrix4x4.Multiply(totalTransform, translationMatrix);
-		var orientationCorrection = Matrix4x4.CreateRotationY(MathF.PI / 2f);
 		totalTransform = Matrix4x4.Multiply(orientationCorrection, totalTransform);
+
+		Matrix4x4 referenceTransform = Matrix4x4.Identity;
+		referenceTransform = Matrix4x4.Multiply(referenceTransform, displayTransformWithoutScale);
+		referenceTransform = Matrix4x4.Multiply(referenceTransform, additionalRotation);
+		referenceTransform = Matrix4x4.Multiply(referenceTransform, translationMatrix);
+		referenceTransform = Matrix4x4.Multiply(orientationCorrection, referenceTransform);
 
 		var triangles = BuildTriangles(model, totalTransform, blockName);
 		var cullTargets = DetermineCullTargets(model);
@@ -62,7 +78,7 @@ public sealed partial class MinecraftBlockRenderer
 		});
 
 		var bounds = ComputeBounds(triangles);
-		var referenceBounds = ComputeReferenceBounds(totalTransform);
+		var referenceBounds = ComputeReferenceBounds(referenceTransform);
 		var padding = Math.Clamp(options.Padding, 0f, 0.4f);
 		var dimensionX = bounds.MaxX - bounds.MinX;
 		var dimensionY = bounds.MaxY - bounds.MinY;
@@ -81,7 +97,7 @@ public sealed partial class MinecraftBlockRenderer
 		}
 
 		var availableSize = options.Size * (1f - padding * 2f);
-		var scale = availableSize / referenceDimension;
+		var scale = availableSize / referenceDimension * DefaultGuiScaleNormalization;
 		var center = new Vector2((bounds.MinX + bounds.MaxX) * 0.5f, (bounds.MinY + bounds.MaxY) * 0.5f);
 		var offset = new Vector2(options.Size / 2f);
 
@@ -302,7 +318,7 @@ public sealed partial class MinecraftBlockRenderer
 		return new Bounds(minX, maxX, minY, maxY);
 	}
 
-	private static Matrix4x4 BuildDisplayTransform(TransformDefinition? transform)
+	private static Matrix4x4 BuildDisplayTransform(TransformDefinition? transform, bool includeScale = true)
 	{
 		if (transform is null)
 		{
@@ -311,13 +327,30 @@ public sealed partial class MinecraftBlockRenderer
 
 		var rotation = transform.Rotation ?? [0f, 0f, 0f];
 		var translation = transform.Translation ?? [0f, 0f, 0f];
-		var scale = transform.Scale ?? [1f, 1f, 1f];
+		var scaleComponents = transform.Scale ?? [1f, 1f, 1f];
+		var scaleX = scaleComponents.Length > 0 ? scaleComponents[0] : 1f;
+		var scaleY = scaleComponents.Length > 1 ? scaleComponents[1] : scaleX;
+		var scaleZ = scaleComponents.Length > 2 ? scaleComponents[2] : scaleX;
 
-		var scaleMatrix = Matrix4x4.CreateScale(scale[0], scale[1], scale[2]);
+		var scaleMatrix = includeScale ? Matrix4x4.CreateScale(scaleX, scaleY, scaleZ) : Matrix4x4.Identity;
 		var rotationMatrix = CreateRotationMatrix(rotation[1] * DegreesToRadians, rotation[0] * DegreesToRadians, rotation[2] * DegreesToRadians);
 		var translationMatrix = Matrix4x4.CreateTranslation(translation[0] / 16f, translation[1] / 16f, translation[2] / 16f);
 
 		return scaleMatrix * rotationMatrix * translationMatrix;
+	}
+
+	private static float ComputeTransformScaleMagnitude(TransformDefinition? transform)
+	{
+		if (transform?.Scale is not { Length: > 0 } components)
+		{
+			return 1f;
+		}
+
+		var scaleX = MathF.Abs(components[0]);
+		var scaleY = components.Length > 1 ? MathF.Abs(components[1]) : scaleX;
+		var scaleZ = components.Length > 2 ? MathF.Abs(components[2]) : scaleX;
+		var max = MathF.Max(MathF.Max(scaleX, scaleY), scaleZ);
+		return max > 1e-6f ? max : 1f;
 	}
 
 	private static Vector2 ProjectToScreen(Vector3 point, float scale, Vector2 offset, PerspectiveParams? perspectiveParams)
