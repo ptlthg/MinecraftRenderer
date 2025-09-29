@@ -41,8 +41,33 @@ public sealed partial class MinecraftBlockRenderer
 		foreach (var (direction, face) in element.Faces)
 		{
 			var textureId = ResolveTexture(face.Texture, model);
-			var tint = face.TintIndex.HasValue ? GetColorFromBlockName(blockName) : null;
-			var texture = tint.HasValue ? _textureRepository.GetTintedTexture(textureId, tint.Value) : _textureRepository.GetTexture(textureId);
+			Image<Rgba32> texture;
+
+			var renderPriority = face.TintIndex.HasValue ? 1 : 0;
+
+			if (face.TintIndex.HasValue)
+			{
+				var constantTint = TryGetConstantTint(textureId, blockName);
+				if (constantTint.HasValue)
+				{
+					texture = _textureRepository.GetTintedTexture(textureId, constantTint.Value, ConstantTintStrength);
+				}
+				else if (TryGetBiomeTintKind(textureId, blockName, out var biomeKind))
+				{
+					texture = GetBiomeTintedTexture(textureId, biomeKind);
+				}
+				else
+				{
+					var fallbackTint = GetColorFromBlockName(blockName) ?? GetColorFromBlockName(textureId);
+					texture = fallbackTint.HasValue
+						? _textureRepository.GetTintedTexture(textureId, fallbackTint.Value, 1f, ColorTintBlend)
+						: _textureRepository.GetTexture(textureId);
+				}
+			}
+			else
+			{
+				texture = _textureRepository.GetTexture(textureId);
+			}
 
 			var faceUv = GetFaceUv(face, direction, element);
 			var textureRect = ComputeTextureRectangle(faceUv, texture);
@@ -135,7 +160,8 @@ public sealed partial class MinecraftBlockRenderer
 				triangle1Normal,
 				triangle1Centroid,
 				direction,
-				elementIndex));
+				elementIndex,
+				renderPriority));
 
 			results.Add(new VisibleTriangle(
 				transformed[0], transformed[2], transformed[3],
@@ -146,7 +172,8 @@ public sealed partial class MinecraftBlockRenderer
 				triangle2Normal,
 				triangle2Centroid,
 				direction,
-				elementIndex));
+				elementIndex,
+				renderPriority));
 		}
 
 		return results;

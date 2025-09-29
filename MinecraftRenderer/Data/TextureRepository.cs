@@ -3,6 +3,7 @@ namespace MinecraftRenderer;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Numerics;
@@ -18,12 +19,37 @@ public sealed class TextureRepository : IDisposable
 	private readonly ConcurrentDictionary<string, Image<Rgba32>> _cache = new(StringComparer.OrdinalIgnoreCase);
 	private readonly Dictionary<string, string> _embedded = new(StringComparer.OrdinalIgnoreCase);
 	private readonly Image<Rgba32> _missingTexture;
+	public Image<Rgba32>? GrassColorMap { get; private set; }
+	public Image<Rgba32>? FoliageColorMap { get; private set; }
+	public Image<Rgba32>? DryFoliageColorMap { get; private set; }
 	private bool _disposed;
 
 	public TextureRepository(string dataRoot, string? embeddedTextureFile = null, IEnumerable<string>? overlayRoots = null)
 	{
 		_dataRoots = BuildRootList(dataRoot, overlayRoots);
 		_missingTexture = CreateMissingTexture();
+
+		var colormapRoot = _dataRoots.FirstOrDefault(x => Directory.Exists(Path.Combine(x, "colormap")));
+		if (colormapRoot is not null)
+		{
+			var grassPath = Path.Combine(colormapRoot, "colormap", "grass.png");
+			if (File.Exists(grassPath))
+			{
+				GrassColorMap = Image.Load<Rgba32>(grassPath);
+			}
+
+			var foliagePath = Path.Combine(colormapRoot, "colormap", "foliage.png");
+			if (File.Exists(foliagePath))
+			{
+				FoliageColorMap = Image.Load<Rgba32>(foliagePath);
+			}
+
+			var dryFoliagePath = Path.Combine(colormapRoot, "colormap", "dryfoliage.png");
+			if (File.Exists(dryFoliagePath))
+			{
+				DryFoliageColorMap = Image.Load<Rgba32>(dryFoliagePath);
+			}
+		}
 
 		if (!string.IsNullOrWhiteSpace(embeddedTextureFile) && File.Exists(embeddedTextureFile))
 		{
@@ -68,7 +94,7 @@ public sealed class TextureRepository : IDisposable
 		return !ReferenceEquals(texture, _missingTexture);
 	}
 
-	public Image<Rgba32> GetTintedTexture(string textureId, Color tint)
+	public Image<Rgba32> GetTintedTexture(string textureId, Color tint, float strengthMultiplier = 1f, float blend = 1f)
 	{
 		var tintRgba = tint.ToPixel<Rgba32>();
 		if (tintRgba.A == 0)
@@ -77,7 +103,9 @@ public sealed class TextureRepository : IDisposable
 		}
 
 		var normalized = NormalizeTextureId(textureId);
-		var cacheKey = $"{normalized}_{tint.ToHex()}";
+		var strengthKey = strengthMultiplier.ToString("0.###", CultureInfo.InvariantCulture);
+		var blendKey = blend.ToString("0.###", CultureInfo.InvariantCulture);
+		var cacheKey = $"{normalized}_{tint.ToHex()}_{strengthKey}_{blendKey}";
 
 		return _cache.GetOrAdd(cacheKey, _ =>
 		{
@@ -88,7 +116,11 @@ public sealed class TextureRepository : IDisposable
 			}
 
 			var tinted = original.Clone();
-			var tintVector = new Vector4(tintRgba.R / 255f, tintRgba.G / 255f, tintRgba.B / 255f, tintRgba.A / 255f);
+			var tintVector = new Vector4(
+				MathF.Min(tintRgba.R / 255f * strengthMultiplier, 1f),
+				MathF.Min(tintRgba.G / 255f * strengthMultiplier, 1f),
+				MathF.Min(tintRgba.B / 255f * strengthMultiplier, 1f),
+				tintRgba.A / 255f);
 
 			tinted.ProcessPixelRows(accessor =>
 			{
@@ -99,7 +131,24 @@ public sealed class TextureRepository : IDisposable
 					{
 						var pixelVector = row[x].ToVector4();
 						var tintedVector = pixelVector * tintVector;
-						row[x].FromVector4(tintedVector);
+						tintedVector.W = pixelVector.W * tintVector.W;
+						tintedVector = Vector4.Clamp(tintedVector, Vector4.Zero, Vector4.One);
+
+						var clampedBlend = blend;
+						if (clampedBlend < 0f)
+						{
+							clampedBlend = 0f;
+						}
+						else if (clampedBlend > 1f)
+						{
+							clampedBlend = 1f;
+						}
+
+						var finalVector = clampedBlend >= 0.999f
+							? tintedVector
+							: Vector4.Lerp(pixelVector, tintedVector, clampedBlend);
+
+						row[x].FromVector4(finalVector);
 					}
 				}
 			});
@@ -309,7 +358,7 @@ public sealed class TextureRepository : IDisposable
 			return true;
 		}
 
-		image = default!;
+		image = null!;
 		return false;
 	}
 
@@ -353,10 +402,7 @@ public sealed class TextureRepository : IDisposable
 			var frameHeight = GetOptionalPositiveInt(animation, "height");
 			var frameIndices = ExtractFrameIndices(animation);
 
-			if (!frameHeight.HasValue)
-			{
-				frameHeight = InferFrameHeight(image.Height, frameWidth, frameIndices);
-			}
+			frameHeight ??= InferFrameHeight(image.Height, frameWidth, frameIndices);
 
 			frameWidth = Math.Clamp(frameWidth, 1, image.Width);
 			var frameHeightValue = Math.Clamp(frameHeight ?? image.Height, 1, image.Height);
@@ -399,7 +445,7 @@ public sealed class TextureRepository : IDisposable
 			if (maxIndex >= 0)
 			{
 				var divisor = Math.Max(maxIndex + 1, 1);
-				var candidate = divisor > 0 ? imageHeight / divisor : imageHeight;
+				var candidate = imageHeight / divisor;
 				if (candidate > 0)
 				{
 					return Math.Max(1, candidate);
@@ -410,7 +456,7 @@ public sealed class TextureRepository : IDisposable
 		if (frameWidth > 0)
 		{
 			var frameCountEstimate = Math.Max(1, imageHeight / frameWidth);
-			var candidate = frameCountEstimate > 0 ? imageHeight / frameCountEstimate : imageHeight;
+			var candidate = imageHeight / frameCountEstimate;
 			if (candidate > 0)
 			{
 				return Math.Max(1, candidate);
@@ -466,7 +512,7 @@ public sealed class TextureRepository : IDisposable
 	{
 		if (!animation.TryGetProperty("frames", out var framesElement) || framesElement.ValueKind != JsonValueKind.Array)
 		{
-			return Array.Empty<int>();
+			return [];
 		}
 
 		var indices = new List<int>();
@@ -520,6 +566,9 @@ public sealed class TextureRepository : IDisposable
 		}
 
 		_missingTexture.Dispose();
+		GrassColorMap?.Dispose();
+		FoliageColorMap?.Dispose();
+		DryFoliageColorMap?.Dispose();
 	}
 
 	private sealed record TextureContentEntry(string Name, string? Texture);

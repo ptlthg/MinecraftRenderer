@@ -44,7 +44,7 @@ public sealed partial class MinecraftBlockRenderer
 		if (model is not null && IsBillboardModel(model))
 		{
 			var billboardTextures = CollectBillboardTextures(model, itemInfo);
-			if (TryRenderFlatItemFromIdentifiers(billboardTextures, model, options, out flatRender))
+			if (TryRenderFlatItemFromIdentifiers(billboardTextures, model, options, itemName, out flatRender))
 			{
 				return flatRender;
 			}
@@ -139,7 +139,7 @@ public sealed partial class MinecraftBlockRenderer
 
 		if (itemInfo is not null && !string.IsNullOrWhiteSpace(itemInfo.Texture))
 		{
-				TryAdd(itemInfo.Texture, allowNonGuiTexture: isBillboardModel);
+			TryAdd(itemInfo.Texture, allowNonGuiTexture: isBillboardModel);
 		}
 
 		var normalized = NormalizeItemTextureKey(itemName);
@@ -154,10 +154,10 @@ public sealed partial class MinecraftBlockRenderer
 			return false;
 		}
 
-		return TryRenderFlatItemFromIdentifiers(candidates, model, options, out rendered);
+			return TryRenderFlatItemFromIdentifiers(candidates, model, options, itemName, out rendered);
 	}
 
-	private bool TryRenderFlatItemFromIdentifiers(IEnumerable<string> identifiers, BlockModelInstance? model, BlockRenderOptions options, out Image<Rgba32> rendered)
+	private bool TryRenderFlatItemFromIdentifiers(IEnumerable<string> identifiers, BlockModelInstance? model, BlockRenderOptions options, string? tintContext, out Image<Rgba32> rendered)
 	{
 		var resolved = ResolveTextureIdentifiers(identifiers, model);
 		var available = new List<string>();
@@ -176,7 +176,7 @@ public sealed partial class MinecraftBlockRenderer
 			return false;
 		}
 
-		rendered = RenderFlatItem(available, options);
+		rendered = RenderFlatItem(available, options, tintContext);
 		return true;
 	}
 
@@ -320,25 +320,25 @@ public sealed partial class MinecraftBlockRenderer
 
 	private Image<Rgba32> RenderFallbackTexture(string itemName, ItemRegistry.ItemInfo? itemInfo, BlockModelInstance? model, BlockRenderOptions options)
 	{
-		if (TryRenderFlatItemFromIdentifiers(CollectItemLayerTextures(model, itemInfo), model, options, out var rendered))
+		if (TryRenderFlatItemFromIdentifiers(CollectItemLayerTextures(model, itemInfo), model, options, itemName, out var rendered))
 		{
 			return rendered;
 		}
 
-		if (itemInfo is not null && !string.IsNullOrWhiteSpace(itemInfo.Texture) && TryRenderEmbeddedTexture(itemInfo.Texture, options, out rendered))
+		if (itemInfo is not null && !string.IsNullOrWhiteSpace(itemInfo.Texture) && TryRenderEmbeddedTexture(itemInfo.Texture, options, itemName, out rendered))
 		{
 			return rendered;
 		}
 
 		foreach (var candidate in EnumerateTextureFallbackCandidates(itemName))
 		{
-			if (TryRenderEmbeddedTexture(candidate, options, out rendered))
+			if (TryRenderEmbeddedTexture(candidate, options, itemName, out rendered))
 			{
 				return rendered;
 			}
 		}
 
-		return RenderFlatItem(new[] { "minecraft:missingno" }, options);
+		return RenderFlatItem(new[] { "minecraft:missingno" }, options, itemName);
 	}
 
 		private bool TryRenderBedItem(string itemName, BlockModelInstance? itemModel, BlockRenderOptions options, out Image<Rgba32> rendered)
@@ -817,11 +817,11 @@ public sealed partial class MinecraftBlockRenderer
 		return resolved;
 	}
 
-	private bool TryRenderEmbeddedTexture(string textureId, BlockRenderOptions options, out Image<Rgba32> rendered)
+	private bool TryRenderEmbeddedTexture(string textureId, BlockRenderOptions options, string? tintContext, out Image<Rgba32> rendered)
 	{
 		if (_textureRepository.TryGetTexture(textureId, out _))
 		{
-			rendered = RenderFlatItem(new[] { textureId }, options);
+			rendered = RenderFlatItem(new[] { textureId }, options, tintContext);
 			return true;
 		}
 
@@ -843,13 +843,13 @@ public sealed partial class MinecraftBlockRenderer
 		}
 	}
 
-	private Image<Rgba32> RenderFlatItem(IReadOnlyList<string> layerTextureIds, BlockRenderOptions options)
+	private Image<Rgba32> RenderFlatItem(IReadOnlyList<string> layerTextureIds, BlockRenderOptions options, string? tintContext)
 	{
 		var canvas = new Image<Rgba32>(options.Size, options.Size, Color.Transparent);
 
 		foreach (var textureId in layerTextureIds)
 		{
-			var texture = _textureRepository.GetTexture(textureId);
+			var texture = ResolveItemLayerTexture(textureId, tintContext);
 			var scale = MathF.Min(options.Size / (float)texture.Width, options.Size / (float)texture.Height);
 			var targetWidth = Math.Max(1, (int)MathF.Round(texture.Width * scale));
 			var targetHeight = Math.Max(1, (int)MathF.Round(texture.Height * scale));
@@ -866,6 +866,163 @@ public sealed partial class MinecraftBlockRenderer
 		}
 
 		return canvas;
+	}
+
+	private Image<Rgba32> ResolveItemLayerTexture(string textureId, string? tintContext)
+	{
+		var constantTint = TryGetConstantTint(textureId, tintContext);
+		if (constantTint.HasValue)
+		{
+			return _textureRepository.GetTintedTexture(textureId, constantTint.Value, ConstantTintStrength);
+		}
+
+		if (TryGetBiomeTintKind(textureId, tintContext, out var biomeKind))
+		{
+			return GetBiomeTintedTexture(textureId, biomeKind);
+		}
+
+		if (ShouldApplyItemColorTint(textureId, tintContext))
+		{
+			var fallbackTint = GetColorFromBlockName(tintContext) ?? GetColorFromBlockName(textureId);
+			if (fallbackTint.HasValue)
+			{
+				return _textureRepository.GetTintedTexture(textureId, fallbackTint.Value, 1f, ColorTintBlend);
+			}
+		}
+
+		return _textureRepository.GetTexture(textureId);
+	}
+
+	private bool ShouldApplyItemColorTint(string textureId, string? tintContext)
+	{
+		if (string.IsNullOrWhiteSpace(tintContext))
+		{
+			return false;
+		}
+
+		var normalizedContext = NormalizeResourceKey(tintContext);
+		if (string.IsNullOrEmpty(normalizedContext))
+		{
+			return false;
+		}
+
+		var textureKey = NormalizeResourceKey(textureId);
+
+		if (_itemRegistry is not null && _itemRegistry.TryGetInfo(normalizedContext, out var itemInfo))
+		{
+			BlockModelInstance? model = null;
+
+			if (!string.IsNullOrWhiteSpace(itemInfo.Model))
+			{
+				model = ResolveModelOrNull(itemInfo.Model!);
+			}
+
+			model ??= ResolveModelOrNull(normalizedContext);
+
+			if (model is not null)
+			{
+				if (ModelChainIndicatesDyeTint(model))
+				{
+					return true;
+				}
+
+				return ShouldApplyColorByHeuristic(textureKey, normalizedContext);
+			}
+		}
+
+		return ShouldApplyColorByHeuristic(textureKey, normalizedContext);
+	}
+
+	private static bool ModelChainIndicatesDyeTint(BlockModelInstance model)
+	{
+		if (IsDyeTintTemplate(model.Name))
+		{
+			return true;
+		}
+
+		for (var i = 0; i < model.ParentChain.Count; i++)
+		{
+			if (IsDyeTintTemplate(model.ParentChain[i]))
+			{
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	private static bool IsDyeTintTemplate(string? candidate)
+	{
+		if (string.IsNullOrWhiteSpace(candidate))
+		{
+			return false;
+		}
+
+		if (candidate.Contains("template_shulker_box", StringComparison.OrdinalIgnoreCase))
+		{
+			return true;
+		}
+
+		if (candidate.Contains("template_banner", StringComparison.OrdinalIgnoreCase))
+		{
+			return true;
+		}
+
+		return false;
+	}
+
+	private static bool ShouldApplyColorByHeuristic(string textureKey, string contextKey)
+	{
+		if (!ContainsColorToken(contextKey))
+		{
+			return false;
+		}
+
+		if (string.IsNullOrEmpty(textureKey))
+		{
+			return true;
+		}
+
+		return !ContainsColorToken(textureKey);
+	}
+
+	private static bool ContainsColorToken(string value)
+	{
+		if (string.IsNullOrEmpty(value))
+		{
+			return false;
+		}
+
+		foreach (var colorName in ColorMap.Keys)
+		{
+			if (ContainsColorToken(value, colorName))
+			{
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	private static bool ContainsColorToken(string source, string token)
+	{
+		var index = source.IndexOf(token, StringComparison.OrdinalIgnoreCase);
+		while (index >= 0)
+		{
+			var beforeIndex = index - 1;
+			var afterIndex = index + token.Length;
+			var hasLetterBefore = beforeIndex >= 0 && char.IsLetter(source[beforeIndex]);
+			var hasLetterAfter = afterIndex < source.Length && char.IsLetter(source[afterIndex]);
+
+			if (!hasLetterBefore && !hasLetterAfter)
+			{
+				return true;
+			}
+
+			index = source.IndexOf(token, index + 1, StringComparison.OrdinalIgnoreCase);
+		}
+
+		return false;
 	}
 
 }

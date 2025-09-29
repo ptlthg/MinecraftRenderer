@@ -53,7 +53,13 @@ public sealed partial class MinecraftBlockRenderer
 			return new Image<Rgba32>(options.Size, options.Size, Color.Transparent);
 		}
 
-		triangles.Sort((a, b) => b.Depth.CompareTo(a.Depth));
+		triangles.Sort((a, b) =>
+		{
+			var depthComparison = b.Depth.CompareTo(a.Depth);
+			return depthComparison != 0
+				? depthComparison
+				: a.RenderPriority.CompareTo(b.RenderPriority);
+		});
 
 		var bounds = ComputeBounds(triangles);
 		var referenceBounds = ComputeReferenceBounds(totalTransform);
@@ -456,7 +462,8 @@ public sealed partial class MinecraftBlockRenderer
 		Vector3 Normal,
 		Vector3 Centroid,
 		BlockFaceDirection FaceDirection,
-		int ElementIndex);
+		int ElementIndex,
+		int RenderPriority);
 
 	private readonly record struct Bounds(float MinX, float MaxX, float MinY, float MaxY);
 

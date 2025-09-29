@@ -152,6 +152,34 @@ public sealed class BlockRendererTests
 	}
 
 	[Fact]
+	public void BiomeTintWhitelistMatchesExpectations()
+	{
+		var method = typeof(MinecraftBlockRenderer)
+			.GetMethod("TryGetBiomeTintKind", BindingFlags.NonPublic | BindingFlags.Static)
+			?? throw new InvalidOperationException("TryGetBiomeTintKind method not found");
+
+		static (bool Result, string? Kind) Invoke(MethodInfo method, string textureId, string? blockName)
+		{
+			var arguments = new object?[] { textureId, blockName, null };
+			var success = (bool)method.Invoke(null, arguments)!;
+			var kind = success ? arguments[2]?.ToString() : null;
+			return (success, kind);
+		}
+
+		var grass = Invoke(method, "minecraft:block/grass_block_top", "grass_block");
+		Assert.True(grass.Result);
+		Assert.Equal("Grass", grass.Kind);
+
+		var foliage = Invoke(method, "minecraft:block/oak_leaves", "oak_leaves");
+		Assert.True(foliage.Result);
+		Assert.Equal("Foliage", foliage.Kind);
+
+		var cherrySapling = Invoke(method, "minecraft:block/cherry_sapling", "cherry_sapling");
+		Assert.False(cherrySapling.Result);
+		Assert.Null(cherrySapling.Kind);
+	}
+
+	[Fact]
 	public void RenderChestUsesOverlayModels()
 	{
 		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
