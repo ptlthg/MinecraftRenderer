@@ -200,14 +200,9 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		{ "black", new Color(new Rgb24(29, 29, 33)) }
 	};
 	
-	// https://minecraft.wiki/w/Color#Constant_colors
-	private static readonly Dictionary<string, Color> ConstantColors = new(StringComparer.OrdinalIgnoreCase)
-	{
-		{ "birch_leaves", new Color(new Rgb24(128, 167, 85)) },
-		{ "spruce_leaves", new Color(new Rgb24(97, 153, 97)) },
-		{ "lily_pad", new Color(new Rgb24(32, 128, 48)) },
-		// Also attached melon/pumpkin stems, but those are outside the scope of this
-	};
+	private static readonly Lazy<BiomeTintConfiguration> BiomeTintConfigurationLazy = new(BiomeTintConfiguration.LoadDefault);
+
+	private static BiomeTintConfiguration BiomeTints => BiomeTintConfigurationLazy.Value;
 
 	private const float ConstantTintStrength = 1.45f;
 	private const float ColorTintBlend = 0.82f;
@@ -218,182 +213,6 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		Foliage,
 		DryFoliage
 	}
-
-	private static readonly HashSet<string> GrassTintTextures = new(StringComparer.OrdinalIgnoreCase)
-	{
-		"grass",
-		"tall_grass",
-		"short_grass",
-		"large_fern",
-		"fern",
-		"grass_block_top",
-		"grass_block_side_overlay",
-		"grass_block_snow",
-		"hanging_roots",
-		"pale_hanging_moss",
-		"pale_hanging_moss_tip",
-		"moss",
-		"moss_block",
-		"moss_carpet",
-		"pale_moss_block",
-		"pale_moss_carpet",
-		"sugar_cane",
-		"cattail",
-		"kelp",
-		"kelp_top",
-		"kelp_plant",
-		"seagrass",
-		"seagrass_top",
-		"tall_seagrass_top",
-		"sea_grass"
-	};
-
-	private static readonly HashSet<string> GrassTintBlocks = new(StringComparer.OrdinalIgnoreCase)
-	{
-		"grass_block",
-		"grass",
-		"tall_grass",
-		"short_grass",
-		"large_fern",
-		"fern",
-		"hanging_roots",
-		"pale_hanging_moss",
-		"pale_hanging_moss_tip",
-		"moss_block",
-		"moss_carpet",
-		"pale_moss_block",
-		"pale_moss_carpet",
-		"seagrass",
-		"tall_seagrass",
-		"kelp",
-		"kelp_plant",
-		"sugar_cane",
-		"cattail",
-		"potted_fern"
-	};
-
-	private static readonly HashSet<string> FoliageTintTextures = new(StringComparer.OrdinalIgnoreCase)
-	{
-		"oak_leaves",
-		"spruce_leaves",
-		"birch_leaves",
-		"jungle_leaves",
-		"acacia_leaves",
-		"dark_oak_leaves",
-		"mangrove_leaves",
-		"pale_oak_leaves",
-		"azalea_leaves",
-		"flowering_azalea_leaves",
-		"vine",
-		"cave_vines",
-		"cave_vines_body",
-		"cave_vines_body_lit",
-		"cave_vines_head",
-		"cave_vines_head_lit",
-		"cave_vines_lit",
-		"cave_vines_plant",
-		"cave_vines_plant_lit",
-		"oak_sapling",
-		"spruce_sapling",
-		"birch_sapling",
-		"jungle_sapling",
-		"acacia_sapling",
-		"dark_oak_sapling",
-		"mangrove_propagule",
-		"pale_oak_sapling",
-		"azalea",
-		"flowering_azalea",
-		"big_dripleaf_top",
-		"big_dripleaf_stem",
-		"big_dripleaf_stem_bottom",
-		"big_dripleaf_stem_mid",
-		"small_dripleaf_top",
-		"small_dripleaf_stem",
-		"small_dripleaf_stem_top"
-	};
-
-	private static readonly HashSet<string> FoliageTintBlocks = new(StringComparer.OrdinalIgnoreCase)
-	{
-		"oak_leaves",
-		"spruce_leaves",
-		"birch_leaves",
-		"jungle_leaves",
-		"acacia_leaves",
-		"dark_oak_leaves",
-		"mangrove_leaves",
-		"pale_oak_leaves",
-		"azalea_leaves",
-		"flowering_azalea_leaves",
-		"vine",
-		"cave_vines",
-		"cave_vines_plant",
-		"cave_vines_lit",
-		"cave_vines_plant_lit",
-		"oak_sapling",
-		"spruce_sapling",
-		"birch_sapling",
-		"jungle_sapling",
-		"acacia_sapling",
-		"dark_oak_sapling",
-		"mangrove_propagule",
-		"pale_oak_sapling",
-		"azalea",
-		"flowering_azalea",
-		"big_dripleaf",
-		"big_dripleaf_stem",
-		"small_dripleaf",
-		"small_dripleaf_stem",
-		"potted_oak_sapling",
-		"potted_spruce_sapling",
-		"potted_birch_sapling",
-		"potted_jungle_sapling",
-		"potted_acacia_sapling",
-		"potted_dark_oak_sapling",
-		"potted_mangrove_propagule",
-		"potted_pale_oak_sapling",
-		"potted_azalea_bush",
-		"potted_flowering_azalea_bush"
-	};
-
-	private static readonly HashSet<string> DryFoliageTintTextures = new(StringComparer.OrdinalIgnoreCase)
-	{
-		"dead_bush",
-		"leaf_litter",
-		"leaf_litter_1",
-		"leaf_litter_2",
-		"leaf_litter_3",
-		"leaf_litter_4",
-		"short_dry_grass",
-		"tall_dry_grass"
-	};
-
-	private static readonly HashSet<string> DryFoliageTintBlocks = new(StringComparer.OrdinalIgnoreCase)
-	{
-		"dead_bush",
-		"leaf_litter",
-		"leaf_litter_1",
-		"leaf_litter_2",
-		"leaf_litter_3",
-		"leaf_litter_4",
-		"short_dry_grass",
-		"tall_dry_grass",
-		"potted_dead_bush"
-	};
-
-	private static readonly HashSet<string> ItemTintExclusions = new(StringComparer.OrdinalIgnoreCase)
-	{
-		"oak_sapling",
-		"spruce_sapling",
-		"birch_sapling",
-		"jungle_sapling",
-		"acacia_sapling",
-		"dark_oak_sapling",
-		"mangrove_propagule",
-		"pale_oak_sapling",
-		"azalea",
-		"flowering_azalea",
-		"cherry_sapling"
-	};
 
 	private static readonly Dictionary<BiomeTintKind, (float Temperature, float Downfall)> DefaultBiomeTintCoordinates = new()
 	{
@@ -416,7 +235,8 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 			return null;
 		}
 		
-		if (ConstantColors.TryGetValue(name, out var constantColor))
+		var constantColors = BiomeTints.ConstantColors;
+		if (constantColors.TryGetValue(name, out var constantColor))
 		{
 			return constantColor;
 		}
@@ -564,29 +384,31 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 
 	private static bool TryGetBiomeTintKind(string textureId, string? blockName, out BiomeTintKind kind)
 	{
+		var config = BiomeTints;
 		var textureKey = NormalizeResourceKey(textureId);
 		var blockKey = NormalizeResourceKey(blockName);
 		var isItemTexture = IsLikelyItemTexture(textureId);
 
-		if (isItemTexture && (IsInSet(ItemTintExclusions, textureKey) || IsInSet(ItemTintExclusions, blockKey)))
+		if (isItemTexture &&
+			(IsInSet(config.ItemTintExclusions, textureKey) || IsInSet(config.ItemTintExclusions, blockKey)))
 		{
 			kind = default;
 			return false;
 		}
 
-		if (IsDry(textureKey) || IsDry(blockKey))
+		if (IsDry(config, textureKey) || IsDry(config, blockKey))
 		{
 			kind = BiomeTintKind.DryFoliage;
 			return true;
 		}
 
-		if (IsGrass(textureKey) || IsGrass(blockKey))
+		if (IsGrass(config, textureKey) || IsGrass(config, blockKey))
 		{
 			kind = BiomeTintKind.Grass;
 			return true;
 		}
 
-		if (IsFoliage(textureKey) || IsFoliage(blockKey))
+		if (IsFoliage(config, textureKey) || IsFoliage(config, blockKey))
 		{
 			kind = BiomeTintKind.Foliage;
 			return true;
@@ -598,26 +420,27 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		static bool IsInSet(HashSet<string> set, string? key)
 			=> !string.IsNullOrEmpty(key) && set.Contains(key);
 
-		static bool IsDry(string? key)
-			=> IsInSet(DryFoliageTintTextures, key) || IsInSet(DryFoliageTintBlocks, key);
+		static bool IsDry(BiomeTintConfiguration config, string? key)
+			=> IsInSet(config.DryFoliageTextures, key) || IsInSet(config.DryFoliageBlocks, key);
 
-		static bool IsGrass(string? key)
-			=> IsInSet(GrassTintTextures, key) || IsInSet(GrassTintBlocks, key);
+		static bool IsGrass(BiomeTintConfiguration config, string? key)
+			=> IsInSet(config.GrassTextures, key) || IsInSet(config.GrassBlocks, key);
 
-		static bool IsFoliage(string? key)
-			=> IsInSet(FoliageTintTextures, key) || IsInSet(FoliageTintBlocks, key);
+		static bool IsFoliage(BiomeTintConfiguration config, string? key)
+			=> IsInSet(config.FoliageTextures, key) || IsInSet(config.FoliageBlocks, key);
 	}
 
 	private static Color? TryGetConstantTint(string textureId, string? blockName)
 	{
 		var textureKey = NormalizeResourceKey(textureId);
-		if (ConstantColors.TryGetValue(textureKey, out var color))
+		var constantColors = BiomeTints.ConstantColors;
+		if (constantColors.TryGetValue(textureKey, out var color))
 		{
 			return color;
 		}
 
 		var blockKey = NormalizeResourceKey(blockName);
-		if (ConstantColors.TryGetValue(blockKey, out color))
+		if (constantColors.TryGetValue(blockKey, out color))
 		{
 			return color;
 		}

@@ -10,4 +10,8 @@
       <PackageReference Include="SixLabors.ImageSharp" Version="3.1.11" />
     </ItemGroup>
 
+    <ItemGroup>
+      <None Include="Data\biome_tint_config.json" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
 </Project>
