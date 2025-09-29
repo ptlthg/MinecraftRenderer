@@ -1,7 +1,7 @@
-This whole folder was taken from MIT licensed code here:
-https://github.com/zardoy/mc-assets/tree/main/custom
+Most of this folder was taken from MIT licensed code here:
+https://github.com/zardoy/mc-assets/tree/main/custom - Thank you!
 
-Thank you!
+I added 1.21.9 copper chests/copper golems
 
 
 # The MIT License
