@@ -4,7 +4,7 @@
 - [x] Conduit in GUI doesn't render at all
 - [x] Heavy core is a black cube with a purple top texture
 - [ ] Spore blossom render has its fans flipped upside down
-- [ ] Banners in the gui are facing the wrong way, we see the back of them
+- [x] Banners in the gui are facing the wrong way, we see the back of them
 - [x] Compass/recovery compass/clock items should use the _00 suffix texture if they don't have one
 - [ ] Backfaces on trapdoors and leaves and other blocks maybe need to be culled.
   - The current backface culling isn't working for this, it only applies to billboarded textures and breaks big_dripleaf

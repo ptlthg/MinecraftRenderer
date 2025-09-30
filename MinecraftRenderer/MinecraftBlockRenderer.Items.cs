@@ -79,6 +79,11 @@ public sealed partial class MinecraftBlockRenderer
 			}
 		}
 
+		if (options.UseGuiTransform && IsBannerItem(normalizedItemKey))
+		{
+			options = options with { OverrideGuiTransform = AdjustBannerGuiTransform(options.OverrideGuiTransform) };
+		}
+
 		postScale = GetPostRenderScale(normalizedItemKey);
 
 		if (TryRenderGuiTextureLayers(itemName, itemInfo, model, options, out var flatRender))
@@ -640,6 +645,36 @@ public sealed partial class MinecraftBlockRenderer
 				Rotation = rotationArray,
 				Translation = translationArray,
 				Scale = scaleArray
+			};
+		}
+
+		private static TransformDefinition AdjustBannerGuiTransform(TransformDefinition? original)
+		{
+			const float YawAdjustment = 215f;
+
+			var rotation = original?.Rotation is { Length: > 0 } rotationSource
+				? CloneVector(rotationSource, Math.Max(3, rotationSource.Length))
+				: new float[3];
+			EnsureLength(ref rotation, 3);
+			rotation[1] = NormalizeRotation(rotation[1] + YawAdjustment);
+
+			float[]? translation = null;
+			if (original?.Translation is { } translationSource)
+			{
+				translation = CloneVector(translationSource, Math.Max(3, translationSource.Length));
+			}
+
+			float[]? scale = null;
+			if (original?.Scale is { } scaleSource)
+			{
+				scale = CloneVector(scaleSource, Math.Max(3, scaleSource.Length));
+			}
+
+			return new TransformDefinition
+			{
+				Rotation = rotation,
+				Translation = translation,
+				Scale = scale
 			};
 		}
 
