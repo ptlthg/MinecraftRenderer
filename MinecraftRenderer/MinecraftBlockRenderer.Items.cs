@@ -237,9 +237,19 @@ public sealed partial class MinecraftBlockRenderer
 
 	private bool TryRenderBlockEntityFallback(string itemName, ItemRegistry.ItemInfo? itemInfo, BlockModelInstance? model, IReadOnlyList<string> modelCandidates, BlockRenderOptions options, out Image<Rgba32> rendered)
 	{
+		var blockOptions = options;
+		if (options.OverrideGuiTransform is not null && model is not null && model.Elements.Count == 0)
+		{
+			var itemGuiTransform = model.GetDisplayTransform("gui");
+			if (ReferenceEquals(itemGuiTransform, options.OverrideGuiTransform))
+			{
+				blockOptions = options with { OverrideGuiTransform = null };
+			}
+		}
+
 		foreach (var candidate in EnumerateBlockFallbackNames(itemName, itemInfo, model, modelCandidates))
 		{
-			if (TryRenderBlockItem(candidate, options, out rendered))
+			if (TryRenderBlockItem(candidate, blockOptions, out rendered))
 			{
 				return true;
 			}
