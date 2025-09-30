@@ -71,8 +71,7 @@ public sealed partial class MinecraftBlockRenderer
 
 			var faceUv = GetFaceUv(face, direction, element);
 			
-			if ((direction == BlockFaceDirection.Up || direction == BlockFaceDirection.Down) &&
-			    element.Rotation is not null)
+			if (element.Rotation is not null && direction is BlockFaceDirection.Up or BlockFaceDirection.Down)
 			{
 				if (string.Equals(element.Rotation.Axis, "x", StringComparison.OrdinalIgnoreCase))
 				{

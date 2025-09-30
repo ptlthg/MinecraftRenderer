@@ -13,9 +13,9 @@ public sealed partial class MinecraftBlockRenderer
 {
 	private static readonly TransformDefinition DefaultGuiTransform = new()
 	{
-		Rotation = new[] { 30f, 45f, 0f },
-		Translation = new[] { 0f, 0f, 0f },
-		Scale = new[] { 0.625f, 0.625f, 0.625f }
+		Rotation = [30f, 45f, 0f],
+		Translation = [0f, 0f, 0f],
+		Scale = [0.625f, 0.625f, 0.625f]
 	};
 
 	private static readonly float DefaultGuiScaleMagnitude = ComputeTransformScaleMagnitude(DefaultGuiTransform);
@@ -32,7 +32,9 @@ public sealed partial class MinecraftBlockRenderer
 		{
 			guiTransform = model.GetDisplayTransform("gui");
 		}
+		
 		guiTransform ??= DefaultGuiTransform;
+		
 		var displayTransform = BuildDisplayTransform(guiTransform);
 		var displayTransformWithoutScale = BuildDisplayTransform(guiTransform, includeScale: false);
 		var additionalRotation = CreateRotationMatrix(options.YawInDegrees * DegreesToRadians, options.PitchInDegrees * DegreesToRadians, options.RollInDegrees * DegreesToRadians);
@@ -44,14 +46,14 @@ public sealed partial class MinecraftBlockRenderer
 		var translationMatrix = Matrix4x4.CreateTranslation(translationVector);
 		var orientationCorrection = Matrix4x4.CreateRotationY(MathF.PI / 2f);
 
-		Matrix4x4 totalTransform = Matrix4x4.Identity;
+		var totalTransform = Matrix4x4.Identity;
 		totalTransform = Matrix4x4.Multiply(totalTransform, displayTransform);
 		totalTransform = Matrix4x4.Multiply(totalTransform, additionalRotation);
 		totalTransform = Matrix4x4.Multiply(totalTransform, scaleMatrix);
 		totalTransform = Matrix4x4.Multiply(totalTransform, translationMatrix);
 		totalTransform = Matrix4x4.Multiply(orientationCorrection, totalTransform);
 
-		Matrix4x4 referenceTransform = Matrix4x4.Identity;
+		var referenceTransform = Matrix4x4.Identity;
 		referenceTransform = Matrix4x4.Multiply(referenceTransform, displayTransformWithoutScale);
 		referenceTransform = Matrix4x4.Multiply(referenceTransform, additionalRotation);
 		referenceTransform = Matrix4x4.Multiply(referenceTransform, translationMatrix);
@@ -175,8 +177,9 @@ public sealed partial class MinecraftBlockRenderer
 
 	private static HashSet<CullTarget> DetermineCullTargets(BlockModelInstance model)
 	{
-		const float ThicknessThreshold = 1e-3f;
+		const float thicknessThreshold = 1e-3f;
 		var targets = new HashSet<CullTarget>();
+		
 		for (var elementIndex = 0; elementIndex < model.Elements.Count; elementIndex++)
 		{
 			var element = model.Elements[elementIndex];
@@ -184,9 +187,9 @@ public sealed partial class MinecraftBlockRenderer
 			var thicknessY = MathF.Abs(element.To.Y - element.From.Y);
 			var thicknessZ = MathF.Abs(element.To.Z - element.From.Z);
 
-			TryAddCullPair(model, targets, elementIndex, element, BlockFaceDirection.North, BlockFaceDirection.South, thicknessZ, ThicknessThreshold);
-			TryAddCullPair(model, targets, elementIndex, element, BlockFaceDirection.East, BlockFaceDirection.West, thicknessX, ThicknessThreshold);
-			TryAddCullPair(model, targets, elementIndex, element, BlockFaceDirection.Up, BlockFaceDirection.Down, thicknessY, ThicknessThreshold);
+			TryAddCullPair(model, targets, elementIndex, element, BlockFaceDirection.North, BlockFaceDirection.South, thicknessZ, thicknessThreshold);
+			TryAddCullPair(model, targets, elementIndex, element, BlockFaceDirection.East, BlockFaceDirection.West, thicknessX, thicknessThreshold);
+			TryAddCullPair(model, targets, elementIndex, element, BlockFaceDirection.Up, BlockFaceDirection.Down, thicknessY, thicknessThreshold);
 		}
 
 		return targets;
@@ -481,7 +484,7 @@ public sealed partial class MinecraftBlockRenderer
 
 		return new Vector3(u, v, w);
 	}
-
+	
 	private readonly record struct VisibleTriangle(
 		Vector3 V1,
 		Vector3 V2,
