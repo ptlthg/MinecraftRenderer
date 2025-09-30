@@ -70,6 +70,21 @@ public sealed partial class MinecraftBlockRenderer
 			}
 
 			var faceUv = GetFaceUv(face, direction, element);
+			
+			if ((direction == BlockFaceDirection.Up || direction == BlockFaceDirection.Down) &&
+			    element.Rotation is not null)
+			{
+				if (string.Equals(element.Rotation.Axis, "x", StringComparison.OrdinalIgnoreCase))
+				{
+					faceUv = faceUv with { X = faceUv.Z, Z = faceUv.X };
+				}
+
+				if (string.Equals(element.Rotation.Axis, "z", StringComparison.OrdinalIgnoreCase))
+				{
+					faceUv = faceUv with { Y = faceUv.W, W = faceUv.X };
+				}
+			}
+			
 			var textureRect = ComputeTextureRectangle(faceUv, texture);
 
 			var uvMap = CreateUvMap(element, direction, faceUv, face.Rotation ?? 0);
@@ -80,70 +95,13 @@ public sealed partial class MinecraftBlockRenderer
 			{
 				localFace[i] = vertices[indices[i]];
 			}
-
-			var localNormal = Vector3.Cross(localFace[1] - localFace[0], localFace[2] - localFace[0]);
-			var shouldFlip = false;
-
-			if (localNormal != Vector3.Zero)
-			{
-				var centroid = (localFace[0] + localFace[1] + localFace[2] + localFace[3]) * 0.25f;
-				var outwardDot = Vector3.Dot(localNormal, centroid);
-
-				if (MathF.Abs(outwardDot) > 1e-6f)
-				{
-					shouldFlip = outwardDot < 0f;
-				}
-				else
-				{
-					var expectedNormal = direction switch
-					{
-						BlockFaceDirection.South => Vector3.UnitZ,
-						BlockFaceDirection.North => -Vector3.UnitZ,
-						BlockFaceDirection.East => Vector3.UnitX,
-						BlockFaceDirection.West => -Vector3.UnitX,
-						BlockFaceDirection.Up => Vector3.UnitY,
-						BlockFaceDirection.Down => -Vector3.UnitY,
-						_ => Vector3.UnitZ
-					};
-
-					if (element.Rotation is not null)
-					{
-						var axisVector = element.Rotation.Axis switch
-						{
-							"x" or "X" => Vector3.UnitX,
-							"z" or "Z" => Vector3.UnitZ,
-							_ => Vector3.UnitY
-						};
-						var angle = element.Rotation.AngleInDegrees * DegreesToRadians;
-						var normalRotation = Matrix4x4.CreateFromAxisAngle(axisVector, angle);
-						expectedNormal = Vector3.TransformNormal(expectedNormal, normalRotation);
-					}
-
-					shouldFlip = Vector3.Dot(localNormal, expectedNormal) < 0f;
-				}
-			}
-
+			
 			var transformed = new Vector3[4];
 			for (var i = 0; i < 4; i++)
 			{
 				transformed[i] = Vector3.Transform(localFace[i], transform);
 			}
 
-			if (shouldFlip)
-			{
-				(transformed[1], transformed[3]) = (transformed[3], transformed[1]);
-				(uvMap[1], uvMap[3]) = (uvMap[3], uvMap[1]);
-			}
-
-			if ((direction == BlockFaceDirection.Up || direction == BlockFaceDirection.Down) &&
-				element.Rotation is not null &&
-				string.Equals(element.Rotation.Axis, "x", StringComparison.OrdinalIgnoreCase))
-			{
-				for (var i = 0; i < uvMap.Length; i++)
-				{
-					uvMap[i].Y = 1f - uvMap[i].Y;
-				}
-			}
 
 			var depth = (transformed[0].Z + transformed[1].Z + transformed[2].Z + transformed[3].Z) * 0.25f;
 			var triangle1Normal = Vector3.Cross(transformed[1] - transformed[0], transformed[2] - transformed[0]);
@@ -191,8 +149,8 @@ public sealed partial class MinecraftBlockRenderer
 		var ty = NormalizeComponent(max.Y);
 		var tz = NormalizeComponent(max.Z);
 
-		return new[]
-		{
+		return
+		[
 			new Vector3(fx, fy, fz),
 			new Vector3(tx, fy, fz),
 			new Vector3(tx, ty, fz),
@@ -201,7 +159,7 @@ public sealed partial class MinecraftBlockRenderer
 			new Vector3(tx, fy, tz),
 			new Vector3(tx, ty, tz),
 			new Vector3(fx, ty, tz)
-		};
+		];
 	}
 
 	private static float NormalizeComponent(float value) => value / 16f - 0.5f;
