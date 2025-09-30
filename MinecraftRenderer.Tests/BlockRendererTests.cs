@@ -452,6 +452,100 @@ public sealed class BlockRendererTests
 		Assert.True(HasOpaquePixels(image), "Spore blossom viewed from above should contain visible pixels.");
 	}
 
+		[Fact]
+		public void RotatedHorizontalFanDownFaceUsesExpectedUvOrientation()
+		{
+			using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+
+			using var gradient = CreateVerticalSplitTexture(new Rgba32(255, 0, 0, 255), new Rgba32(0, 0, 255, 255));
+			renderer.TextureRepository.RegisterTexture("minecraft:block/unit_test_rotated_fan", gradient, overwrite: true);
+
+			var faces = new Dictionary<BlockFaceDirection, ModelFace>
+			{
+				[BlockFaceDirection.Up] = new("#fan", new Vector4(0f, 0f, 16f, 16f), null, null, null),
+				[BlockFaceDirection.Down] = new("#fan", new Vector4(0f, 16f, 16f, 0f), null, null, null)
+			};
+
+			var element = new ModelElement(
+				new Vector3(8f, 0f, 0f),
+				new Vector3(24f, 0f, 16f),
+				new ElementRotation(-22.5f, new Vector3(8f, 0f, 0f), "z", rescale: false),
+				faces,
+				shade: false);
+
+			var textures = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+			{
+				["fan"] = "minecraft:block/unit_test_rotated_fan",
+				["particle"] = "minecraft:block/unit_test_rotated_fan"
+			};
+
+			var model = new BlockModelInstance(
+				"unit_test:rotated_fan",
+				Array.Empty<string>(),
+				textures,
+				new Dictionary<string, TransformDefinition>(StringComparer.OrdinalIgnoreCase),
+				new List<ModelElement> { element });
+
+			var buildTriangles = typeof(MinecraftBlockRenderer)
+				.GetMethod("BuildTriangles", BindingFlags.NonPublic | BindingFlags.Instance)
+				?? throw new InvalidOperationException("BuildTriangles method not found");
+
+			var triangles = (IEnumerable)buildTriangles.Invoke(renderer, new object?[] { model, Matrix4x4.Identity, null })!;
+			var triangleType = triangles.GetType().GetGenericArguments().First();
+			var faceDirectionProp = triangleType.GetProperty("FaceDirection")
+				?? throw new InvalidOperationException("FaceDirection property not found");
+			var v1Prop = triangleType.GetProperty("V1")!;
+			var v2Prop = triangleType.GetProperty("V2")!;
+			var v3Prop = triangleType.GetProperty("V3")!;
+			var t1Prop = triangleType.GetProperty("T1")!;
+			var t2Prop = triangleType.GetProperty("T2")!;
+			var t3Prop = triangleType.GetProperty("T3")!;
+
+			var upVertices = new List<(Vector3 Position, Vector2 Uv)>();
+			var downVertices = new List<(Vector3 Position, Vector2 Uv)>();
+			foreach (var triangle in triangles)
+			{
+				var faceDirection = (BlockFaceDirection)faceDirectionProp.GetValue(triangle)!;
+
+				var v1 = (Vector3)v1Prop.GetValue(triangle)!;
+				var v2 = (Vector3)v2Prop.GetValue(triangle)!;
+				var v3 = (Vector3)v3Prop.GetValue(triangle)!;
+				var t1 = (Vector2)t1Prop.GetValue(triangle)!;
+				var t2 = (Vector2)t2Prop.GetValue(triangle)!;
+				var t3 = (Vector2)t3Prop.GetValue(triangle)!;
+
+				if (faceDirection == BlockFaceDirection.Up)
+				{
+					upVertices.Add((v1, t1));
+					upVertices.Add((v2, t2));
+					upVertices.Add((v3, t3));
+				}
+				else if (faceDirection == BlockFaceDirection.Down)
+				{
+					downVertices.Add((v1, t1));
+					downVertices.Add((v2, t2));
+					downVertices.Add((v3, t3));
+				}
+			}
+
+			Assert.NotEmpty(upVertices);
+
+			var maxZUpVertex = upVertices.MaxBy(v => v.Position.Z);
+			var minZUpVertex = upVertices.MinBy(v => v.Position.Z);
+			_output.WriteLine($"Up face -> max Z vertex: Z={maxZUpVertex.Position.Z:F3}, UV={maxZUpVertex.Uv}");
+			_output.WriteLine($"Up face -> min Z vertex: Z={minZUpVertex.Position.Z:F3}, UV={minZUpVertex.Uv}");
+
+			Assert.True(maxZUpVertex.Uv.Y + 0.4f < minZUpVertex.Uv.Y, "Up face UV V coordinate should decrease as Z increases after rotation.");
+
+			if (downVertices.Count > 0)
+			{
+				var maxZDownVertex = downVertices.MaxBy(v => v.Position.Z);
+				var minZDownVertex = downVertices.MinBy(v => v.Position.Z);
+				_output.WriteLine($"Down face -> max Z vertex: Z={maxZDownVertex.Position.Z:F3}, UV={maxZDownVertex.Uv}");
+				_output.WriteLine($"Down face -> min Z vertex: Z={minZDownVertex.Position.Z:F3}, UV={minZDownVertex.Uv}");
+			}
+		}
+
 	[Fact]
 	public void BigDripleafHasRenderedStem()
 	{
@@ -624,6 +718,84 @@ public sealed class BlockRendererTests
 			(byte)(totalB / count),
 			(byte)(totalA / count));
 	}
+
+		private static Rgba32 SampleOpaqueRowAverageColor(Image<Rgba32> image, bool searchFromTop)
+		{
+			if (searchFromTop)
+			{
+				for (var y = 0; y < image.Height; y++)
+				{
+					var row = image.DangerousGetPixelRowMemory(y).Span;
+					long totalR = 0;
+					long totalG = 0;
+					long totalB = 0;
+					long totalA = 0;
+					long count = 0;
+
+					for (var x = 0; x < row.Length; x++)
+					{
+						var pixel = row[x];
+						if (pixel.A <= 10)
+						{
+							continue;
+						}
+
+						totalR += pixel.R;
+						totalG += pixel.G;
+						totalB += pixel.B;
+						totalA += pixel.A;
+						count++;
+					}
+
+					if (count > 0)
+					{
+						return new Rgba32(
+							(byte)(totalR / count),
+							(byte)(totalG / count),
+							(byte)(totalB / count),
+							(byte)(totalA / count));
+					}
+				}
+			}
+			else
+			{
+				for (var y = image.Height - 1; y >= 0; y--)
+				{
+					var row = image.DangerousGetPixelRowMemory(y).Span;
+					long totalR = 0;
+					long totalG = 0;
+					long totalB = 0;
+					long totalA = 0;
+					long count = 0;
+
+					for (var x = 0; x < row.Length; x++)
+					{
+						var pixel = row[x];
+						if (pixel.A <= 10)
+						{
+							continue;
+						}
+
+						totalR += pixel.R;
+						totalG += pixel.G;
+						totalB += pixel.B;
+						totalA += pixel.A;
+						count++;
+					}
+
+					if (count > 0)
+					{
+						return new Rgba32(
+							(byte)(totalR / count),
+							(byte)(totalG / count),
+							(byte)(totalB / count),
+							(byte)(totalA / count));
+					}
+				}
+			}
+
+			return default;
+		}
 
 	private static bool HasOpaquePixels(Image<Rgba32> image)
 	{
