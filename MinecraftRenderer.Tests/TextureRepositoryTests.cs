@@ -4,6 +4,8 @@ using System.IO;
 using System.Linq;
 using System.Numerics;
 using MinecraftRenderer;
+using SixLabors.ImageSharp.Advanced;
+using SixLabors.ImageSharp.PixelFormats;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -26,6 +28,170 @@ public sealed class TextureRepositoryTests : IDisposable
 
 		Assert.Equal(16, texture.Width);
 		Assert.Equal(16, texture.Height);
+	}
+
+	[Fact]
+	public void ArmorTrimBootsPaletteIsApplied()
+	{
+		var baseOverlay = _repository.GetTexture("minecraft:trims/items/boots_trim");
+		var tintedOverlay = _repository.GetTexture("minecraft:trims/items/boots_trim_amethyst");
+		var genericPalette = _repository.GetTexture("minecraft:trims/color_palettes/trim_palette");
+		var amethystPalette = _repository.GetTexture("minecraft:trims/color_palettes/amethyst");
+
+		Assert.NotSame(_repository.GetTexture("minecraft:missingno"), tintedOverlay);
+		var paletteRow = genericPalette.DangerousGetPixelRowMemory(0).Span;
+		var amethystRow = amethystPalette.DangerousGetPixelRowMemory(0).Span;
+
+		var mappedPixels = 0;
+		for (var y = 0; y < baseOverlay.Height; y++)
+		{
+			var sourceRow = baseOverlay.DangerousGetPixelRowMemory(y).Span;
+			var tintedRow = tintedOverlay.DangerousGetPixelRowMemory(y).Span;
+
+			for (var x = 0; x < sourceRow.Length; x++)
+			{
+				var sourcePixel = sourceRow[x];
+				if (sourcePixel.A == 0)
+				{
+					continue;
+				}
+
+				if (!TryGetPaletteIndex(paletteRow, sourcePixel, out var paletteIndex))
+				{
+					continue;
+				}
+
+				var expected = amethystRow[Math.Clamp(paletteIndex, 0, amethystRow.Length - 1)];
+				var actual = tintedRow[x];
+				Assert.Equal(sourcePixel.A, actual.A);
+				Assert.Equal(expected.R, actual.R);
+				Assert.Equal(expected.G, actual.G);
+				Assert.Equal(expected.B, actual.B);
+				mappedPixels++;
+			}
+		}
+
+		Assert.True(mappedPixels > 0, "Expected at least one palette-mapped trim pixel.");
+	}
+
+	[Fact]
+	public void ArmorTrimLeggingsUseBasePaletteWhenMaterialIsNotDarker()
+	{
+		var baseOverlay = _repository.GetTexture("minecraft:trims/items/leggings_trim");
+		var tintedOverlay = _repository.GetTexture("minecraft:trims/items/leggings_trim_netherite");
+		var genericPalette = _repository.GetTexture("minecraft:trims/color_palettes/trim_palette");
+		var netheritePalette = _repository.GetTexture("minecraft:trims/color_palettes/netherite");
+		var netheriteDarkerPalette = _repository.GetTexture("minecraft:trims/color_palettes/netherite_darker");
+
+		Assert.NotSame(_repository.GetTexture("minecraft:missingno"), tintedOverlay);
+		var paletteRow = genericPalette.DangerousGetPixelRowMemory(0).Span;
+		var netheriteRow = netheritePalette.DangerousGetPixelRowMemory(0).Span;
+		var netheriteDarkerRow = netheriteDarkerPalette.DangerousGetPixelRowMemory(0).Span;
+
+		var mappedPixels = 0;
+		var observedMatchBase = false;
+		var observedNotUsingDarker = false;
+
+		for (var y = 0; y < baseOverlay.Height; y++)
+		{
+			var sourceRow = baseOverlay.DangerousGetPixelRowMemory(y).Span;
+			var tintedRow = tintedOverlay.DangerousGetPixelRowMemory(y).Span;
+
+			for (var x = 0; x < sourceRow.Length; x++)
+			{
+				var sourcePixel = sourceRow[x];
+				if (sourcePixel.A == 0)
+				{
+					continue;
+				}
+
+				if (!TryGetPaletteIndex(paletteRow, sourcePixel, out var paletteIndex))
+				{
+					continue;
+				}
+
+				var expectedBase = netheriteRow[Math.Clamp(paletteIndex, 0, netheriteRow.Length - 1)];
+				var actual = tintedRow[x];
+				Assert.Equal(sourcePixel.A, actual.A);
+				Assert.Equal(expectedBase.R, actual.R);
+				Assert.Equal(expectedBase.G, actual.G);
+				Assert.Equal(expectedBase.B, actual.B);
+				mappedPixels++;
+
+				observedMatchBase = true;
+				var expectedDarker = netheriteDarkerRow[Math.Clamp(paletteIndex, 0, netheriteDarkerRow.Length - 1)];
+				if (!expectedBase.Equals(expectedDarker))
+				{
+					observedNotUsingDarker |= actual.R != expectedDarker.R
+						|| actual.G != expectedDarker.G
+						|| actual.B != expectedDarker.B;
+				}
+			}
+		}
+
+		Assert.True(mappedPixels > 0, "Expected leggings trim pixels to map through the palette.");
+		Assert.True(observedMatchBase, "Expected leggings trim to match the base material palette for at least one pixel.");
+		Assert.True(observedNotUsingDarker, "Expected leggings trim to avoid using the darker palette when material is not marked as darker.");
+	}
+
+	[Fact]
+	public void ArmorTrimUsesExplicitDarkerPaletteWhenMaterialIncludesSuffix()
+	{
+		var baseOverlay = _repository.GetTexture("minecraft:trims/items/boots_trim");
+		var tintedOverlay = _repository.GetTexture("minecraft:trims/items/boots_trim_netherite_darker");
+		var genericPalette = _repository.GetTexture("minecraft:trims/color_palettes/trim_palette");
+		var netheriteDarkerPalette = _repository.GetTexture("minecraft:trims/color_palettes/netherite_darker");
+
+		Assert.NotSame(_repository.GetTexture("minecraft:missingno"), tintedOverlay);
+		var paletteRow = genericPalette.DangerousGetPixelRowMemory(0).Span;
+		var netheriteDarkerRow = netheriteDarkerPalette.DangerousGetPixelRowMemory(0).Span;
+
+		var mappedPixels = 0;
+
+		for (var y = 0; y < baseOverlay.Height; y++)
+		{
+			var sourceRow = baseOverlay.DangerousGetPixelRowMemory(y).Span;
+			var tintedRow = tintedOverlay.DangerousGetPixelRowMemory(y).Span;
+
+			for (var x = 0; x < sourceRow.Length; x++)
+			{
+				var sourcePixel = sourceRow[x];
+				if (sourcePixel.A == 0)
+				{
+					continue;
+				}
+
+				if (!TryGetPaletteIndex(paletteRow, sourcePixel, out var paletteIndex))
+				{
+					continue;
+				}
+
+				var expected = netheriteDarkerRow[Math.Clamp(paletteIndex, 0, netheriteDarkerRow.Length - 1)];
+				var actual = tintedRow[x];
+				Assert.Equal(sourcePixel.A, actual.A);
+				Assert.Equal(expected.R, actual.R);
+				Assert.Equal(expected.G, actual.G);
+				Assert.Equal(expected.B, actual.B);
+				mappedPixels++;
+			}
+		}
+
+		Assert.True(mappedPixels > 0, "Expected explicit darker material trim pixels to map through the darker palette.");
+	}
+
+	private static bool TryGetPaletteIndex(ReadOnlySpan<Rgba32> paletteRow, Rgba32 color, out int index)
+	{
+		for (var i = 0; i < paletteRow.Length; i++)
+		{
+			if (paletteRow[i].Equals(color))
+			{
+				index = i;
+				return true;
+			}
+		}
+
+		index = -1;
+		return false;
 	}
 
 	public void Dispose()

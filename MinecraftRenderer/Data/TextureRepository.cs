@@ -19,6 +19,9 @@ public sealed class TextureRepository : IDisposable
 	private readonly ConcurrentDictionary<string, Image<Rgba32>> _cache = new(StringComparer.OrdinalIgnoreCase);
 	private readonly Dictionary<string, string> _embedded = new(StringComparer.OrdinalIgnoreCase);
 	private readonly Image<Rgba32> _missingTexture;
+	private readonly Lock _trimPaletteLock = new();
+	private Image<Rgba32>? _trimPaletteReference;
+	private Dictionary<uint, int>? _trimPaletteIndexLookup;
 	public Image<Rgba32>? GrassColorMap { get; private set; }
 	public Image<Rgba32>? FoliageColorMap { get; private set; }
 	public Image<Rgba32>? DryFoliageColorMap { get; private set; }
@@ -205,6 +208,11 @@ public sealed class TextureRepository : IDisposable
 			{
 				return image;
 			}
+		}
+
+		if (TryGenerateArmorTrimTexture(normalized, out var generated))
+		{
+			return generated;
 		}
 
 		return _missingTexture;
@@ -539,6 +547,155 @@ public sealed class TextureRepository : IDisposable
 			default:
 				return -1;
 		}
+	}
+
+	private bool TryGenerateArmorTrimTexture(string normalized, out Image<Rgba32> generated)
+	{
+		generated = null!;
+		if (!normalized.StartsWith("trims/items/", StringComparison.OrdinalIgnoreCase))
+		{
+			return false;
+		}
+
+		var fileName = Path.GetFileName(normalized);
+		if (string.IsNullOrWhiteSpace(fileName))
+		{
+			return false;
+		}
+
+		var trimMarkerIndex = fileName.IndexOf("_trim_", StringComparison.OrdinalIgnoreCase);
+		if (trimMarkerIndex < 0)
+		{
+			return false;
+		}
+
+		var baseOverlayName = fileName[..(trimMarkerIndex + "_trim".Length)];
+		var materialToken = fileName[(trimMarkerIndex + "_trim_".Length)..];
+		if (string.IsNullOrWhiteSpace(baseOverlayName) || string.IsNullOrWhiteSpace(materialToken))
+		{
+			return false;
+		}
+
+		var baseOverlayId = $"trims/items/{baseOverlayName}";
+		var overlayBase = GetTexture(baseOverlayId);
+		if (ReferenceEquals(overlayBase, _missingTexture))
+		{
+			return false;
+		}
+
+		var genericPalette = GetTexture("trims/color_palettes/trim_palette");
+		if (ReferenceEquals(genericPalette, _missingTexture) || genericPalette.Height == 0)
+		{
+			return false;
+		}
+
+		var materialPalette = ResolveArmorTrimPalette(materialToken);
+		if (materialPalette is null || ReferenceEquals(materialPalette, _missingTexture) || materialPalette.Height == 0)
+		{
+			return false;
+		}
+
+		var genericPaletteRow = genericPalette.DangerousGetPixelRowMemory(0).Span;
+		var materialPaletteRow = materialPalette.DangerousGetPixelRowMemory(0).Span;
+		if (genericPaletteRow.Length == 0 || materialPaletteRow.Length == 0)
+		{
+			return false;
+		}
+
+		var paletteLookup = GetTrimPaletteLookup(genericPalette, genericPaletteRow);
+		var tinted = overlayBase.Clone();
+
+		for (var y = 0; y < overlayBase.Height; y++)
+		{
+			var sourceRow = overlayBase.DangerousGetPixelRowMemory(y).Span;
+			var targetRow = tinted.DangerousGetPixelRowMemory(y).Span;
+
+			for (var x = 0; x < sourceRow.Length; x++)
+			{
+				var sourcePixel = sourceRow[x];
+				if (sourcePixel.A == 0)
+				{
+					continue;
+				}
+
+				if (!paletteLookup.TryGetValue(sourcePixel.PackedValue, out var paletteIndex))
+				{
+					targetRow[x] = sourcePixel;
+					continue;
+				}
+
+				var clampedIndex = Math.Clamp(paletteIndex, 0, materialPaletteRow.Length - 1);
+				var replacement = materialPaletteRow[clampedIndex];
+				targetRow[x] = new Rgba32(replacement.R, replacement.G, replacement.B, sourcePixel.A);
+			}
+		}
+
+		generated = tinted;
+		return true;
+	}
+
+	private Dictionary<uint, int> GetTrimPaletteLookup(Image<Rgba32> genericPalette, Span<Rgba32> paletteRow)
+	{
+		if (paletteRow.Length == 0)
+		{
+			return new Dictionary<uint, int>();
+		}
+
+		lock (_trimPaletteLock)
+		{
+			if (!ReferenceEquals(genericPalette, _trimPaletteReference) || _trimPaletteIndexLookup is null)
+			{
+				var lookup = new Dictionary<uint, int>(paletteRow.Length);
+				for (var i = 0; i < paletteRow.Length; i++)
+				{
+					lookup[paletteRow[i].PackedValue] = i;
+				}
+				_trimPaletteReference = genericPalette;
+				_trimPaletteIndexLookup = lookup;
+			}
+
+			return _trimPaletteIndexLookup!;
+		}
+	}
+
+	private Image<Rgba32>? ResolveArmorTrimPalette(string materialToken)
+	{
+		foreach (var candidate in EnumerateArmorTrimPaletteCandidates(materialToken))
+		{
+			var palette = GetTexture($"trims/color_palettes/{candidate}");
+			if (!ReferenceEquals(palette, _missingTexture))
+			{
+				return palette;
+			}
+		}
+
+		return null;
+	}
+
+	private static IEnumerable<string> EnumerateArmorTrimPaletteCandidates(string materialToken)
+	{
+		if (string.IsNullOrWhiteSpace(materialToken))
+		{
+			yield break;
+		}
+
+		var normalizedMaterial = materialToken.Trim();
+		if (normalizedMaterial.Length == 0)
+		{
+			yield break;
+		}
+
+		if (normalizedMaterial.EndsWith("_darker", StringComparison.OrdinalIgnoreCase))
+		{
+			yield return normalizedMaterial;
+			if (normalizedMaterial.Length > 7)
+			{
+				yield return normalizedMaterial[..^7];
+			}
+			yield break;
+		}
+
+		yield return normalizedMaterial;
 	}
 
 	private static int? GetOptionalPositiveInt(JsonElement element, string propertyName)
