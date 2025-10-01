@@ -380,6 +380,33 @@ public sealed class BlockRendererTests
 			Assert.True(difference > 5f, $"Expected custom tint to alter lily pad appearance (difference {difference:F2}).");
 		}
 
+		[Fact]
+		public void PotionUsesMetadataTintAndWritesPreview()
+		{
+			using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+			var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
+			using var tinted = renderer.RenderItem("potion", options);
+			var customColor = new Color(new Rgba32(0xD0, 0x40, 0xB0));
+			var customTintData = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: customColor);
+			using var customTinted = renderer.RenderItem("potion", customTintData, options);
+
+			var disableTint = new MinecraftBlockRenderer.ItemRenderData(DisableDefaultLayer0Tint: true);
+			using var untinted = renderer.RenderItem("potion", disableTint, options);
+			Assert.False(ImagesAreIdentical(tinted, untinted));
+			Assert.False(ImagesAreIdentical(customTinted, untinted));
+			Assert.False(ImagesAreIdentical(customTinted, tinted));
+
+			var tintedAverage = ComputeAverageColor(tinted);
+			var untintedAverage = ComputeAverageColor(untinted);
+			var customAverage = ComputeAverageColor(customTinted);
+			var metadataDifference = Vector3.Distance(tintedAverage, untintedAverage);
+			var customDifference = Vector3.Distance(customAverage, untintedAverage);
+			var metadataVsCustomDifference = Vector3.Distance(customAverage, tintedAverage);
+			Assert.True(metadataDifference > 5f, $"Expected potion metadata tint to alter appearance (difference {metadataDifference:F2}).");
+			Assert.True(customDifference > 5f, $"Expected custom potion tint to alter appearance (difference {customDifference:F2}).");
+			Assert.True(metadataVsCustomDifference > 5f, $"Expected custom potion tint to differ from metadata tint (difference {metadataVsCustomDifference:F2}).");
+		}
+
 	// TODO: Fix the issue and re-enable this test
 	// [Fact]
 	// public void RenderCandleCakeIncludesSideFaces()

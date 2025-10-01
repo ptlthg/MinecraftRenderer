@@ -10,7 +10,7 @@
   - The current backface culling isn't working for this, it only applies to billboarded textures
 
 ## Missing features
-- [ ] Add way to load in potions and correctly color the bottles/splash bottles for the specific potion
+- [x] Add way to load in potions and correctly color the bottles/splash bottles for the specific potion
 - [x] Add way to specify leather armor dye colors (also the dyeable wolf armor)
 - [x] Add armor trims to armor items
   - [x] Use the correct color palettes and correctly darken trims that are the same material as the base (eg: iron trim + iron armor)
