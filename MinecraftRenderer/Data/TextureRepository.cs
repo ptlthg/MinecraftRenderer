@@ -19,9 +19,8 @@ public sealed class TextureRepository : IDisposable
 	private readonly ConcurrentDictionary<string, Image<Rgba32>> _cache = new(StringComparer.OrdinalIgnoreCase);
 	private readonly Dictionary<string, string> _embedded = new(StringComparer.OrdinalIgnoreCase);
 	private readonly Image<Rgba32> _missingTexture;
-	private readonly Lock _trimPaletteLock = new();
-	private Image<Rgba32>? _trimPaletteReference;
-	private Dictionary<uint, int>? _trimPaletteIndexLookup;
+	private readonly Dictionary<uint, int> _trimPaletteLookup;
+	private readonly int _trimPaletteLength;
 	public Image<Rgba32>? GrassColorMap { get; private set; }
 	public Image<Rgba32>? FoliageColorMap { get; private set; }
 	public Image<Rgba32>? DryFoliageColorMap { get; private set; }
@@ -31,6 +30,21 @@ public sealed class TextureRepository : IDisposable
 	{
 		_dataRoots = BuildRootList(dataRoot, overlayRoots);
 		_missingTexture = CreateMissingTexture();
+
+		if (TryLoadTrimPaletteColors(out var trimPaletteColors))
+		{
+			_trimPaletteLength = trimPaletteColors.Length;
+			_trimPaletteLookup = new Dictionary<uint, int>(trimPaletteColors.Length);
+			for (var i = 0; i < trimPaletteColors.Length; i++)
+			{
+				_trimPaletteLookup[trimPaletteColors[i].PackedValue] = i;
+			}
+		}
+		else
+		{
+			_trimPaletteLength = 0;
+			_trimPaletteLookup = new Dictionary<uint, int>();
+		}
 
 		var colormapRoot = _dataRoots.FirstOrDefault(x => Directory.Exists(Path.Combine(x, "colormap")));
 		if (colormapRoot is not null)
@@ -549,6 +563,37 @@ public sealed class TextureRepository : IDisposable
 		}
 	}
 
+	private bool TryLoadTrimPaletteColors(out Rgba32[] colors)
+	{
+		foreach (var candidate in EnumerateCandidatePaths("trims/color_palettes/trim_palette"))
+		{
+			if (!File.Exists(candidate)) continue;
+			
+			try
+			{
+				using var image = Image.Load<Rgba32>(candidate);
+				if (image.Height <= 0) continue;
+
+				var rowSpan = image.DangerousGetPixelRowMemory(0).Span;
+				var copy = new Rgba32[rowSpan.Length];
+				rowSpan.CopyTo(copy);
+				colors = copy;
+				return true;
+			}
+			catch (IOException)
+			{
+				continue;
+			}
+			catch (UnknownImageFormatException)
+			{
+				continue;
+			}
+		}
+
+		colors = [];
+		return false;
+	}
+
 	private bool TryGenerateArmorTrimTexture(string normalized, out Image<Rgba32> generated)
 	{
 		generated = null!;
@@ -583,8 +628,7 @@ public sealed class TextureRepository : IDisposable
 			return false;
 		}
 
-		var genericPalette = GetTexture("trims/color_palettes/trim_palette");
-		if (ReferenceEquals(genericPalette, _missingTexture) || genericPalette.Height == 0)
+		if (_trimPaletteLength == 0 || _trimPaletteLookup.Count == 0)
 		{
 			return false;
 		}
@@ -595,14 +639,12 @@ public sealed class TextureRepository : IDisposable
 			return false;
 		}
 
-		var genericPaletteRow = genericPalette.DangerousGetPixelRowMemory(0).Span;
 		var materialPaletteRow = materialPalette.DangerousGetPixelRowMemory(0).Span;
-		if (genericPaletteRow.Length == 0 || materialPaletteRow.Length == 0)
+		if (materialPaletteRow.Length == 0)
 		{
 			return false;
 		}
 
-		var paletteLookup = GetTrimPaletteLookup(genericPalette, genericPaletteRow);
 		var tinted = overlayBase.Clone();
 
 		for (var y = 0; y < overlayBase.Height; y++)
@@ -618,7 +660,7 @@ public sealed class TextureRepository : IDisposable
 					continue;
 				}
 
-				if (!paletteLookup.TryGetValue(sourcePixel.PackedValue, out var paletteIndex))
+				if (!_trimPaletteLookup.TryGetValue(sourcePixel.PackedValue, out var paletteIndex))
 				{
 					targetRow[x] = sourcePixel;
 					continue;
@@ -632,30 +674,6 @@ public sealed class TextureRepository : IDisposable
 
 		generated = tinted;
 		return true;
-	}
-
-	private Dictionary<uint, int> GetTrimPaletteLookup(Image<Rgba32> genericPalette, Span<Rgba32> paletteRow)
-	{
-		if (paletteRow.Length == 0)
-		{
-			return new Dictionary<uint, int>();
-		}
-
-		lock (_trimPaletteLock)
-		{
-			if (!ReferenceEquals(genericPalette, _trimPaletteReference) || _trimPaletteIndexLookup is null)
-			{
-				var lookup = new Dictionary<uint, int>(paletteRow.Length);
-				for (var i = 0; i < paletteRow.Length; i++)
-				{
-					lookup[paletteRow[i].PackedValue] = i;
-				}
-				_trimPaletteReference = genericPalette;
-				_trimPaletteIndexLookup = lookup;
-			}
-
-			return _trimPaletteIndexLookup!;
-		}
 	}
 
 	private Image<Rgba32>? ResolveArmorTrimPalette(string materialToken)
