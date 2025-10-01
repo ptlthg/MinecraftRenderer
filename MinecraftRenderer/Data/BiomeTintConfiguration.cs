@@ -113,7 +113,7 @@ internal sealed class BiomeTintConfiguration
 
 		foreach (var (key, channels) in values)
 		{
-			if (string.IsNullOrWhiteSpace(key) || channels is null || channels.Length < 3)
+			if (string.IsNullOrWhiteSpace(key) || channels.Length < 3)
 			{
 				continue;
 			}
