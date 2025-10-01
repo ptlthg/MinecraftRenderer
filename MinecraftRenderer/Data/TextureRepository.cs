@@ -26,7 +26,8 @@ public sealed class TextureRepository : IDisposable
 	public Image<Rgba32>? DryFoliageColorMap { get; private set; }
 	private bool _disposed;
 
-	public TextureRepository(string dataRoot, string? embeddedTextureFile = null, IEnumerable<string>? overlayRoots = null)
+	public TextureRepository(string dataRoot, string? embeddedTextureFile = null,
+		IEnumerable<string>? overlayRoots = null)
 	{
 		_dataRoots = BuildRootList(dataRoot, overlayRoots);
 		_missingTexture = CreateMissingTexture();
@@ -194,6 +195,7 @@ public sealed class TextureRepository : IDisposable
 				{
 					existing.Dispose();
 				}
+
 				return image.Clone();
 			});
 	}
@@ -315,7 +317,8 @@ public sealed class TextureRepository : IDisposable
 			}
 
 			var texturesSubdirectory = Path.Combine(fullPath, "textures");
-			if (Directory.Exists(texturesSubdirectory) && !ordered.Contains(texturesSubdirectory, StringComparer.OrdinalIgnoreCase))
+			if (Directory.Exists(texturesSubdirectory) &&
+			    !ordered.Contains(texturesSubdirectory, StringComparer.OrdinalIgnoreCase))
 			{
 				ordered.Add(texturesSubdirectory);
 			}
@@ -415,7 +418,8 @@ public sealed class TextureRepository : IDisposable
 			using var stream = File.OpenRead(metadataPath);
 			using var document = JsonDocument.Parse(stream);
 
-			if (!document.RootElement.TryGetProperty("animation", out var animation) || animation.ValueKind != JsonValueKind.Object)
+			if (!document.RootElement.TryGetProperty("animation", out var animation) ||
+			    animation.ValueKind != JsonValueKind.Object)
 			{
 				return image;
 			}
@@ -435,7 +439,8 @@ public sealed class TextureRepository : IDisposable
 			}
 
 			var totalFramesByHeight = Math.Max(1, image.Height / frameHeightValue);
-			var selectedIndex = SelectRepresentativeFrameIndex(image, frameWidth, frameHeightValue, frameIndices, totalFramesByHeight);
+			var selectedIndex = SelectRepresentativeFrameIndex(image, frameWidth, frameHeightValue, frameIndices,
+				totalFramesByHeight);
 
 			selectedIndex = Math.Clamp(selectedIndex, 0, Math.Max(totalFramesByHeight - 1, 0));
 			var yOffset = selectedIndex * frameHeightValue;
@@ -488,7 +493,8 @@ public sealed class TextureRepository : IDisposable
 		return Math.Max(1, imageHeight);
 	}
 
-	private static int SelectRepresentativeFrameIndex(Image<Rgba32> spriteSheet, int frameWidth, int frameHeight, IReadOnlyList<int> explicitFrames, int totalFramesByHeight)
+	private static int SelectRepresentativeFrameIndex(Image<Rgba32> spriteSheet, int frameWidth, int frameHeight,
+		IReadOnlyList<int> explicitFrames, int totalFramesByHeight)
 	{
 		if (explicitFrames.Count > 0)
 		{
@@ -532,7 +538,8 @@ public sealed class TextureRepository : IDisposable
 
 	private static IReadOnlyList<int> ExtractFrameIndices(JsonElement animation)
 	{
-		if (!animation.TryGetProperty("frames", out var framesElement) || framesElement.ValueKind != JsonValueKind.Array)
+		if (!animation.TryGetProperty("frames", out var framesElement) ||
+		    framesElement.ValueKind != JsonValueKind.Array)
 		{
 			return [];
 		}
@@ -556,7 +563,8 @@ public sealed class TextureRepository : IDisposable
 		{
 			case JsonValueKind.Number:
 				return element.GetInt32();
-			case JsonValueKind.Object when element.TryGetProperty("index", out var indexProperty) && indexProperty.ValueKind == JsonValueKind.Number:
+			case JsonValueKind.Object when element.TryGetProperty("index", out var indexProperty) &&
+			                               indexProperty.ValueKind == JsonValueKind.Number:
 				return indexProperty.GetInt32();
 			default:
 				return -1;
@@ -568,7 +576,7 @@ public sealed class TextureRepository : IDisposable
 		foreach (var candidate in EnumerateCandidatePaths("trims/color_palettes/trim_palette"))
 		{
 			if (!File.Exists(candidate)) continue;
-			
+
 			try
 			{
 				using var image = Image.Load<Rgba32>(candidate);
@@ -710,6 +718,7 @@ public sealed class TextureRepository : IDisposable
 			{
 				yield return normalizedMaterial[..^7];
 			}
+
 			yield break;
 		}
 

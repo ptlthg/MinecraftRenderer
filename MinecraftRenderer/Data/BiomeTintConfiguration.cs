@@ -71,7 +71,8 @@ internal sealed class BiomeTintConfiguration
 		ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
 		var json = File.ReadAllText(path);
-		var dto = JsonSerializer.Deserialize<BiomeTintConfigurationDto>(json, SerializerOptions) ?? new BiomeTintConfigurationDto();
+		var dto = JsonSerializer.Deserialize<BiomeTintConfigurationDto>(json, SerializerOptions) ??
+		          new BiomeTintConfigurationDto();
 		return dto.ToConfiguration();
 	}
 

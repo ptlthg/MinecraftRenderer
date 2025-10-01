@@ -18,7 +18,8 @@ public sealed partial class MinecraftBlockRenderer
 		{ BlockFaceDirection.Down, [4, 5, 1, 0] }
 	};
 
-	private List<VisibleTriangle> BuildTriangles(BlockModelInstance model, Matrix4x4 transform, string? blockName = null)
+	private List<VisibleTriangle> BuildTriangles(BlockModelInstance model, Matrix4x4 transform,
+		string? blockName = null)
 	{
 		var triangles = new List<VisibleTriangle>(model.Elements.Count * 12);
 
@@ -32,7 +33,8 @@ public sealed partial class MinecraftBlockRenderer
 		return triangles;
 	}
 
-	private List<VisibleTriangle> BuildTrianglesForElement(BlockModelInstance model, ModelElement element, Matrix4x4 transform, int elementIndex, string? blockName)
+	private List<VisibleTriangle> BuildTrianglesForElement(BlockModelInstance model, ModelElement element,
+		Matrix4x4 transform, int elementIndex, string? blockName)
 	{
 		var vertices = BuildElementVertices(element);
 		ApplyElementRotation(element, vertices);
@@ -70,7 +72,7 @@ public sealed partial class MinecraftBlockRenderer
 			}
 
 			var faceUv = GetFaceUv(face, direction, element);
-			
+
 			if (element.Rotation is not null && direction is BlockFaceDirection.Up or BlockFaceDirection.Down)
 			{
 				if (string.Equals(element.Rotation.Axis, "x", StringComparison.OrdinalIgnoreCase))
@@ -83,7 +85,7 @@ public sealed partial class MinecraftBlockRenderer
 					faceUv = faceUv with { Y = faceUv.W, W = faceUv.X };
 				}
 			}
-			
+
 			var textureRect = ComputeTextureRectangle(faceUv, texture);
 
 			var uvMap = CreateUvMap(element, direction, faceUv, face.Rotation ?? 0);
@@ -94,7 +96,7 @@ public sealed partial class MinecraftBlockRenderer
 			{
 				localFace[i] = vertices[indices[i]];
 			}
-			
+
 			var transformed = new Vector3[4];
 			for (var i = 0; i < 4; i++)
 			{
@@ -187,7 +189,7 @@ public sealed partial class MinecraftBlockRenderer
 
 		// Currently disabled, as it seems to just squash 2d textures in an undesirable way.
 		// TODO: Re-evaluate this in the future.
-		
+
 		// if (element.Rotation.Rescale)
 		// {
 		// 	var scale = 1.0f / MathF.Cos(angle);
@@ -249,7 +251,8 @@ public sealed partial class MinecraftBlockRenderer
 		return new Rectangle(minX, minY, maxX - minX, maxY - minY);
 	}
 
-	private static Vector2[] CreateUvMap(ModelElement element, BlockFaceDirection direction, Vector4 faceUv, int rotationDegrees)
+	private static Vector2[] CreateUvMap(ModelElement element, BlockFaceDirection direction, Vector4 faceUv,
+		int rotationDegrees)
 	{
 		var corners = GetFaceCornerPositions(element, direction);
 		var absolute = new Vector2[corners.Length];
@@ -265,7 +268,8 @@ public sealed partial class MinecraftBlockRenderer
 		return NormalizeFaceCoordinates(absolute, faceUv);
 	}
 
-	private static Vector2 CalculateFaceCoordinate(ModelElement element, BlockFaceDirection direction, Vector4 faceUv, Vector3 corner)
+	private static Vector2 CalculateFaceCoordinate(ModelElement element, BlockFaceDirection direction, Vector4 faceUv,
+		Vector3 corner)
 	{
 		static float SafeRatio(float value, float length)
 			=> length < 1e-5f ? 0f : Clamp01(value / length);

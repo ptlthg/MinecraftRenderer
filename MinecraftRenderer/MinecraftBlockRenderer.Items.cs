@@ -38,6 +38,7 @@ public sealed partial class MinecraftBlockRenderer
 	};
 
 	private static readonly Color DefaultLeatherArmorColor = new(new Rgba32(0xA0, 0x65, 0x40));
+
 	private static readonly Dictionary<string, Color> LegacyDefaultTintOverrides = new(StringComparer.OrdinalIgnoreCase)
 	{
 		["leather_helmet"] = DefaultLeatherArmorColor,
@@ -48,10 +49,11 @@ public sealed partial class MinecraftBlockRenderer
 		["wolf_armor_dyed"] = DefaultLeatherArmorColor
 	};
 
-	private static readonly Dictionary<string, int[]> LegacyDefaultTintLayerOverrides = new(StringComparer.OrdinalIgnoreCase)
-	{
-		["wolf_armor_dyed"] = new[] { 1 }
-	};
+	private static readonly Dictionary<string, int[]> LegacyDefaultTintLayerOverrides =
+		new(StringComparer.OrdinalIgnoreCase)
+		{
+			["wolf_armor_dyed"] = new[] { 1 }
+		};
 
 	public Image<Rgba32> RenderGuiItem(string itemName, BlockRenderOptions? options = null)
 	{
@@ -134,7 +136,8 @@ public sealed partial class MinecraftBlockRenderer
 		return FinalizeGuiResult(RenderFallbackTexture(itemName, itemInfo, model, options));
 	}
 
-	private (BlockModelInstance? Model, IReadOnlyList<string> Candidates) ResolveItemModel(string itemName, ItemRegistry.ItemInfo? itemInfo)
+	private (BlockModelInstance? Model, IReadOnlyList<string> Candidates) ResolveItemModel(string itemName,
+		ItemRegistry.ItemInfo? itemInfo)
 	{
 		var modelName = itemInfo?.Model;
 		if (string.IsNullOrWhiteSpace(modelName))
@@ -172,7 +175,8 @@ public sealed partial class MinecraftBlockRenderer
 		return (model, candidates);
 	}
 
-	private bool TryRenderGuiTextureLayers(string itemName, ItemRegistry.ItemInfo? itemInfo, BlockModelInstance? model, BlockRenderOptions options, out Image<Rgba32> rendered)
+	private bool TryRenderGuiTextureLayers(string itemName, ItemRegistry.ItemInfo? itemInfo, BlockModelInstance? model,
+		BlockRenderOptions options, out Image<Rgba32> rendered)
 	{
 		var candidates = new List<string>();
 		var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -225,10 +229,11 @@ public sealed partial class MinecraftBlockRenderer
 			return false;
 		}
 
-			return TryRenderFlatItemFromIdentifiers(candidates, model, options, itemName, out rendered);
+		return TryRenderFlatItemFromIdentifiers(candidates, model, options, itemName, out rendered);
 	}
 
-	private bool TryRenderFlatItemFromIdentifiers(IEnumerable<string> identifiers, BlockModelInstance? model, BlockRenderOptions options, string? tintContext, out Image<Rgba32> rendered)
+	private bool TryRenderFlatItemFromIdentifiers(IEnumerable<string> identifiers, BlockModelInstance? model,
+		BlockRenderOptions options, string? tintContext, out Image<Rgba32> rendered)
 	{
 		var resolved = ResolveTextureIdentifiers(identifiers, model);
 		var available = new List<string>();
@@ -251,7 +256,9 @@ public sealed partial class MinecraftBlockRenderer
 		return true;
 	}
 
-	private bool TryRenderBlockEntityFallback(string itemName, ItemRegistry.ItemInfo? itemInfo, BlockModelInstance? model, IReadOnlyList<string> modelCandidates, BlockRenderOptions options, out Image<Rgba32> rendered)
+	private bool TryRenderBlockEntityFallback(string itemName, ItemRegistry.ItemInfo? itemInfo,
+		BlockModelInstance? model, IReadOnlyList<string> modelCandidates, BlockRenderOptions options,
+		out Image<Rgba32> rendered)
 	{
 		var blockOptions = options;
 		if (options.OverrideGuiTransform is not null && model is not null && model.Elements.Count == 0)
@@ -275,7 +282,8 @@ public sealed partial class MinecraftBlockRenderer
 		return false;
 	}
 
-	private static IReadOnlyList<string> EnumerateBlockFallbackNames(string itemName, ItemRegistry.ItemInfo? itemInfo, BlockModelInstance? model, IReadOnlyList<string> modelCandidates)
+	private static IReadOnlyList<string> EnumerateBlockFallbackNames(string itemName, ItemRegistry.ItemInfo? itemInfo,
+		BlockModelInstance? model, IReadOnlyList<string> modelCandidates)
 	{
 		var results = new List<string>();
 		var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -354,7 +362,8 @@ public sealed partial class MinecraftBlockRenderer
 			normalized = normalized[7..];
 		}
 
-		if (normalized.StartsWith("item/", StringComparison.OrdinalIgnoreCase) || normalized.StartsWith("items/", StringComparison.OrdinalIgnoreCase))
+		if (normalized.StartsWith("item/", StringComparison.OrdinalIgnoreCase) ||
+		    normalized.StartsWith("items/", StringComparison.OrdinalIgnoreCase))
 		{
 			yield break;
 		}
@@ -382,10 +391,10 @@ public sealed partial class MinecraftBlockRenderer
 
 		var normalized = textureId.Replace('\\', '/');
 		return normalized.Contains("/item/", StringComparison.OrdinalIgnoreCase)
-			|| normalized.Contains(":item/", StringComparison.OrdinalIgnoreCase)
-			|| normalized.Contains("/items/", StringComparison.OrdinalIgnoreCase)
-			|| normalized.Contains(":items/", StringComparison.OrdinalIgnoreCase)
-			|| normalized.Contains("textures/item/", StringComparison.OrdinalIgnoreCase);
+		       || normalized.Contains(":item/", StringComparison.OrdinalIgnoreCase)
+		       || normalized.Contains("/items/", StringComparison.OrdinalIgnoreCase)
+		       || normalized.Contains(":items/", StringComparison.OrdinalIgnoreCase)
+		       || normalized.Contains("textures/item/", StringComparison.OrdinalIgnoreCase);
 	}
 
 	private static string NormalizeItemTextureKey(string itemName)
@@ -399,14 +408,17 @@ public sealed partial class MinecraftBlockRenderer
 		return normalized.Replace('\\', '/').Trim('/');
 	}
 
-	private Image<Rgba32> RenderFallbackTexture(string itemName, ItemRegistry.ItemInfo? itemInfo, BlockModelInstance? model, BlockRenderOptions options)
+	private Image<Rgba32> RenderFallbackTexture(string itemName, ItemRegistry.ItemInfo? itemInfo,
+		BlockModelInstance? model, BlockRenderOptions options)
 	{
-		if (TryRenderFlatItemFromIdentifiers(CollectItemLayerTextures(model, itemInfo), model, options, itemName, out var rendered))
+		if (TryRenderFlatItemFromIdentifiers(CollectItemLayerTextures(model, itemInfo), model, options, itemName,
+			    out var rendered))
 		{
 			return rendered;
 		}
 
-		if (itemInfo is not null && !string.IsNullOrWhiteSpace(itemInfo.Texture) && TryRenderEmbeddedTexture(itemInfo.Texture, options, itemName, out rendered))
+		if (itemInfo is not null && !string.IsNullOrWhiteSpace(itemInfo.Texture) &&
+		    TryRenderEmbeddedTexture(itemInfo.Texture, options, itemName, out rendered))
 		{
 			return rendered;
 		}
@@ -422,346 +434,354 @@ public sealed partial class MinecraftBlockRenderer
 		return RenderFlatItem(new[] { "minecraft:missingno" }, options, itemName);
 	}
 
-		private bool TryRenderBedItem(string itemName, BlockModelInstance? itemModel, BlockRenderOptions options, out Image<Rgba32> rendered)
+	private bool TryRenderBedItem(string itemName, BlockModelInstance? itemModel, BlockRenderOptions options,
+		out Image<Rgba32> rendered)
+	{
+		rendered = null!;
+
+		var normalizedName = NormalizeItemTextureKey(itemName);
+		if (!normalizedName.EndsWith("_bed", StringComparison.OrdinalIgnoreCase) &&
+		    !string.Equals(normalizedName, "bed", StringComparison.OrdinalIgnoreCase))
 		{
-			rendered = null!;
+			return false;
+		}
 
-			var normalizedName = NormalizeItemTextureKey(itemName);
-			if (!normalizedName.EndsWith("_bed", StringComparison.OrdinalIgnoreCase) && !string.Equals(normalizedName, "bed", StringComparison.OrdinalIgnoreCase))
-			{
-				return false;
-			}
+		var colorName = string.Equals(normalizedName, "bed", StringComparison.OrdinalIgnoreCase)
+			? "red"
+			: normalizedName[..^4];
 
-			var colorName = string.Equals(normalizedName, "bed", StringComparison.OrdinalIgnoreCase)
-				? "red"
-				: normalizedName[..^4];
-
-			var bedTextureId = $"minecraft:entity/bed/{colorName}";
+		var bedTextureId = $"minecraft:entity/bed/{colorName}";
+		if (!_textureRepository.TryGetTexture(bedTextureId, out _))
+		{
+			bedTextureId = "minecraft:entity/bed/red";
 			if (!_textureRepository.TryGetTexture(bedTextureId, out _))
 			{
-				bedTextureId = "minecraft:entity/bed/red";
-				if (!_textureRepository.TryGetTexture(bedTextureId, out _))
-				{
-					return false;
-				}
-			}
-
-			var headModel = ResolveModelOrNull("bed/bed_head");
-			var footModel = ResolveModelOrNull("bed/bed_foot");
-			if (headModel is null || footModel is null)
-			{
 				return false;
 			}
+		}
 
-			var elements = new List<ModelElement>();
-			elements.AddRange(CloneAndTranslateElements(headModel, new Vector3(0f, 0f, -16f), flipBottomFaces: false, flipNorthSouthFaces: false));
-			elements.AddRange(CloneAndTranslateElements(footModel, Vector3.Zero, flipBottomFaces: true, flipNorthSouthFaces: true));
+		var headModel = ResolveModelOrNull("bed/bed_head");
+		var footModel = ResolveModelOrNull("bed/bed_foot");
+		if (headModel is null || footModel is null)
+		{
+			return false;
+		}
 
-			if (elements.Count == 0)
+		var elements = new List<ModelElement>();
+		elements.AddRange(CloneAndTranslateElements(headModel, new Vector3(0f, 0f, -16f), flipBottomFaces: false,
+			flipNorthSouthFaces: false));
+		elements.AddRange(CloneAndTranslateElements(footModel, Vector3.Zero, flipBottomFaces: true,
+			flipNorthSouthFaces: true));
+
+		if (elements.Count == 0)
+		{
+			return false;
+		}
+
+		var textures = CloneTextureDictionary(itemModel);
+		textures["bed"] = bedTextureId;
+		if (!textures.ContainsKey("particle"))
+		{
+			textures["particle"] = DetermineBedParticleTexture(colorName, bedTextureId);
+		}
+
+		var displaySource = itemModel;
+		if (displaySource is null || displaySource.Display.Count == 0)
+		{
+			displaySource = ResolveModelOrNull("item/template_bed") ?? displaySource;
+		}
+
+		var display = CloneDisplayDictionary(displaySource);
+		AdjustBedGuiTransform(display);
+		var parentChain = itemModel is not null
+			? new List<string>(itemModel.ParentChain)
+			: new List<string>();
+		var renderOptions = options;
+		if (display.TryGetValue("gui", out var adjustedGui))
+		{
+			renderOptions = renderOptions with { OverrideGuiTransform = adjustedGui };
+		}
+		else
+		{
+			renderOptions = renderOptions with { OverrideGuiTransform = null };
+		}
+
+		var composite = new BlockModelInstance(
+			"minecraft:generated/bed_composite",
+			parentChain,
+			textures,
+			display,
+			elements);
+
+		rendered = RenderModel(composite, renderOptions);
+		return true;
+	}
+
+	private BlockModelInstance? ResolveModelOrNull(string name)
+	{
+		try
+		{
+			return _modelResolver.Resolve(name);
+		}
+		catch (KeyNotFoundException)
+		{
+			return null;
+		}
+		catch (InvalidOperationException)
+		{
+			return null;
+		}
+	}
+
+	private static List<ModelElement> CloneAndTranslateElements(BlockModelInstance source, Vector3 translation,
+		bool flipBottomFaces, bool flipNorthSouthFaces)
+	{
+		var result = new List<ModelElement>(source.Elements.Count);
+		for (var i = 0; i < source.Elements.Count; i++)
+		{
+			result.Add(CloneAndTranslateElement(source.Elements[i], translation, flipBottomFaces, flipNorthSouthFaces));
+		}
+
+		return result;
+	}
+
+	private static ModelElement CloneAndTranslateElement(ModelElement element, Vector3 translation,
+		bool flipBottomFaces, bool flipNorthSouthFaces)
+	{
+		var from = element.From + translation;
+		var to = element.To + translation;
+
+		ElementRotation? rotation = null;
+		if (element.Rotation is not null)
+		{
+			rotation = new ElementRotation(
+				element.Rotation.AngleInDegrees,
+				element.Rotation.Origin + translation,
+				element.Rotation.Axis,
+				element.Rotation.Rescale);
+		}
+
+		var faces = new Dictionary<BlockFaceDirection, ModelFace>(element.Faces.Count);
+		var elementHeight = element.To.Y - element.From.Y;
+		var shouldFlipLargeFaces = elementHeight > 3.01f;
+		foreach (var (direction, face) in element.Faces)
+		{
+			if (flipBottomFaces && direction == BlockFaceDirection.Down && shouldFlipLargeFaces)
 			{
-				return false;
+				var uv = face.Uv;
+				if (uv.HasValue)
+				{
+					var raw = uv.Value;
+					uv = new Vector4(raw.Z, raw.Y, raw.X, raw.W);
+				}
+
+				var rotated = face.Rotation.HasValue ? NormalizeRotation(face.Rotation.Value + 180) : (int?)null;
+				faces[direction] = new ModelFace(face.Texture, uv, rotated, face.TintIndex, face.CullFace);
 			}
-
-			var textures = CloneTextureDictionary(itemModel);
-			textures["bed"] = bedTextureId;
-			if (!textures.ContainsKey("particle"))
+			else if (flipNorthSouthFaces && shouldFlipLargeFaces &&
+			         (direction == BlockFaceDirection.North || direction == BlockFaceDirection.South))
 			{
-				textures["particle"] = DetermineBedParticleTexture(colorName, bedTextureId);
-			}
+				var uv = face.Uv;
+				if (uv.HasValue)
+				{
+					var raw = uv.Value;
+					uv = new Vector4(raw.X, raw.W, raw.Z, raw.Y);
+				}
 
-			var displaySource = itemModel;
-			if (displaySource is null || displaySource.Display.Count == 0)
-			{
-				displaySource = ResolveModelOrNull("item/template_bed") ?? displaySource;
-			}
-
-			var display = CloneDisplayDictionary(displaySource);
-			AdjustBedGuiTransform(display);
-			var parentChain = itemModel is not null
-				? new List<string>(itemModel.ParentChain)
-				: new List<string>();
-			var renderOptions = options;
-			if (display.TryGetValue("gui", out var adjustedGui))
-			{
-				renderOptions = renderOptions with { OverrideGuiTransform = adjustedGui };
+				var rotated = NormalizeRotation((face.Rotation ?? 0) + 180);
+				faces[direction] = new ModelFace(face.Texture, uv, rotated, face.TintIndex, face.CullFace);
 			}
 			else
 			{
-				renderOptions = renderOptions with { OverrideGuiTransform = null };
-			}
-
-			var composite = new BlockModelInstance(
-				"minecraft:generated/bed_composite",
-				parentChain,
-				textures,
-				display,
-				elements);
-
-			rendered = RenderModel(composite, renderOptions);
-			return true;
-		}
-
-		private BlockModelInstance? ResolveModelOrNull(string name)
-		{
-			try
-			{
-				return _modelResolver.Resolve(name);
-			}
-			catch (KeyNotFoundException)
-			{
-				return null;
-			}
-			catch (InvalidOperationException)
-			{
-				return null;
+				faces[direction] = new ModelFace(face.Texture, face.Uv, face.Rotation, face.TintIndex, face.CullFace);
 			}
 		}
 
-		private static List<ModelElement> CloneAndTranslateElements(BlockModelInstance source, Vector3 translation, bool flipBottomFaces, bool flipNorthSouthFaces)
-		{
-			var result = new List<ModelElement>(source.Elements.Count);
-			for (var i = 0; i < source.Elements.Count; i++)
-			{
-				result.Add(CloneAndTranslateElement(source.Elements[i], translation, flipBottomFaces, flipNorthSouthFaces));
-			}
+		return new ModelElement(from, to, rotation, faces, element.Shade);
+	}
 
+	private static Dictionary<string, string> CloneTextureDictionary(BlockModelInstance? source)
+	{
+		var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+		if (source is null || source.Textures.Count == 0)
+		{
 			return result;
 		}
 
-		private static ModelElement CloneAndTranslateElement(ModelElement element, Vector3 translation, bool flipBottomFaces, bool flipNorthSouthFaces)
+		foreach (var (key, value) in source.Textures)
 		{
-			var from = element.From + translation;
-			var to = element.To + translation;
-
-			ElementRotation? rotation = null;
-			if (element.Rotation is not null)
-			{
-				rotation = new ElementRotation(
-					element.Rotation.AngleInDegrees,
-					element.Rotation.Origin + translation,
-					element.Rotation.Axis,
-					element.Rotation.Rescale);
-			}
-
-			var faces = new Dictionary<BlockFaceDirection, ModelFace>(element.Faces.Count);
-			var elementHeight = element.To.Y - element.From.Y;
-			var shouldFlipLargeFaces = elementHeight > 3.01f;
-			foreach (var (direction, face) in element.Faces)
-			{
-				if (flipBottomFaces && direction == BlockFaceDirection.Down && shouldFlipLargeFaces)
-				{
-					var uv = face.Uv;
-					if (uv.HasValue)
-					{
-						var raw = uv.Value;
-						uv = new Vector4(raw.Z, raw.Y, raw.X, raw.W);
-					}
-
-					var rotated = face.Rotation.HasValue ? NormalizeRotation(face.Rotation.Value + 180) : (int?)null;
-					faces[direction] = new ModelFace(face.Texture, uv, rotated, face.TintIndex, face.CullFace);
-				}
-				else if (flipNorthSouthFaces && shouldFlipLargeFaces && (direction == BlockFaceDirection.North || direction == BlockFaceDirection.South))
-				{
-					var uv = face.Uv;
-					if (uv.HasValue)
-					{
-						var raw = uv.Value;
-						uv = new Vector4(raw.X, raw.W, raw.Z, raw.Y);
-					}
-
-					var rotated = NormalizeRotation((face.Rotation ?? 0) + 180);
-					faces[direction] = new ModelFace(face.Texture, uv, rotated, face.TintIndex, face.CullFace);
-				}
-				else
-				{
-					faces[direction] = new ModelFace(face.Texture, face.Uv, face.Rotation, face.TintIndex, face.CullFace);
-				}
-			}
-
-			return new ModelElement(from, to, rotation, faces, element.Shade);
+			result[key] = value;
 		}
 
-		private static Dictionary<string, string> CloneTextureDictionary(BlockModelInstance? source)
+		return result;
+	}
+
+	private Dictionary<string, TransformDefinition> CloneDisplayDictionary(BlockModelInstance? source)
+	{
+		var result = new Dictionary<string, TransformDefinition>(StringComparer.OrdinalIgnoreCase);
+		if (source is null || source.Display.Count == 0)
 		{
-			var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-			if (source is null || source.Textures.Count == 0)
-			{
-				return result;
-			}
-
-			foreach (var (key, value) in source.Textures)
-			{
-				result[key] = value;
-			}
-
 			return result;
 		}
 
-		private Dictionary<string, TransformDefinition> CloneDisplayDictionary(BlockModelInstance? source)
+		foreach (var (key, transform) in source.Display)
 		{
-			var result = new Dictionary<string, TransformDefinition>(StringComparer.OrdinalIgnoreCase);
-			if (source is null || source.Display.Count == 0)
+			result[key] = new TransformDefinition
 			{
-				return result;
-			}
-
-			foreach (var (key, transform) in source.Display)
-			{
-				result[key] = new TransformDefinition
-				{
-					Rotation = transform.Rotation is null ? null : (float[])transform.Rotation.Clone(),
-					Translation = transform.Translation is null ? null : (float[])transform.Translation.Clone(),
-					Scale = transform.Scale is null ? null : (float[])transform.Scale.Clone()
-				};
-			}
-
-			return result;
+				Rotation = transform.Rotation is null ? null : (float[])transform.Rotation.Clone(),
+				Translation = transform.Translation is null ? null : (float[])transform.Translation.Clone(),
+				Scale = transform.Scale is null ? null : (float[])transform.Scale.Clone()
+			};
 		}
 
-		private static void AdjustBedGuiTransform(Dictionary<string, TransformDefinition> display)
+		return result;
+	}
+
+	private static void AdjustBedGuiTransform(Dictionary<string, TransformDefinition> display)
+	{
+		const float RotationAdjustment = -50f;
+		const float ScaleMultiplier = 0.9f;
+		var defaultScale = new[] { 0.48f, 0.48f, 0.48f };
+		var defaultTranslation = new[] { 2f, 2.5f, 0f };
+
+		if (!display.TryGetValue("gui", out var gui))
 		{
-			const float RotationAdjustment = -50f;
-			const float ScaleMultiplier = 0.9f;
-			var defaultScale = new[] { 0.48f, 0.48f, 0.48f };
-			var defaultTranslation = new[] { 2f, 2.5f, 0f };
-
-			if (!display.TryGetValue("gui", out var gui))
-			{
-				display["gui"] = new TransformDefinition
-				{
-					Rotation = new[] { 30f, 160f + RotationAdjustment, 0f },
-					Translation = (float[])defaultTranslation.Clone(),
-					Scale = (float[])defaultScale.Clone()
-				};
-				return;
-			}
-
-			var rotationArray = gui.Rotation is null ? new float[3] : CloneVector(gui.Rotation, 3);
-			EnsureLength(ref rotationArray, 3);
-			rotationArray[1] = NormalizeRotation(rotationArray[1] + RotationAdjustment);
-
-			float[] translationArray;
-			if (gui.Translation is null || gui.Translation.Length == 0)
-			{
-				translationArray = (float[])defaultTranslation.Clone();
-			}
-			else
-			{
-				translationArray = CloneVector(gui.Translation, gui.Translation.Length);
-			}
-			EnsureLength(ref translationArray, 3);
-
-			float[] scaleArray;
-			if (gui.Scale is null || gui.Scale.Length == 0)
-			{
-				scaleArray = (float[])defaultScale.Clone();
-			}
-			else
-			{
-				scaleArray = CloneVector(gui.Scale, gui.Scale.Length);
-				EnsureLength(ref scaleArray, 3);
-				for (var i = 0; i < scaleArray.Length; i++)
-				{
-					scaleArray[i] *= ScaleMultiplier;
-				}
-			}
-
 			display["gui"] = new TransformDefinition
 			{
-				Rotation = rotationArray,
-				Translation = translationArray,
-				Scale = scaleArray
+				Rotation = new[] { 30f, 160f + RotationAdjustment, 0f },
+				Translation = (float[])defaultTranslation.Clone(),
+				Scale = (float[])defaultScale.Clone()
 			};
+			return;
 		}
 
-		private static TransformDefinition AdjustBannerGuiTransform(TransformDefinition? original)
+		var rotationArray = gui.Rotation is null ? new float[3] : CloneVector(gui.Rotation, 3);
+		EnsureLength(ref rotationArray, 3);
+		rotationArray[1] = NormalizeRotation(rotationArray[1] + RotationAdjustment);
+
+		float[] translationArray;
+		if (gui.Translation is null || gui.Translation.Length == 0)
 		{
-			const float YawAdjustment = 215f;
-
-			var rotation = original?.Rotation is { Length: > 0 } rotationSource
-				? CloneVector(rotationSource, Math.Max(3, rotationSource.Length))
-				: new float[3];
-			EnsureLength(ref rotation, 3);
-			rotation[1] = NormalizeRotation(rotation[1] + YawAdjustment);
-
-			float[]? translation = null;
-			if (original?.Translation is { } translationSource)
-			{
-				translation = CloneVector(translationSource, Math.Max(3, translationSource.Length));
-			}
-
-			float[]? scale = null;
-			if (original?.Scale is { } scaleSource)
-			{
-				scale = CloneVector(scaleSource, Math.Max(3, scaleSource.Length));
-			}
-
-			return new TransformDefinition
-			{
-				Rotation = rotation,
-				Translation = translation,
-				Scale = scale
-			};
+			translationArray = (float[])defaultTranslation.Clone();
 		}
-
-		private static float[] CloneVector(float[] source, int length)
+		else
 		{
-			var result = new float[length];
-			var copyLength = Math.Min(length, source.Length);
-			Array.Copy(source, result, copyLength);
-			return result;
+			translationArray = CloneVector(gui.Translation, gui.Translation.Length);
 		}
 
-		private static void EnsureLength(ref float[] array, int length)
+		EnsureLength(ref translationArray, 3);
+
+		float[] scaleArray;
+		if (gui.Scale is null || gui.Scale.Length == 0)
 		{
-			if (array.Length == length)
-			{
-				return;
-			}
-
-			Array.Resize(ref array, length);
+			scaleArray = (float[])defaultScale.Clone();
 		}
-
-		private static int NormalizeRotation(int rotation)
+		else
 		{
-			var normalized = rotation % 360;
-			if (normalized < 0)
+			scaleArray = CloneVector(gui.Scale, gui.Scale.Length);
+			EnsureLength(ref scaleArray, 3);
+			for (var i = 0; i < scaleArray.Length; i++)
 			{
-				normalized += 360;
+				scaleArray[i] *= ScaleMultiplier;
 			}
-
-			return normalized;
 		}
 
-		private static float NormalizeRotation(float rotation)
+		display["gui"] = new TransformDefinition
 		{
-			var normalized = rotation % 360f;
-			if (normalized < 0f)
-			{
-				normalized += 360f;
-			}
+			Rotation = rotationArray,
+			Translation = translationArray,
+			Scale = scaleArray
+		};
+	}
 
-			return normalized;
-		}
+	private static TransformDefinition AdjustBannerGuiTransform(TransformDefinition? original)
+	{
+		const float YawAdjustment = 215f;
 
-		private string DetermineBedParticleTexture(string colorName, string fallbackTextureId)
+		var rotation = original?.Rotation is { Length: > 0 } rotationSource
+			? CloneVector(rotationSource, Math.Max(3, rotationSource.Length))
+			: new float[3];
+		EnsureLength(ref rotation, 3);
+		rotation[1] = NormalizeRotation(rotation[1] + YawAdjustment);
+
+		float[]? translation = null;
+		if (original?.Translation is { } translationSource)
 		{
-			var candidates = new List<string>
-			{
-				$"minecraft:block/{colorName}_wool",
-				fallbackTextureId
-			};
-
-			foreach (var candidate in candidates)
-			{
-				if (_textureRepository.TryGetTexture(candidate, out _))
-				{
-					return candidate;
-				}
-			}
-
-			return fallbackTextureId;
+			translation = CloneVector(translationSource, Math.Max(3, translationSource.Length));
 		}
+
+		float[]? scale = null;
+		if (original?.Scale is { } scaleSource)
+		{
+			scale = CloneVector(scaleSource, Math.Max(3, scaleSource.Length));
+		}
+
+		return new TransformDefinition
+		{
+			Rotation = rotation,
+			Translation = translation,
+			Scale = scale
+		};
+	}
+
+	private static float[] CloneVector(float[] source, int length)
+	{
+		var result = new float[length];
+		var copyLength = Math.Min(length, source.Length);
+		Array.Copy(source, result, copyLength);
+		return result;
+	}
+
+	private static void EnsureLength(ref float[] array, int length)
+	{
+		if (array.Length == length)
+		{
+			return;
+		}
+
+		Array.Resize(ref array, length);
+	}
+
+	private static int NormalizeRotation(int rotation)
+	{
+		var normalized = rotation % 360;
+		if (normalized < 0)
+		{
+			normalized += 360;
+		}
+
+		return normalized;
+	}
+
+	private static float NormalizeRotation(float rotation)
+	{
+		var normalized = rotation % 360f;
+		if (normalized < 0f)
+		{
+			normalized += 360f;
+		}
+
+		return normalized;
+	}
+
+	private string DetermineBedParticleTexture(string colorName, string fallbackTextureId)
+	{
+		var candidates = new List<string>
+		{
+			$"minecraft:block/{colorName}_wool",
+			fallbackTextureId
+		};
+
+		foreach (var candidate in candidates)
+		{
+			if (_textureRepository.TryGetTexture(candidate, out _))
+			{
+				return candidate;
+			}
+		}
+
+		return fallbackTextureId;
+	}
 
 	private static IEnumerable<string> EnumerateTextureFallbackCandidates(string itemName)
 	{
@@ -971,7 +991,8 @@ public sealed partial class MinecraftBlockRenderer
 			}
 
 			var textureId = ResolveTexture(identifier, model);
-			if (string.IsNullOrWhiteSpace(textureId) || textureId.Equals("minecraft:missingno", StringComparison.OrdinalIgnoreCase))
+			if (string.IsNullOrWhiteSpace(textureId) ||
+			    textureId.Equals("minecraft:missingno", StringComparison.OrdinalIgnoreCase))
 			{
 				continue;
 			}
@@ -991,7 +1012,8 @@ public sealed partial class MinecraftBlockRenderer
 		return resolved;
 	}
 
-	private bool TryRenderEmbeddedTexture(string textureId, BlockRenderOptions options, string? tintContext, out Image<Rgba32> rendered)
+	private bool TryRenderEmbeddedTexture(string textureId, BlockRenderOptions options, string? tintContext,
+		out Image<Rgba32> rendered)
 	{
 		if (_textureRepository.TryGetTexture(textureId, out _))
 		{
@@ -1017,7 +1039,8 @@ public sealed partial class MinecraftBlockRenderer
 		}
 	}
 
-	private Image<Rgba32> RenderFlatItem(IReadOnlyList<string> layerTextureIds, BlockRenderOptions options, string? tintContext)
+	private Image<Rgba32> RenderFlatItem(IReadOnlyList<string> layerTextureIds, BlockRenderOptions options,
+		string? tintContext)
 	{
 		var canvas = new Image<Rgba32>(options.Size, options.Size, Color.Transparent);
 		ItemRegistry.ItemInfo? itemInfo = null;
@@ -1029,7 +1052,8 @@ public sealed partial class MinecraftBlockRenderer
 
 			if (_itemRegistry is not null)
 			{
-				if (!_itemRegistry.TryGetInfo(tintContext, out itemInfo) && !string.Equals(normalizedItemKey, tintContext, StringComparison.OrdinalIgnoreCase))
+				if (!_itemRegistry.TryGetInfo(tintContext, out itemInfo) && !string.Equals(normalizedItemKey,
+					    tintContext, StringComparison.OrdinalIgnoreCase))
 				{
 					_itemRegistry.TryGetInfo(normalizedItemKey, out itemInfo);
 				}
@@ -1047,7 +1071,8 @@ public sealed partial class MinecraftBlockRenderer
 			Color? layerTint = explicitLayerTint;
 			if (!layerTint.HasValue)
 			{
-				var defaultTint = ResolveDefaultLayerTint(normalizedItemKey, itemInfo, layerIndex, layerIndex == primaryTintLayerIndex, disablePrimaryDefault);
+				var defaultTint = ResolveDefaultLayerTint(normalizedItemKey, itemInfo, layerIndex,
+					layerIndex == primaryTintLayerIndex, disablePrimaryDefault);
 				if (defaultTint.HasValue)
 				{
 					layerTint = defaultTint.Value;
@@ -1056,7 +1081,8 @@ public sealed partial class MinecraftBlockRenderer
 
 			var hasMetadataTint = itemInfo?.LayerTints.ContainsKey(layerIndex) == true;
 			var hasLegacyTint = false;
-			if (!string.IsNullOrWhiteSpace(normalizedItemKey) && LegacyDefaultTintOverrides.ContainsKey(normalizedItemKey))
+			if (!string.IsNullOrWhiteSpace(normalizedItemKey) &&
+			    LegacyDefaultTintOverrides.ContainsKey(normalizedItemKey))
 			{
 				if (LegacyDefaultTintLayerOverrides.TryGetValue(normalizedItemKey, out var constrainedLayers))
 				{
@@ -1069,8 +1095,9 @@ public sealed partial class MinecraftBlockRenderer
 			}
 
 			var hasExplicitPerLayerTint = explicitItemData?.AdditionalLayerTints is not null
-				&& explicitItemData.AdditionalLayerTints.ContainsKey(layerIndex);
-			var hasPrimaryExplicitTint = layerIndex == primaryTintLayerIndex && explicitItemData?.Layer0Tint.HasValue == true;
+			                              && explicitItemData.AdditionalLayerTints.ContainsKey(layerIndex);
+			var hasPrimaryExplicitTint =
+				layerIndex == primaryTintLayerIndex && explicitItemData?.Layer0Tint.HasValue == true;
 			var skipContextTint = hasMetadataTint || hasLegacyTint || hasExplicitPerLayerTint || hasPrimaryExplicitTint;
 			var texture = ResolveItemLayerTexture(textureId, tintContext, skipContextTint);
 			var scale = MathF.Min(options.Size / (float)texture.Width, options.Size / (float)texture.Height);
@@ -1102,7 +1129,8 @@ public sealed partial class MinecraftBlockRenderer
 			return null;
 		}
 
-		if (itemData.AdditionalLayerTints is not null && itemData.AdditionalLayerTints.TryGetValue(layerIndex, out var explicitTint))
+		if (itemData.AdditionalLayerTints is not null &&
+		    itemData.AdditionalLayerTints.TryGetValue(layerIndex, out var explicitTint))
 		{
 			return explicitTint;
 		}
@@ -1134,7 +1162,8 @@ public sealed partial class MinecraftBlockRenderer
 			return firstTintLayer;
 		}
 
-		if (!string.IsNullOrWhiteSpace(normalizedItemKey) && LegacyDefaultTintLayerOverrides.TryGetValue(normalizedItemKey, out var overrides) && overrides.Length > 0)
+		if (!string.IsNullOrWhiteSpace(normalizedItemKey) &&
+		    LegacyDefaultTintLayerOverrides.TryGetValue(normalizedItemKey, out var overrides) && overrides.Length > 0)
 		{
 			return overrides.Min();
 		}
@@ -1142,9 +1171,11 @@ public sealed partial class MinecraftBlockRenderer
 		return 0;
 	}
 
-	private static Color? ResolveDefaultLayerTint(string? normalizedItemKey, ItemRegistry.ItemInfo? itemInfo, int layerIndex, bool isPrimaryDyeLayer, bool disablePrimaryDefault)
+	private static Color? ResolveDefaultLayerTint(string? normalizedItemKey, ItemRegistry.ItemInfo? itemInfo,
+		int layerIndex, bool isPrimaryDyeLayer, bool disablePrimaryDefault)
 	{
-		if (itemInfo is not null && itemInfo.LayerTints.Count > 0 && itemInfo.LayerTints.TryGetValue(layerIndex, out var tintInfo))
+		if (itemInfo is not null && itemInfo.LayerTints.Count > 0 &&
+		    itemInfo.LayerTints.TryGetValue(layerIndex, out var tintInfo))
 		{
 			switch (tintInfo.Kind)
 			{
@@ -1158,18 +1189,21 @@ public sealed partial class MinecraftBlockRenderer
 					{
 						return tintInfo.DefaultColor.Value;
 					}
+
 					break;
 				case ItemRegistry.ItemTintKind.Constant:
 					if (tintInfo.DefaultColor.HasValue)
 					{
 						return tintInfo.DefaultColor.Value;
 					}
+
 					break;
 				default:
 					if (tintInfo.DefaultColor.HasValue && !(disablePrimaryDefault && isPrimaryDyeLayer))
 					{
 						return tintInfo.DefaultColor.Value;
 					}
+
 					break;
 			}
 		}
@@ -1179,7 +1213,8 @@ public sealed partial class MinecraftBlockRenderer
 			return null;
 		}
 
-		if (LegacyDefaultTintLayerOverrides.TryGetValue(normalizedItemKey, out var overrides) && overrides.Contains(layerIndex))
+		if (LegacyDefaultTintLayerOverrides.TryGetValue(normalizedItemKey, out var overrides) &&
+		    overrides.Contains(layerIndex))
 		{
 			if (disablePrimaryDefault && isPrimaryDyeLayer)
 			{
@@ -1193,8 +1228,9 @@ public sealed partial class MinecraftBlockRenderer
 		}
 
 		if (layerIndex == 0
-			&& LegacyDefaultTintOverrides.TryGetValue(normalizedItemKey, out var legacyColor)
-			&& (!LegacyDefaultTintLayerOverrides.TryGetValue(normalizedItemKey, out var constrainedLayers) || constrainedLayers.Contains(layerIndex)))
+		    && LegacyDefaultTintOverrides.TryGetValue(normalizedItemKey, out var legacyColor)
+		    && (!LegacyDefaultTintLayerOverrides.TryGetValue(normalizedItemKey, out var constrainedLayers) ||
+		        constrainedLayers.Contains(layerIndex)))
 		{
 			if (disablePrimaryDefault && isPrimaryDyeLayer)
 			{
@@ -1205,9 +1241,9 @@ public sealed partial class MinecraftBlockRenderer
 		}
 
 		if (!string.IsNullOrWhiteSpace(normalizedItemKey)
-			&& normalizedItemKey.StartsWith("leather_", StringComparison.OrdinalIgnoreCase)
-			&& layerIndex == 0
-			&& !(disablePrimaryDefault && isPrimaryDyeLayer))
+		    && normalizedItemKey.StartsWith("leather_", StringComparison.OrdinalIgnoreCase)
+		    && layerIndex == 0
+		    && !(disablePrimaryDefault && isPrimaryDyeLayer))
 		{
 			return DefaultLeatherArmorColor;
 		}
@@ -1255,8 +1291,8 @@ public sealed partial class MinecraftBlockRenderer
 		}
 
 		return string.Equals(normalizedItemKey, "carpet", StringComparison.OrdinalIgnoreCase)
-			|| string.Equals(normalizedItemKey, "trapdoor", StringComparison.OrdinalIgnoreCase)
-			|| string.Equals(normalizedItemKey, "pressure_plate", StringComparison.OrdinalIgnoreCase);
+		       || string.Equals(normalizedItemKey, "trapdoor", StringComparison.OrdinalIgnoreCase)
+		       || string.Equals(normalizedItemKey, "pressure_plate", StringComparison.OrdinalIgnoreCase);
 	}
 
 	private static float? GetPostRenderScale(string? normalizedItemKey)
@@ -1561,5 +1597,4 @@ public sealed partial class MinecraftBlockRenderer
 
 		return false;
 	}
-
 }

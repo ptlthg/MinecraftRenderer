@@ -13,13 +13,10 @@ namespace MinecraftRenderer.Tests;
 
 public sealed class TextureRepositoryTests : IDisposable
 {
-	private static readonly string TexturesDirectory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "minecraft", "textures"));
-	private readonly TextureRepository _repository;
+	private static readonly string TexturesDirectory =
+		Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "minecraft", "textures"));
 
-	public TextureRepositoryTests()
-	{
-		_repository = new TextureRepository(TexturesDirectory);
-	}
+	private readonly TextureRepository _repository = new(TexturesDirectory);
 
 	[Fact]
 	public void AnimatedTextureUsesFirstFrameDimensions()
@@ -123,15 +120,17 @@ public sealed class TextureRepositoryTests : IDisposable
 				if (!expectedBase.Equals(expectedDarker))
 				{
 					observedNotUsingDarker |= actual.R != expectedDarker.R
-						|| actual.G != expectedDarker.G
-						|| actual.B != expectedDarker.B;
+					                          || actual.G != expectedDarker.G
+					                          || actual.B != expectedDarker.B;
 				}
 			}
 		}
 
 		Assert.True(mappedPixels > 0, "Expected leggings trim pixels to map through the palette.");
-		Assert.True(observedMatchBase, "Expected leggings trim to match the base material palette for at least one pixel.");
-		Assert.True(observedNotUsingDarker, "Expected leggings trim to avoid using the darker palette when material is not marked as darker.");
+		Assert.True(observedMatchBase,
+			"Expected leggings trim to match the base material palette for at least one pixel.");
+		Assert.True(observedNotUsingDarker,
+			"Expected leggings trim to avoid using the darker palette when material is not marked as darker.");
 	}
 
 	[Fact]
@@ -176,7 +175,8 @@ public sealed class TextureRepositoryTests : IDisposable
 			}
 		}
 
-		Assert.True(mappedPixels > 0, "Expected explicit darker material trim pixels to map through the darker palette.");
+		Assert.True(mappedPixels > 0,
+			"Expected explicit darker material trim pixels to map through the darker palette.");
 	}
 
 	private static bool TryGetPaletteIndex(ReadOnlySpan<Rgba32> paletteRow, Rgba32 color, out int index)
@@ -202,7 +202,9 @@ public sealed class TextureRepositoryTests : IDisposable
 
 public sealed class BillboardOrientationTests
 {
-	private static readonly string AssetsDirectory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "minecraft"));
+	private static readonly string AssetsDirectory =
+		Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "minecraft"));
+
 	private readonly ITestOutputHelper _output;
 
 	public BillboardOrientationTests(ITestOutputHelper output)
@@ -225,8 +227,10 @@ public sealed class BillboardOrientationTests
 		var model = resolver.Resolve("dead_brain_coral_fan");
 
 		var createUvMapMethod = typeof(MinecraftBlockRenderer)
-			.GetMethod("CreateUvMap", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
-			?? throw new InvalidOperationException("CreateUvMap method not found");
+			                        .GetMethod("CreateUvMap",
+				                        System.Reflection.BindingFlags.NonPublic |
+				                        System.Reflection.BindingFlags.Static)
+		                        ?? throw new InvalidOperationException("CreateUvMap method not found");
 
 		var expectedBaseUp = new[]
 		{
@@ -254,12 +258,15 @@ public sealed class BillboardOrientationTests
 
 			if (createUvMapMethod.Invoke(null, parameters) is not Vector2[] actualUv || actualUv.Length != 4)
 			{
-				throw new InvalidOperationException($"CreateUvMap returned an unexpected result for element {elementIndex}.");
+				throw new InvalidOperationException(
+					$"CreateUvMap returned an unexpected result for element {elementIndex}.");
 			}
 
 			var expected = BuildExpectedUv(face.Uv.Value, face.Rotation ?? 0, expectedBaseUp);
-			_output.WriteLine($"Element {elementIndex} actual: {string.Join(", ", actualUv.Select(v => $"({v.X:F3}, {v.Y:F3})"))}");
-			_output.WriteLine($"Element {elementIndex} expected: {string.Join(", ", expected.Select(v => $"({v.X:F3}, {v.Y:F3})"))}");
+			_output.WriteLine(
+				$"Element {elementIndex} actual: {string.Join(", ", actualUv.Select(v => $"({v.X:F3}, {v.Y:F3})"))}");
+			_output.WriteLine(
+				$"Element {elementIndex} expected: {string.Join(", ", expected.Select(v => $"({v.X:F3}, {v.Y:F3})"))}");
 
 			for (var i = 0; i < actualUv.Length; i++)
 			{
@@ -276,21 +283,26 @@ public sealed class BillboardOrientationTests
 		var model = resolver.Resolve("dead_brain_coral_fan");
 
 		var buildVertices = typeof(MinecraftBlockRenderer)
-			.GetMethod("BuildElementVertices", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
-			?? throw new InvalidOperationException("BuildElementVertices not found");
+			                    .GetMethod("BuildElementVertices",
+				                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
+		                    ?? throw new InvalidOperationException("BuildElementVertices not found");
 		var applyRotation = typeof(MinecraftBlockRenderer)
-			.GetMethod("ApplyElementRotation", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
-			?? throw new InvalidOperationException("ApplyElementRotation not found");
+			                    .GetMethod("ApplyElementRotation",
+				                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
+		                    ?? throw new InvalidOperationException("ApplyElementRotation not found");
 		var faceVertexIndicesField = typeof(MinecraftBlockRenderer)
-			.GetField("FaceVertexIndices", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
-			?? throw new InvalidOperationException("FaceVertexIndices not found");
+			                             .GetField("FaceVertexIndices",
+				                             System.Reflection.BindingFlags.NonPublic |
+				                             System.Reflection.BindingFlags.Static)
+		                             ?? throw new InvalidOperationException("FaceVertexIndices not found");
 		var faceVertexIndices = (Dictionary<BlockFaceDirection, int[]>)faceVertexIndicesField.GetValue(null)!;
 		var upIndices = faceVertexIndices[BlockFaceDirection.Up];
 
 		for (var elementIndex = 0; elementIndex < model.Elements.Count; elementIndex++)
 		{
 			var element = model.Elements[elementIndex];
-			if (element.Rotation is null || !string.Equals(element.Rotation.Axis, "x", StringComparison.OrdinalIgnoreCase))
+			if (element.Rotation is null ||
+			    !string.Equals(element.Rotation.Axis, "x", StringComparison.OrdinalIgnoreCase))
 			{
 				continue;
 			}
@@ -301,7 +313,7 @@ public sealed class BillboardOrientationTests
 			}
 
 			var vertices = (Vector3[])(buildVertices.Invoke(null, new object[] { element })
-				?? throw new InvalidOperationException("Failed to build vertices"));
+			                           ?? throw new InvalidOperationException("Failed to build vertices"));
 			applyRotation.Invoke(null, new object[] { element, vertices });
 
 			var v0 = vertices[upIndices[0]];
@@ -335,11 +347,14 @@ public sealed class BillboardOrientationTests
 		var model = resolver.Resolve("tnt");
 
 		var createUvMapMethod = typeof(MinecraftBlockRenderer)
-			.GetMethod("CreateUvMap", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
-			?? throw new InvalidOperationException("CreateUvMap method not found");
+			                        .GetMethod("CreateUvMap",
+				                        System.Reflection.BindingFlags.NonPublic |
+				                        System.Reflection.BindingFlags.Static)
+		                        ?? throw new InvalidOperationException("CreateUvMap method not found");
 		var getFaceUvMethod = typeof(MinecraftBlockRenderer)
-			.GetMethod("GetFaceUv", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
-			?? throw new InvalidOperationException("GetFaceUv method not found");
+			                      .GetMethod("GetFaceUv",
+				                      System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
+		                      ?? throw new InvalidOperationException("GetFaceUv method not found");
 
 		var expectedBaseEast = new[]
 		{
@@ -374,7 +389,8 @@ public sealed class BillboardOrientationTests
 				}
 
 				var faceUv = (Vector4)(getFaceUvMethod.Invoke(null, new object[] { face, direction, element })
-					?? throw new InvalidOperationException($"GetFaceUv returned null for element {elementIndex}, direction {direction}."));
+				                       ?? throw new InvalidOperationException(
+					                       $"GetFaceUv returned null for element {elementIndex}, direction {direction}."));
 
 				var parameters = new object[]
 				{
@@ -386,12 +402,15 @@ public sealed class BillboardOrientationTests
 
 				if (createUvMapMethod.Invoke(null, parameters) is not Vector2[] actualUv || actualUv.Length != 4)
 				{
-					throw new InvalidOperationException($"CreateUvMap returned an unexpected result for element {elementIndex} ({direction}).");
+					throw new InvalidOperationException(
+						$"CreateUvMap returned an unexpected result for element {elementIndex} ({direction}).");
 				}
 
 				var expected = BuildExpectedUv(faceUv, face.Rotation ?? 0, expectedBase);
-				_output.WriteLine($"Element {elementIndex} {direction} actual: {string.Join(", ", actualUv.Select(v => $"({v.X:F3}, {v.Y:F3})"))}");
-				_output.WriteLine($"Element {elementIndex} {direction} expected: {string.Join(", ", expected.Select(v => $"({v.X:F3}, {v.Y:F3})"))}");
+				_output.WriteLine(
+					$"Element {elementIndex} {direction} actual: {string.Join(", ", actualUv.Select(v => $"({v.X:F3}, {v.Y:F3})"))}");
+				_output.WriteLine(
+					$"Element {elementIndex} {direction} expected: {string.Join(", ", expected.Select(v => $"({v.X:F3}, {v.Y:F3})"))}");
 
 				for (var i = 0; i < actualUv.Length; i++)
 				{

@@ -27,12 +27,13 @@ public sealed class BlockRegistry
 		};
 
 		var entries = JsonSerializer.Deserialize<List<BlockInfo>>(json, options)
-			?? throw new InvalidOperationException($"Failed to parse block registry data from '{path}'.");
+		              ?? throw new InvalidOperationException($"Failed to parse block registry data from '{path}'.");
 
 		return new BlockRegistry(entries.Where(static entry => !string.IsNullOrWhiteSpace(entry.Name)));
 	}
 
-	public static BlockRegistry LoadFromMinecraftAssets(string assetsRoot, IReadOnlyDictionary<string, BlockModelDefinition> modelDefinitions, IEnumerable<string>? overlayRoots = null)
+	public static BlockRegistry LoadFromMinecraftAssets(string assetsRoot,
+		IReadOnlyDictionary<string, BlockModelDefinition> modelDefinitions, IEnumerable<string>? overlayRoots = null)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(assetsRoot);
 		ArgumentNullException.ThrowIfNull(modelDefinitions);

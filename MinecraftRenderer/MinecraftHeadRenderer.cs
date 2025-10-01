@@ -16,10 +16,15 @@ public class MinecraftHeadRenderer
 		float RollInDegrees,
 		float PerspectiveAmount = 0f,
 		bool ShowOverlay = true);
-	
-	public enum IsometricSide { Left, Right }
+
+	public enum IsometricSide
+	{
+		Left,
+		Right
+	}
+
 	public record IsometricRenderOptions(int Size, IsometricSide Side = IsometricSide.Right, bool ShowOverlay = true);
-	
+
 	private static readonly Dictionary<Face, Rectangle> BaseMappings = new()
 	{
 		{ Face.Right, new Rectangle(0, 8, 8, 8) },
@@ -39,7 +44,7 @@ public class MinecraftHeadRenderer
 		{ Face.Top, new Rectangle(40, 0, 8, 8) },
 		{ Face.Bottom, new Rectangle(48, 0, 8, 8) }
 	};
-	
+
 	// Define cube vertices (unit cube centered at origin)
 	private static readonly Vector3[] Vertices =
 	[
@@ -60,6 +65,7 @@ public class MinecraftHeadRenderer
 	[
 		new(1, 0), new(0, 0), new(0, 1), new(1, 1)
 	];
+
 	private static readonly Vector2[] BackFaceUvMap = [new(0, 0), new(1, 0), new(1, 1), new(0, 1)];
 	private static readonly Vector2[] BottomFaceUvMap = [new(1, 1), new(0, 1), new(0, 0), new(1, 0)];
 
@@ -98,7 +104,7 @@ public class MinecraftHeadRenderer
 
 		return RenderHead(fullOptions, skin);
 	}
-	
+
 	public static Image<Rgba32> RenderHead(RenderOptions options, Image<Rgba32> skin)
 	{
 		// Create rotation matrices
@@ -108,7 +114,7 @@ public class MinecraftHeadRenderer
 			options.PitchInDegrees * deg2Rad,
 			options.RollInDegrees * deg2Rad
 		);
-		
+
 		var initialCapacity = options.ShowOverlay ? FaceDefinitions.Length * 4 : FaceDefinitions.Length * 2;
 		var visibleTriangles = new List<VisibleTriangle>(initialCapacity);
 
@@ -135,9 +141,9 @@ public class MinecraftHeadRenderer
 		const float DepthBiasPerTriangle = 1e-4f;
 
 		// Pre-calculate perspective parameters if needed
-		PerspectiveParams? perspectiveParams = options.PerspectiveAmount > 0.01f ? 
-			new PerspectiveParams(options.PerspectiveAmount, 10.0f, 10.0f) : 
-			null;
+		PerspectiveParams? perspectiveParams = options.PerspectiveAmount > 0.01f
+			? new PerspectiveParams(options.PerspectiveAmount, 10.0f, 10.0f)
+			: null;
 
 		// Render triangles
 		foreach (var tri in visibleTriangles)
@@ -168,7 +174,7 @@ public class MinecraftHeadRenderer
 
 		return canvas;
 	}
-	
+
 	private static Matrix4x4 CreateRotationMatrix(float yaw, float pitch, float roll)
 	{
 		// Apply rotations in Y-X-Z order
@@ -187,23 +193,25 @@ public class MinecraftHeadRenderer
 			0, 0, 0, 1
 		);
 	}
-	
-	private static Vector2 ProjectToScreen(Vector3 point, float scale, Vector2 offset, PerspectiveParams? perspectiveParams)
+
+	private static Vector2 ProjectToScreen(Vector3 point, float scale, Vector2 offset,
+		PerspectiveParams? perspectiveParams)
 	{
 		if (perspectiveParams == null)
 		{
 			return new Vector2(point.X * scale + offset.X, -point.Y * scale + offset.Y);
 		}
-		
+
 		// Calculate the full perspective projection
-		var perspectiveFactor = perspectiveParams.Value.FocalLength / (perspectiveParams.Value.CameraDistance - point.Z);
+		var perspectiveFactor =
+			perspectiveParams.Value.FocalLength / (perspectiveParams.Value.CameraDistance - point.Z);
 		var perspX = point.X * perspectiveFactor;
 		var perspY = point.Y * perspectiveFactor;
 
 		// Orthographic projection (no perspective)
 		var orthoX = point.X;
 		var orthoY = point.Y;
-		
+
 		var finalX = orthoX + (perspX - orthoX) * perspectiveParams.Value.Amount;
 		var finalY = orthoY + (perspY - orthoY) * perspectiveParams.Value.Amount;
 
@@ -223,14 +231,15 @@ public class MinecraftHeadRenderer
 		{
 			// Extract texture for this face
 			var texRect = mappings[face.FaceType];
-			
+
 			for (var i = 0; i < 4; i++)
 			{
 				transformed[i] = Vector3.Transform(face.Vertices[i], transform);
 			}
 
 			// Backface culling for non-overlay faces
-			if (!isOverlay) {
+			if (!isOverlay)
+			{
 				// Calculate face normal for backface culling
 				var v1 = transformed[1] - transformed[0];
 				var v2 = transformed[2] - transformed[0];
@@ -271,7 +280,7 @@ public class MinecraftHeadRenderer
 	{
 		var area = (p2.X - p1.X) * (p3.Y - p1.Y) - (p3.X - p1.X) * (p2.Y - p1.Y);
 		if (MathF.Abs(area) < 0.01f) return; // Degenerate triangle
-		
+
 		// Pre-calculate values that are constant for every pixel in the triangle.
 		var v0 = p2 - p1;
 		var v1 = p3 - p1;
@@ -282,9 +291,9 @@ public class MinecraftHeadRenderer
 
 		// If the denominator is zero, the triangle is degenerate (a line or point).
 		if (MathF.Abs(denom) < 1e-6f) return;
-    
+
 		var baryData = new BarycentricData(v0, v1, d00, d01, d11, denom);
-		
+
 		// Calculate bounding box
 		var minX = (int)MathF.Max(0, MathF.Min(MathF.Min(p1.X, p2.X), p3.X));
 		var minY = (int)MathF.Max(0, MathF.Min(MathF.Min(p1.Y, p2.Y), p3.Y));
@@ -300,11 +309,11 @@ public class MinecraftHeadRenderer
 		const float depthTestEpsilon = 1e-6f;
 		const float alphaThreshold = 10f;
 
-		Parallel.For((long) minY, maxY + 1, y =>
+		Parallel.For((long)minY, maxY + 1, y =>
 		{
 			// Get a span for the current row for direct memory access.
 			// Dangerous, but should be fine as canvas's lifetime is not at risk here.
-			var canvasRow = canvas.DangerousGetPixelRowMemory((int) y).Span;
+			var canvasRow = canvas.DangerousGetPixelRowMemory((int)y).Span;
 			var rowOffset = (int)y * width;
 
 			for (var x = minX; x <= maxX; x++)
@@ -318,12 +327,12 @@ public class MinecraftHeadRenderer
 				var depth = z1 * bary.X + z2 * bary.Y + z3 * bary.Z - depthBias;
 
 				var texCoord = t1 * bary.X + t2 * bary.Y + t3 * bary.Z;
-         
+
 				var texX = (int)MathF.Max(0, MathF.Min(texCoord.X * textureRect.Width, texWidth));
 				var texY = (int)MathF.Max(0, MathF.Min(texCoord.Y * textureRect.Height, texHeight));
 
 				var color = skin[textureRect.X + texX, textureRect.Y + texY];
-		 
+
 				if (color.A <= alphaThreshold)
 				{
 					continue;
@@ -347,14 +356,14 @@ public class MinecraftHeadRenderer
 		var v2 = p - p1;
 		var d20 = Vector2.Dot(v2, data.V0);
 		var d21 = Vector2.Dot(v2, data.V1);
-    
+
 		var v = (data.D11 * d20 - data.D01 * d21) / data.Denom;
 		var w = (data.D00 * d21 - data.D01 * d20) / data.Denom;
 		var u = 1.0f - v - w;
-    
+
 		return new Vector3(u, v, w);
 	}
-	
+
 	private enum Face
 	{
 		Top,
@@ -376,8 +385,14 @@ public class MinecraftHeadRenderer
 		Vector2 T3,
 		Rectangle TextureRect,
 		float Depth);
-	
-	private readonly record struct BarycentricData(Vector2 V0, Vector2 V1, float D00, float D01, float D11, float Denom);
-	
+
+	private readonly record struct BarycentricData(
+		Vector2 V0,
+		Vector2 V1,
+		float D00,
+		float D01,
+		float D11,
+		float Denom);
+
 	private readonly record struct PerspectiveParams(float Amount, float CameraDistance, float FocalLength);
 }

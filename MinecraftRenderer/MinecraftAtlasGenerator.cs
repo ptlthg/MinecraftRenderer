@@ -14,7 +14,12 @@ public static class MinecraftAtlasGenerator
 {
 	public sealed record AtlasView(string Name, MinecraftBlockRenderer.BlockRenderOptions Options);
 
-	public sealed record AtlasResult(string Category, string ViewName, int PageNumber, string ImagePath, string ManifestPath);
+	public sealed record AtlasResult(
+		string Category,
+		string ViewName,
+		int PageNumber,
+		string ImagePath,
+		string ManifestPath);
 
 	public sealed record AtlasManifestEntry(int SequentialIndex, string Name, int Column, int Row, string? Error);
 
@@ -41,10 +46,10 @@ public static class MinecraftAtlasGenerator
 		ArgumentNullException.ThrowIfNull(outputDirectory);
 		ArgumentNullException.ThrowIfNull(views);
 
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(tileSize);
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(columns);
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(rows);
-        if (views.Count == 0) throw new ArgumentException("At least one view must be provided", nameof(views));
+		ArgumentOutOfRangeException.ThrowIfNegativeOrZero(tileSize);
+		ArgumentOutOfRangeException.ThrowIfNegativeOrZero(columns);
+		ArgumentOutOfRangeException.ThrowIfNegativeOrZero(rows);
+		if (views.Count == 0) throw new ArgumentException("At least one view must be provided", nameof(views));
 
 		Directory.CreateDirectory(outputDirectory);
 
@@ -67,7 +72,9 @@ public static class MinecraftAtlasGenerator
 			throw new InvalidOperationException("Columns x Rows must be greater than zero.");
 		}
 
-		var categories = new List<(string Category, IReadOnlyList<string> Names, Func<string, MinecraftBlockRenderer.BlockRenderOptions, Image<Rgba32>> RendererFunc)>(2);
+		var categories =
+			new List<(string Category, IReadOnlyList<string> Names,
+				Func<string, MinecraftBlockRenderer.BlockRenderOptions, Image<Rgba32>> RendererFunc)>(2);
 
 		if (blockNames.Count > 0)
 		{
@@ -155,9 +162,11 @@ public static class MinecraftAtlasGenerator
 			return sanitized.Replace(' ', '_').ToLowerInvariant();
 		}
 
-		static MinecraftBlockRenderer.BlockRenderOptions NormalizeItemRenderOptions(MinecraftBlockRenderer.BlockRenderOptions options)
+		static MinecraftBlockRenderer.BlockRenderOptions NormalizeItemRenderOptions(
+			MinecraftBlockRenderer.BlockRenderOptions options)
 		{
-			if (MathF.Abs(options.YawInDegrees) < 0.01f && MathF.Abs(options.PitchInDegrees) < 0.01f && MathF.Abs(options.RollInDegrees) < 0.01f)
+			if (MathF.Abs(options.YawInDegrees) < 0.01f && MathF.Abs(options.PitchInDegrees) < 0.01f &&
+			    MathF.Abs(options.RollInDegrees) < 0.01f)
 			{
 				return options;
 			}

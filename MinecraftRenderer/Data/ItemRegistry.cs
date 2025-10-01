@@ -10,6 +10,7 @@ using SixLabors.ImageSharp.PixelFormats;
 public sealed class ItemRegistry
 {
 	private readonly Dictionary<string, ItemInfo> _entries;
+
 	private static readonly JsonSerializerOptions Options = new JsonSerializerOptions
 	{
 		PropertyNameCaseInsensitive = true,
@@ -31,12 +32,13 @@ public sealed class ItemRegistry
 		var json = File.ReadAllText(path);
 
 		var entries = JsonSerializer.Deserialize<List<ItemInfo>>(json, Options)
-			?? throw new InvalidOperationException($"Failed to parse item registry data from '{path}'.");
+		              ?? throw new InvalidOperationException($"Failed to parse item registry data from '{path}'.");
 
 		return new ItemRegistry(entries.Where(static entry => !string.IsNullOrWhiteSpace(entry.Name)));
 	}
 
-	public static ItemRegistry LoadFromMinecraftAssets(string assetsRoot, IReadOnlyDictionary<string, BlockModelDefinition> modelDefinitions, IEnumerable<string>? overlayRoots = null)
+	public static ItemRegistry LoadFromMinecraftAssets(string assetsRoot,
+		IReadOnlyDictionary<string, BlockModelDefinition> modelDefinitions, IEnumerable<string>? overlayRoots = null)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(assetsRoot);
 		ArgumentNullException.ThrowIfNull(modelDefinitions);

@@ -50,9 +50,13 @@ internal static class MinecraftAssetLoader
 		"particle"
 	];
 
-	private sealed record ItemDefinitionEntry(string Name, string? ModelReference, Dictionary<int, ItemRegistry.ItemTintInfo> LayerTints);
+	private sealed record ItemDefinitionEntry(
+		string Name,
+		string? ModelReference,
+		Dictionary<int, ItemRegistry.ItemTintInfo> LayerTints);
 
-	public static Dictionary<string, BlockModelDefinition> LoadModelDefinitions(string assetsRoot, IEnumerable<string>? overlayRoots = null)
+	public static Dictionary<string, BlockModelDefinition> LoadModelDefinitions(string assetsRoot,
+		IEnumerable<string>? overlayRoots = null)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(assetsRoot);
 
@@ -75,7 +79,8 @@ internal static class MinecraftAssetLoader
 					}
 
 					var json = File.ReadAllText(file);
-					var definition = JsonSerializer.Deserialize<BlockModelDefinition>(json, SerializerOptions) ?? new BlockModelDefinition();
+					var definition = JsonSerializer.Deserialize<BlockModelDefinition>(json, SerializerOptions) ??
+					                 new BlockModelDefinition();
 					definitions[key] = definition;
 				}
 			}
@@ -95,7 +100,8 @@ internal static class MinecraftAssetLoader
 		return definitions;
 	}
 
-	public static List<BlockRegistry.BlockInfo> LoadBlockInfos(string assetsRoot, IReadOnlyDictionary<string, BlockModelDefinition> models, IEnumerable<string>? overlayRoots = null)
+	public static List<BlockRegistry.BlockInfo> LoadBlockInfos(string assetsRoot,
+		IReadOnlyDictionary<string, BlockModelDefinition> models, IEnumerable<string>? overlayRoots = null)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(assetsRoot);
 		ArgumentNullException.ThrowIfNull(models);
@@ -114,7 +120,8 @@ internal static class MinecraftAssetLoader
 					var blockName = NormalizeBlockStateName(relativePath);
 
 					using var stream = File.OpenRead(file);
-					using var document = JsonDocument.Parse(stream, new JsonDocumentOptions { AllowTrailingCommas = true });
+					using var document =
+						JsonDocument.Parse(stream, new JsonDocumentOptions { AllowTrailingCommas = true });
 
 					var modelReference = ResolveDefaultModel(blockName, document.RootElement, models);
 					var textureReference = ResolveRepresentativeTexture(modelReference, models);
@@ -139,7 +146,8 @@ internal static class MinecraftAssetLoader
 		return entries.Values.ToList();
 	}
 
-	public static List<ItemRegistry.ItemInfo> LoadItemInfos(string assetsRoot, IReadOnlyDictionary<string, BlockModelDefinition> models, IEnumerable<string>? overlayRoots = null)
+	public static List<ItemRegistry.ItemInfo> LoadItemInfos(string assetsRoot,
+		IReadOnlyDictionary<string, BlockModelDefinition> models, IEnumerable<string>? overlayRoots = null)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(assetsRoot);
 		ArgumentNullException.ThrowIfNull(models);
@@ -263,6 +271,7 @@ internal static class MinecraftAssetLoader
 	private static IReadOnlyList<string> BuildRootList(string primaryRoot, IEnumerable<string>? overlayRoots)
 	{
 		var ordered = new List<string>();
+
 		void TryAdd(string? candidate)
 		{
 			if (string.IsNullOrWhiteSpace(candidate))
@@ -319,7 +328,8 @@ internal static class MinecraftAssetLoader
 		}
 	}
 
-	private static IEnumerable<ItemDefinitionEntry> EnumerateItemDefinitions(string assetsRoot, IEnumerable<string>? overlayRoots)
+	private static IEnumerable<ItemDefinitionEntry> EnumerateItemDefinitions(string assetsRoot,
+		IEnumerable<string>? overlayRoots)
 	{
 		var roots = BuildRootList(assetsRoot, overlayRoots);
 
@@ -344,7 +354,8 @@ internal static class MinecraftAssetLoader
 				try
 				{
 					using var stream = File.OpenRead(file);
-					using var document = JsonDocument.Parse(stream, new JsonDocumentOptions { AllowTrailingCommas = true });
+					using var document =
+						JsonDocument.Parse(stream, new JsonDocumentOptions { AllowTrailingCommas = true });
 					var tintMap = new Dictionary<int, ItemRegistry.ItemTintInfo>();
 					ExtractTintInfoFromDefinition(document.RootElement, tintMap);
 					var modelReference = ResolveModelReferenceFromItemDefinition(document.RootElement);
@@ -385,7 +396,8 @@ internal static class MinecraftAssetLoader
 		return normalized.Trim('/');
 	}
 
-	private static string? ResolveDefaultModel(string blockName, JsonElement root, IReadOnlyDictionary<string, BlockModelDefinition> models)
+	private static string? ResolveDefaultModel(string blockName, JsonElement root,
+		IReadOnlyDictionary<string, BlockModelDefinition> models)
 	{
 		if (root.TryGetProperty("variants", out var variants) && variants.ValueKind == JsonValueKind.Object)
 		{
@@ -418,7 +430,8 @@ internal static class MinecraftAssetLoader
 		return null;
 	}
 
-	private static string? ResolveFromVariants(JsonElement variants, IReadOnlyDictionary<string, BlockModelDefinition> models)
+	private static string? ResolveFromVariants(JsonElement variants,
+		IReadOnlyDictionary<string, BlockModelDefinition> models)
 	{
 		foreach (var key in PreferredVariantKeys)
 		{
@@ -444,7 +457,8 @@ internal static class MinecraftAssetLoader
 		return null;
 	}
 
-	private static string? ResolveFromMultipart(string blockName, JsonElement multipart, IReadOnlyDictionary<string, BlockModelDefinition> models)
+	private static string? ResolveFromMultipart(string blockName, JsonElement multipart,
+		IReadOnlyDictionary<string, BlockModelDefinition> models)
 	{
 		foreach (var candidate in EnumerateMultipartCandidates(blockName))
 		{
@@ -484,7 +498,8 @@ internal static class MinecraftAssetLoader
 		yield return $"minecraft:block/{blockName}_bottom";
 	}
 
-	private static bool ModelExists(string? reference, IReadOnlyDictionary<string, BlockModelDefinition> models, out string normalized)
+	private static bool ModelExists(string? reference, IReadOnlyDictionary<string, BlockModelDefinition> models,
+		out string normalized)
 	{
 		normalized = NormalizeModelReference(reference);
 		return !string.IsNullOrWhiteSpace(normalized) && models.ContainsKey(normalized);
@@ -556,7 +571,8 @@ internal static class MinecraftAssetLoader
 					}
 				}
 
-				if (element.TryGetProperty("base", out var baseProperty) && baseProperty.ValueKind == JsonValueKind.String)
+				if (element.TryGetProperty("base", out var baseProperty) &&
+				    baseProperty.ValueKind == JsonValueKind.String)
 				{
 					return baseProperty.GetString();
 				}
@@ -571,19 +587,22 @@ internal static class MinecraftAssetLoader
 						return candidate;
 					}
 				}
+
 				break;
 		}
 
 		return null;
 	}
 
-	private static void ExtractTintInfoFromDefinition(JsonElement element, Dictionary<int, ItemRegistry.ItemTintInfo> target)
+	private static void ExtractTintInfoFromDefinition(JsonElement element,
+		Dictionary<int, ItemRegistry.ItemTintInfo> target)
 	{
 		switch (element.ValueKind)
 		{
 			case JsonValueKind.Object:
 			{
-				if (element.TryGetProperty("tints", out var tintsProperty) && tintsProperty.ValueKind == JsonValueKind.Array)
+				if (element.TryGetProperty("tints", out var tintsProperty) &&
+				    tintsProperty.ValueKind == JsonValueKind.Array)
 				{
 					var index = 0;
 					foreach (var tintElement in tintsProperty.EnumerateArray())
@@ -618,6 +637,7 @@ internal static class MinecraftAssetLoader
 				{
 					ExtractTintInfoFromDefinition(entry, target);
 				}
+
 				break;
 		}
 	}
@@ -691,7 +711,8 @@ internal static class MinecraftAssetLoader
 			text = text[2..];
 		}
 
-		if (uint.TryParse(text, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out var hex))
+		if (uint.TryParse(text, System.Globalization.NumberStyles.HexNumber,
+			    System.Globalization.CultureInfo.InvariantCulture, out var hex))
 		{
 			var intValue = unchecked((int)hex);
 			return ConvertIntToColor(intValue);
@@ -747,7 +768,8 @@ internal static class MinecraftAssetLoader
 		return null;
 	}
 
-	private static string? ResolveRepresentativeTexture(string? modelReference, IReadOnlyDictionary<string, BlockModelDefinition> models)
+	private static string? ResolveRepresentativeTexture(string? modelReference,
+		IReadOnlyDictionary<string, BlockModelDefinition> models)
 	{
 		if (!ModelExists(modelReference, models, out var normalized))
 		{
@@ -762,10 +784,12 @@ internal static class MinecraftAssetLoader
 		return ResolvePrimaryTexture(definition, models);
 	}
 
-	private static string? ResolvePrimaryTexture(BlockModelDefinition definition, IReadOnlyDictionary<string, BlockModelDefinition> models)
+	private static string? ResolvePrimaryTexture(BlockModelDefinition definition,
+		IReadOnlyDictionary<string, BlockModelDefinition> models)
 		=> ResolvePrimaryTexture(definition, models, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
 
-	private static string? ResolvePrimaryTexture(BlockModelDefinition definition, IReadOnlyDictionary<string, BlockModelDefinition> models, HashSet<string> visited)
+	private static string? ResolvePrimaryTexture(BlockModelDefinition definition,
+		IReadOnlyDictionary<string, BlockModelDefinition> models, HashSet<string> visited)
 	{
 		if (definition.Textures is { Count: > 0 })
 		{
@@ -789,7 +813,8 @@ internal static class MinecraftAssetLoader
 		if (!string.IsNullOrWhiteSpace(definition.Parent))
 		{
 			var parentKey = NormalizeModelReference(definition.Parent);
-			if (!string.IsNullOrWhiteSpace(parentKey) && visited.Add(parentKey) && models.TryGetValue(parentKey, out var parentDefinition))
+			if (!string.IsNullOrWhiteSpace(parentKey) && visited.Add(parentKey) &&
+			    models.TryGetValue(parentKey, out var parentDefinition))
 			{
 				return ResolvePrimaryTexture(parentDefinition, models, visited);
 			}
@@ -806,8 +831,8 @@ internal static class MinecraftAssetLoader
 		}
 
 		return itemName.Equals("generated", StringComparison.OrdinalIgnoreCase)
-			|| itemName.Equals("handheld", StringComparison.OrdinalIgnoreCase)
-			|| itemName.Equals("handheld_rod", StringComparison.OrdinalIgnoreCase)
-			|| itemName.Equals("handheld_mace", StringComparison.OrdinalIgnoreCase);
+		       || itemName.Equals("handheld", StringComparison.OrdinalIgnoreCase)
+		       || itemName.Equals("handheld_rod", StringComparison.OrdinalIgnoreCase)
+		       || itemName.Equals("handheld_mace", StringComparison.OrdinalIgnoreCase);
 	}
 }

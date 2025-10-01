@@ -19,7 +19,9 @@ public sealed partial class MinecraftBlockRenderer
 	};
 
 	private static readonly float DefaultGuiScaleMagnitude = ComputeTransformScaleMagnitude(DefaultGuiTransform);
-	private static readonly float DefaultGuiScaleNormalization = DefaultGuiScaleMagnitude > 1e-6f ? 1f / DefaultGuiScaleMagnitude : 1f;
+
+	private static readonly float DefaultGuiScaleNormalization =
+		DefaultGuiScaleMagnitude > 1e-6f ? 1f / DefaultGuiScaleMagnitude : 1f;
 
 	private const float DegreesToRadians = MathF.PI / 180f;
 
@@ -32,12 +34,13 @@ public sealed partial class MinecraftBlockRenderer
 		{
 			guiTransform = model.GetDisplayTransform("gui");
 		}
-		
+
 		guiTransform ??= DefaultGuiTransform;
-		
+
 		var displayTransform = BuildDisplayTransform(guiTransform);
 		var displayTransformWithoutScale = BuildDisplayTransform(guiTransform, includeScale: false);
-		var additionalRotation = CreateRotationMatrix(options.YawInDegrees * DegreesToRadians, options.PitchInDegrees * DegreesToRadians, options.RollInDegrees * DegreesToRadians);
+		var additionalRotation = CreateRotationMatrix(options.YawInDegrees * DegreesToRadians,
+			options.PitchInDegrees * DegreesToRadians, options.RollInDegrees * DegreesToRadians);
 		var scaleMatrix = Matrix4x4.CreateScale(options.AdditionalScale);
 		var translationVector = new Vector3(
 			options.AdditionalTranslation.X / 16f,
@@ -149,7 +152,7 @@ public sealed partial class MinecraftBlockRenderer
 	private static void CullBackfaces(List<VisibleTriangle> triangles, HashSet<CullTarget> cullTargets)
 	{
 		if (MinecraftBlockRenderer.DebugDisableCulling) return;
-		
+
 		const float NormalLengthThreshold = 1e-6f;
 		const float DotCullThreshold = 5e-3f;
 		var cameraForward = new Vector3(0f, 0f, 1f);
@@ -179,7 +182,7 @@ public sealed partial class MinecraftBlockRenderer
 	{
 		const float thicknessThreshold = 1e-3f;
 		var targets = new HashSet<CullTarget>();
-		
+
 		for (var elementIndex = 0; elementIndex < model.Elements.Count; elementIndex++)
 		{
 			var element = model.Elements[elementIndex];
@@ -187,9 +190,12 @@ public sealed partial class MinecraftBlockRenderer
 			var thicknessY = MathF.Abs(element.To.Y - element.From.Y);
 			var thicknessZ = MathF.Abs(element.To.Z - element.From.Z);
 
-			TryAddCullPair(model, targets, elementIndex, element, BlockFaceDirection.North, BlockFaceDirection.South, thicknessZ, thicknessThreshold);
-			TryAddCullPair(model, targets, elementIndex, element, BlockFaceDirection.East, BlockFaceDirection.West, thicknessX, thicknessThreshold);
-			TryAddCullPair(model, targets, elementIndex, element, BlockFaceDirection.Up, BlockFaceDirection.Down, thicknessY, thicknessThreshold);
+			TryAddCullPair(model, targets, elementIndex, element, BlockFaceDirection.North, BlockFaceDirection.South,
+				thicknessZ, thicknessThreshold);
+			TryAddCullPair(model, targets, elementIndex, element, BlockFaceDirection.East, BlockFaceDirection.West,
+				thicknessX, thicknessThreshold);
+			TryAddCullPair(model, targets, elementIndex, element, BlockFaceDirection.Up, BlockFaceDirection.Down,
+				thicknessY, thicknessThreshold);
 		}
 
 		return targets;
@@ -211,7 +217,7 @@ public sealed partial class MinecraftBlockRenderer
 		}
 
 		if (!element.Faces.TryGetValue(primary, out var primaryFace)
-			|| !element.Faces.TryGetValue(opposite, out var oppositeFace))
+		    || !element.Faces.TryGetValue(opposite, out var oppositeFace))
 		{
 			return;
 		}
@@ -255,9 +261,9 @@ public sealed partial class MinecraftBlockRenderer
 	private static bool Vector4ApproximatelyEquals(Vector4 left, Vector4 right, float epsilon = 1e-4f)
 	{
 		return MathF.Abs(left.X - right.X) <= epsilon
-			&& MathF.Abs(left.Y - right.Y) <= epsilon
-			&& MathF.Abs(left.Z - right.Z) <= epsilon
-			&& MathF.Abs(left.W - right.W) <= epsilon;
+		       && MathF.Abs(left.Y - right.Y) <= epsilon
+		       && MathF.Abs(left.Z - right.Z) <= epsilon
+		       && MathF.Abs(left.W - right.W) <= epsilon;
 	}
 
 	private static Bounds ComputeBounds(IEnumerable<VisibleTriangle> triangles)
@@ -336,8 +342,10 @@ public sealed partial class MinecraftBlockRenderer
 		var scaleZ = scaleComponents.Length > 2 ? scaleComponents[2] : scaleX;
 
 		var scaleMatrix = includeScale ? Matrix4x4.CreateScale(scaleX, scaleY, scaleZ) : Matrix4x4.Identity;
-		var rotationMatrix = CreateRotationMatrix(rotation[1] * DegreesToRadians, rotation[0] * DegreesToRadians, rotation[2] * DegreesToRadians);
-		var translationMatrix = Matrix4x4.CreateTranslation(translation[0] / 16f, translation[1] / 16f, translation[2] / 16f);
+		var rotationMatrix = CreateRotationMatrix(rotation[1] * DegreesToRadians, rotation[0] * DegreesToRadians,
+			rotation[2] * DegreesToRadians);
+		var translationMatrix =
+			Matrix4x4.CreateTranslation(translation[0] / 16f, translation[1] / 16f, translation[2] / 16f);
 
 		return scaleMatrix * rotationMatrix * translationMatrix;
 	}
@@ -356,14 +364,16 @@ public sealed partial class MinecraftBlockRenderer
 		return max > 1e-6f ? max : 1f;
 	}
 
-	private static Vector2 ProjectToScreen(Vector3 point, float scale, Vector2 offset, PerspectiveParams? perspectiveParams)
+	private static Vector2 ProjectToScreen(Vector3 point, float scale, Vector2 offset,
+		PerspectiveParams? perspectiveParams)
 	{
 		if (perspectiveParams is null)
 		{
 			return new Vector2(point.X * scale + offset.X, -point.Y * scale + offset.Y);
 		}
 
-		var perspectiveFactor = perspectiveParams.Value.FocalLength / (perspectiveParams.Value.CameraDistance - point.Z);
+		var perspectiveFactor =
+			perspectiveParams.Value.FocalLength / (perspectiveParams.Value.CameraDistance - point.Z);
 		var perspX = point.X * perspectiveFactor;
 		var perspY = point.Y * perspectiveFactor;
 
@@ -484,7 +494,7 @@ public sealed partial class MinecraftBlockRenderer
 
 		return new Vector3(u, v, w);
 	}
-	
+
 	private readonly record struct VisibleTriangle(
 		Vector3 V1,
 		Vector3 V2,
@@ -503,7 +513,13 @@ public sealed partial class MinecraftBlockRenderer
 
 	private readonly record struct Bounds(float MinX, float MaxX, float MinY, float MaxY);
 
-	private readonly record struct BarycentricData(Vector2 V0, Vector2 V1, float D00, float D01, float D11, float Denom);
+	private readonly record struct BarycentricData(
+		Vector2 V0,
+		Vector2 V1,
+		float D00,
+		float D01,
+		float D11,
+		float Denom);
 
 	private readonly record struct PerspectiveParams(float Amount, float CameraDistance, float FocalLength);
 

@@ -1,11 +1,6 @@
-using System;
 using System.Collections;
-using System.Collections.Generic;
-using System.IO;
 using System.Numerics;
-using System.Linq;
 using System.Reflection;
-using MinecraftRenderer;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Advanced;
 using SixLabors.ImageSharp.PixelFormats;
@@ -14,15 +9,10 @@ using Xunit.Abstractions;
 
 namespace MinecraftRenderer.Tests;
 
-public sealed class BlockRendererTests
+public sealed class BlockRendererTests(ITestOutputHelper output)
 {
-	private static readonly string AssetsDirectory = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "minecraft"));
-	private readonly ITestOutputHelper _output;
-
-	public BlockRendererTests(ITestOutputHelper output)
-	{
-		_output = output;
-	}
+	private static readonly string AssetsDirectory =
+		Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "minecraft"));
 
 	[Fact]
 	public void RenderStoneProducesOpaquePixels()
@@ -63,11 +53,12 @@ public sealed class BlockRendererTests
 	public void LeatherHelmetItemInfoContainsTintMetadata()
 	{
 		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
-		var registryField = typeof(MinecraftBlockRenderer).GetField("_itemRegistry", BindingFlags.NonPublic | BindingFlags.Instance);
+		var registryField =
+			typeof(MinecraftBlockRenderer).GetField("_itemRegistry", BindingFlags.NonPublic | BindingFlags.Instance);
 		Assert.NotNull(registryField);
-		var registry = (ItemRegistry?)registryField!.GetValue(renderer);
+		var registry = (ItemRegistry?)registryField.GetValue(renderer);
 		Assert.NotNull(registry);
-		Assert.True(registry!.TryGetInfo("leather_helmet", out var info));
+		Assert.True(registry.TryGetInfo("leather_helmet", out var info));
 		Assert.NotNull(info);
 		Assert.True(info.LayerTints.Count > 0);
 		Assert.Contains(0, info.LayerTints.Keys);
@@ -78,13 +69,20 @@ public sealed class BlockRendererTests
 	public void RenderFlatItemWithCustomTintProducesDifferentResult()
 	{
 		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
-		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 64, ItemData = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(10, 200, 240))) };
-		var method = typeof(MinecraftBlockRenderer).GetMethod("RenderFlatItem", BindingFlags.NonPublic | BindingFlags.Instance);
+		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with
+		{
+			Size = 64,
+			ItemData = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(10, 200, 240)))
+		};
+		var method =
+			typeof(MinecraftBlockRenderer).GetMethod("RenderFlatItem", BindingFlags.NonPublic | BindingFlags.Instance);
 		Assert.NotNull(method);
 		var textures = new[] { "minecraft:item/leather_helmet", "minecraft:item/leather_helmet_overlay" };
-		using var custom = (Image<Rgba32>)method!.Invoke(renderer, new object[] { textures, options, "leather_helmet" })!;
+		using var custom =
+			(Image<Rgba32>)method.Invoke(renderer, [textures, options, "leather_helmet"])!;
 		var baselineOptions = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 64 };
-		using var baseline = (Image<Rgba32>)method.Invoke(renderer, new object[] { textures, baselineOptions, "leather_helmet" })!;
+		using var baseline =
+			(Image<Rgba32>)method.Invoke(renderer, [textures, baselineOptions, "leather_helmet"])!;
 		Assert.False(ImagesAreIdentical(baseline, custom));
 		using var apiBaseline = renderer.RenderItem("leather_helmet", baselineOptions);
 		var customTint = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(10, 200, 240)));
@@ -118,7 +116,8 @@ public sealed class BlockRendererTests
 		var (minX, maxX) = GetOpaqueHorizontalBounds(bed);
 		Assert.True(minX >= 0 && maxX >= minX, "White bed render should contain opaque horizontal coverage.");
 		var horizontalSpan = maxX - minX;
-		Assert.True(horizontalSpan > bed.Width / 2, $"White bed render should span more than half the image width, but spanned {horizontalSpan} pixels out of {bed.Width}.");
+		Assert.True(horizontalSpan > bed.Width / 2,
+			$"White bed render should span more than half the image width, but spanned {horizontalSpan} pixels out of {bed.Width}.");
 	}
 
 	[Fact]
@@ -165,15 +164,19 @@ public sealed class BlockRendererTests
 		};
 
 		var element = new ModelElement(new Vector3(0, 0, 0), new Vector3(16, 16, 16), null, faces, shade: true);
-		var model = new BlockModelInstance("unit_test:debug_cube", Array.Empty<string>(), textures, new Dictionary<string, TransformDefinition>(StringComparer.OrdinalIgnoreCase), new[] { element });
+		var model = new BlockModelInstance("unit_test:debug_cube", [], textures,
+			new Dictionary<string, TransformDefinition>(StringComparer.OrdinalIgnoreCase), [element]);
 
 		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 160 };
 		using var rendered = renderer.RenderModel(model, options);
 
-		var rightColor = SampleAverageColor(rendered, (int)(rendered.Width * 0.70f), (int)(rendered.Width * 0.95f), rendered.Height / 2 - 10, rendered.Height / 2 + 10);
-		var leftColor = SampleAverageColor(rendered, (int)(rendered.Width * 0.05f), (int)(rendered.Width * 0.30f), rendered.Height / 2 - 10, rendered.Height / 2 + 10);
-		var topColor = SampleAverageColor(rendered, rendered.Width / 2 - 10, rendered.Width / 2 + 10, (int)(rendered.Height * 0.05f), (int)(rendered.Height * 0.25f));
-		_output.WriteLine($"Top face color {topColor}");
+		var rightColor = SampleAverageColor(rendered, (int)(rendered.Width * 0.70f), (int)(rendered.Width * 0.95f),
+			rendered.Height / 2 - 10, rendered.Height / 2 + 10);
+		var leftColor = SampleAverageColor(rendered, (int)(rendered.Width * 0.05f), (int)(rendered.Width * 0.30f),
+			rendered.Height / 2 - 10, rendered.Height / 2 + 10);
+		var topColor = SampleAverageColor(rendered, rendered.Width / 2 - 10, rendered.Width / 2 + 10,
+			(int)(rendered.Height * 0.05f), (int)(rendered.Height * 0.25f));
+		output.WriteLine($"Top face color {topColor}");
 
 		var rightVector = new Vector3(rightColor.R, rightColor.G, rightColor.B);
 		var northError = ComputeScaledError(rightVector, ToVector(faceColors[BlockFaceDirection.North]));
@@ -185,20 +188,28 @@ public sealed class BlockRendererTests
 		var leftWestError = ComputeScaledError(leftVector, ToVector(faceColors[BlockFaceDirection.West]));
 		var leftNorthError = ComputeScaledError(leftVector, ToVector(faceColors[BlockFaceDirection.North]));
 		var leftSouthError = ComputeScaledError(leftVector, ToVector(faceColors[BlockFaceDirection.South]));
-		_output.WriteLine($"Right face color {rightColor} -> north {northError:F3}, south {southError:F3}, east {eastError:F3}, west {westError:F3}");
-		_output.WriteLine($"Left face color {leftColor} -> east {leftEastError:F3}, west {leftWestError:F3}, north {leftNorthError:F3}, south {leftSouthError:F3}");
+		output.WriteLine(
+			$"Right face color {rightColor} -> north {northError:F3}, south {southError:F3}, east {eastError:F3}, west {westError:F3}");
+		output.WriteLine(
+			$"Left face color {leftColor} -> east {leftEastError:F3}, west {leftWestError:F3}, north {leftNorthError:F3}, south {leftSouthError:F3}");
 
-		Assert.True(IsCloserTo(rightColor, ToVector(faceColors[BlockFaceDirection.South]), ToVector(faceColors[BlockFaceDirection.North])), "Right face should prefer south color over north.");
-		Assert.True(IsCloserTo(leftColor, ToVector(faceColors[BlockFaceDirection.East]), ToVector(faceColors[BlockFaceDirection.West])), "Left face should prefer east color over west.");
-		Assert.True(IsCloserTo(topColor, ToVector(faceColors[BlockFaceDirection.Up]), ToVector(faceColors[BlockFaceDirection.Down])), "Top face should prefer up color over down.");
+		Assert.True(
+			IsCloserTo(rightColor, ToVector(faceColors[BlockFaceDirection.South]),
+				ToVector(faceColors[BlockFaceDirection.North])), "Right face should prefer south color over north.");
+		Assert.True(
+			IsCloserTo(leftColor, ToVector(faceColors[BlockFaceDirection.East]),
+				ToVector(faceColors[BlockFaceDirection.West])), "Left face should prefer east color over west.");
+		Assert.True(
+			IsCloserTo(topColor, ToVector(faceColors[BlockFaceDirection.Up]),
+				ToVector(faceColors[BlockFaceDirection.Down])), "Top face should prefer up color over down.");
 	}
 
 	[Fact]
 	public void BiomeTintWhitelistMatchesExpectations()
 	{
 		var method = typeof(MinecraftBlockRenderer)
-			.GetMethod("TryGetBiomeTintKind", BindingFlags.NonPublic | BindingFlags.Static)
-			?? throw new InvalidOperationException("TryGetBiomeTintKind method not found");
+			             .GetMethod("TryGetBiomeTintKind", BindingFlags.NonPublic | BindingFlags.Static)
+		             ?? throw new InvalidOperationException("TryGetBiomeTintKind method not found");
 
 		static (bool Result, string? Kind) Invoke(MethodInfo method, string textureId, string? blockName)
 		{
@@ -248,164 +259,176 @@ public sealed class BlockRendererTests
 		Assert.True(hasNonMissingPixel, "Chest rendering should include non-missing texture pixels.");
 	}
 
-		[Fact]
-		public void LeatherHelmetUsesDefaultTintWhenNoOverride()
-		{
-			using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
-			var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
-			using var baseline = renderer.RenderItem("leather_helmet", options);
-			var defaultTintData = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(0xA0, 0x65, 0x40)));
-			using var explicitDefault = renderer.RenderItem("leather_helmet", defaultTintData, options);
+	[Fact]
+	public void LeatherHelmetUsesDefaultTintWhenNoOverride()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
+		using var baseline = renderer.RenderItem("leather_helmet", options);
+		var defaultTintData =
+			new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(0xA0, 0x65, 0x40)));
+		using var explicitDefault = renderer.RenderItem("leather_helmet", defaultTintData, options);
 
-			Assert.True(ImagesAreIdentical(baseline, explicitDefault));
-		}
+		Assert.True(ImagesAreIdentical(baseline, explicitDefault));
+	}
 
-		[Fact]
-		public void LeatherHelmetRespectsCustomTint()
-		{
-			using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
-			var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
-			using var baseline = renderer.RenderItem("leather_helmet", options);
-			var customTint = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(0x20, 0x60, 0xFF)));
-			using var custom = renderer.RenderItem("leather_helmet", customTint, options);
-			Assert.False(ImagesAreIdentical(baseline, custom));
-			var baselineAverage = ComputeAverageColor(baseline);
-			var customAverage = ComputeAverageColor(custom);
-			var difference = Vector3.Distance(baselineAverage, customAverage);
-			Assert.True(difference > 10f, $"Expected custom tint to alter color significantly (difference {difference:F2}).");
-		}
+	[Fact]
+	public void LeatherHelmetRespectsCustomTint()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
+		using var baseline = renderer.RenderItem("leather_helmet", options);
+		var customTint = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(0x20, 0x60, 0xFF)));
+		using var custom = renderer.RenderItem("leather_helmet", customTint, options);
+		Assert.False(ImagesAreIdentical(baseline, custom));
+		var baselineAverage = ComputeAverageColor(baseline);
+		var customAverage = ComputeAverageColor(custom);
+		var difference = Vector3.Distance(baselineAverage, customAverage);
+		Assert.True(difference > 10f,
+			$"Expected custom tint to alter color significantly (difference {difference:F2}).");
+	}
 
-		[Fact]
-		public void WolfArmorDyedUsesDefaultTint()
-		{
-			using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
-			var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
-			using var baseline = renderer.RenderItem("wolf_armor_dyed", options);
-			var defaultTintData = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(0xA0, 0x65, 0x40)));
-			using var explicitDefault = renderer.RenderItem("wolf_armor_dyed", defaultTintData, options);
+	[Fact]
+	public void WolfArmorDyedUsesDefaultTint()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
+		using var baseline = renderer.RenderItem("wolf_armor_dyed", options);
+		var defaultTintData =
+			new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(0xA0, 0x65, 0x40)));
+		using var explicitDefault = renderer.RenderItem("wolf_armor_dyed", defaultTintData, options);
 
-			Assert.True(ImagesAreIdentical(baseline, explicitDefault));
-		}
+		Assert.True(ImagesAreIdentical(baseline, explicitDefault));
+	}
 
-		[Fact]
-		public void WolfArmorDyedRespectsCustomTint()
-		{
-			using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
-			var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
-			using var baseline = renderer.RenderItem("wolf_armor_dyed", options);
-			var customTint = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(0x40, 0x90, 0x30)));
-			using var custom = renderer.RenderItem("wolf_armor_dyed", customTint, options);
-			Assert.False(ImagesAreIdentical(baseline, custom));
-			var baselineAverage = ComputeAverageColor(baseline);
-			var customAverage = ComputeAverageColor(custom);
-			var difference = Vector3.Distance(baselineAverage, customAverage);
-			Assert.True(difference > 8f, $"Expected custom tint to alter wolf armor overlay significantly (difference {difference:F2}).");
-		}
+	[Fact]
+	public void WolfArmorDyedRespectsCustomTint()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
+		using var baseline = renderer.RenderItem("wolf_armor_dyed", options);
+		var customTint = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(0x40, 0x90, 0x30)));
+		using var custom = renderer.RenderItem("wolf_armor_dyed", customTint, options);
+		Assert.False(ImagesAreIdentical(baseline, custom));
+		var baselineAverage = ComputeAverageColor(baseline);
+		var customAverage = ComputeAverageColor(custom);
+		var difference = Vector3.Distance(baselineAverage, customAverage);
+		Assert.True(difference > 8f,
+			$"Expected custom tint to alter wolf armor overlay significantly (difference {difference:F2}).");
+	}
 
-		[Fact]
-		public void WolfArmorDyedAllowsExplicitLayerTintOverride()
-		{
-			using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
-			var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
-			using var baseline = renderer.RenderItem("wolf_armor_dyed", options);
-			var overrides = new Dictionary<int, Color> { [1] = new Color(new Rgba32(0x90, 0x20, 0xF0)) };
-			var customTint = new MinecraftBlockRenderer.ItemRenderData(AdditionalLayerTints: overrides);
-			using var custom = renderer.RenderItem("wolf_armor_dyed", customTint, options);
-			Assert.False(ImagesAreIdentical(baseline, custom));
-			var baselineAverage = ComputeAverageColor(baseline);
-			var customAverage = ComputeAverageColor(custom);
-			var difference = Vector3.Distance(baselineAverage, customAverage);
-			Assert.True(difference > 10f, $"Expected explicit layer tint to alter wolf armor overlay (difference {difference:F2}).");
-		}
+	[Fact]
+	public void WolfArmorDyedAllowsExplicitLayerTintOverride()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
+		using var baseline = renderer.RenderItem("wolf_armor_dyed", options);
+		var overrides = new Dictionary<int, Color> { [1] = new Color(new Rgba32(0x90, 0x20, 0xF0)) };
+		var customTint = new MinecraftBlockRenderer.ItemRenderData(AdditionalLayerTints: overrides);
+		using var custom = renderer.RenderItem("wolf_armor_dyed", customTint, options);
+		Assert.False(ImagesAreIdentical(baseline, custom));
+		var baselineAverage = ComputeAverageColor(baseline);
+		var customAverage = ComputeAverageColor(custom);
+		var difference = Vector3.Distance(baselineAverage, customAverage);
+		Assert.True(difference > 10f,
+			$"Expected explicit layer tint to alter wolf armor overlay (difference {difference:F2}).");
+	}
 
-		[Fact]
-		public void LeatherHorseArmorUsesDefaultTint()
-		{
-			using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
-			var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
-			using var baseline = renderer.RenderItem("leather_horse_armor", options);
-			var explicitDefault = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(0xA0, 0x65, 0x40)));
-			using var renderedDefault = renderer.RenderItem("leather_horse_armor", explicitDefault, options);
-			Assert.True(ImagesAreIdentical(baseline, renderedDefault));
-		}
+	[Fact]
+	public void LeatherHorseArmorUsesDefaultTint()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
+		using var baseline = renderer.RenderItem("leather_horse_armor", options);
+		var explicitDefault =
+			new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(0xA0, 0x65, 0x40)));
+		using var renderedDefault = renderer.RenderItem("leather_horse_armor", explicitDefault, options);
+		Assert.True(ImagesAreIdentical(baseline, renderedDefault));
+	}
 
-		[Fact]
-		public void LeatherHorseArmorRespectsCustomTint()
-		{
-			using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
-			var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
-			using var baseline = renderer.RenderItem("leather_horse_armor", options);
-			var customTint = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(0x35, 0x99, 0xCF)));
-			using var custom = renderer.RenderItem("leather_horse_armor", customTint, options);
-			Assert.False(ImagesAreIdentical(baseline, custom));
-			var baselineAverage = ComputeAverageColor(baseline);
-			var customAverage = ComputeAverageColor(custom);
-			var difference = Vector3.Distance(baselineAverage, customAverage);
-			Assert.True(difference > 10f, $"Expected custom tint to alter leather horse armor color (difference {difference:F2}).");
-		}
+	[Fact]
+	public void LeatherHorseArmorRespectsCustomTint()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
+		using var baseline = renderer.RenderItem("leather_horse_armor", options);
+		var customTint = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(0x35, 0x99, 0xCF)));
+		using var custom = renderer.RenderItem("leather_horse_armor", customTint, options);
+		Assert.False(ImagesAreIdentical(baseline, custom));
+		var baselineAverage = ComputeAverageColor(baseline);
+		var customAverage = ComputeAverageColor(custom);
+		var difference = Vector3.Distance(baselineAverage, customAverage);
+		Assert.True(difference > 10f,
+			$"Expected custom tint to alter leather horse armor color (difference {difference:F2}).");
+	}
 
-		[Fact]
-		public void LilyPadUsesMetadataTintWhenNoOverride()
-		{
-			using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
-			var registryField = typeof(MinecraftBlockRenderer).GetField("_itemRegistry", BindingFlags.NonPublic | BindingFlags.Instance);
-			Assert.NotNull(registryField);
-			var registry = (ItemRegistry?)registryField!.GetValue(renderer);
-			Assert.NotNull(registry);
-			Assert.True(registry!.TryGetInfo("lily_pad", out var info));
-			Assert.NotNull(info);
-			Assert.True(info.LayerTints.TryGetValue(0, out var tintInfo));
-			Assert.NotNull(tintInfo);
-			Assert.True(tintInfo.DefaultColor.HasValue);
-			var defaultColor = tintInfo.DefaultColor.GetValueOrDefault();
-			var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
-			using var baseline = renderer.RenderItem("lily_pad", options);
-			var explicitDefault = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: defaultColor);
-			using var renderedDefault = renderer.RenderItem("lily_pad", explicitDefault, options);
-			Assert.True(ImagesAreIdentical(baseline, renderedDefault));
-		}
+	[Fact]
+	public void LilyPadUsesMetadataTintWhenNoOverride()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		var registryField =
+			typeof(MinecraftBlockRenderer).GetField("_itemRegistry", BindingFlags.NonPublic | BindingFlags.Instance);
+		Assert.NotNull(registryField);
+		var registry = (ItemRegistry?)registryField.GetValue(renderer);
+		Assert.NotNull(registry);
+		Assert.True(registry.TryGetInfo("lily_pad", out var info));
+		Assert.NotNull(info);
+		Assert.True(info.LayerTints.TryGetValue(0, out var tintInfo));
+		Assert.NotNull(tintInfo);
+		Assert.True(tintInfo.DefaultColor.HasValue);
+		var defaultColor = tintInfo.DefaultColor.GetValueOrDefault();
+		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
+		using var baseline = renderer.RenderItem("lily_pad", options);
+		var explicitDefault = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: defaultColor);
+		using var renderedDefault = renderer.RenderItem("lily_pad", explicitDefault, options);
+		Assert.True(ImagesAreIdentical(baseline, renderedDefault));
+	}
 
-		[Fact]
-		public void LilyPadRespectsCustomTint()
-		{
-			using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
-			var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
-			using var baseline = renderer.RenderItem("lily_pad", options);
-			var customTint = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(0x40, 0xB0, 0x80)));
-			using var custom = renderer.RenderItem("lily_pad", customTint, options);
-			Assert.False(ImagesAreIdentical(baseline, custom));
-			var baselineAverage = ComputeAverageColor(baseline);
-			var customAverage = ComputeAverageColor(custom);
-			var difference = Vector3.Distance(baselineAverage, customAverage);
-			Assert.True(difference > 5f, $"Expected custom tint to alter lily pad appearance (difference {difference:F2}).");
-		}
+	[Fact]
+	public void LilyPadRespectsCustomTint()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
+		using var baseline = renderer.RenderItem("lily_pad", options);
+		var customTint = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(0x40, 0xB0, 0x80)));
+		using var custom = renderer.RenderItem("lily_pad", customTint, options);
+		Assert.False(ImagesAreIdentical(baseline, custom));
+		var baselineAverage = ComputeAverageColor(baseline);
+		var customAverage = ComputeAverageColor(custom);
+		var difference = Vector3.Distance(baselineAverage, customAverage);
+		Assert.True(difference > 5f,
+			$"Expected custom tint to alter lily pad appearance (difference {difference:F2}).");
+	}
 
-		[Fact]
-		public void PotionUsesMetadataTintAndWritesPreview()
-		{
-			using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
-			var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
-			using var tinted = renderer.RenderItem("potion", options);
-			var customColor = new Color(new Rgba32(0xD0, 0x40, 0xB0));
-			var customTintData = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: customColor);
-			using var customTinted = renderer.RenderItem("potion", customTintData, options);
+	[Fact]
+	public void PotionUsesMetadataTintAndWritesPreview()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
+		using var tinted = renderer.RenderItem("potion", options);
+		var customColor = new Color(new Rgba32(0xD0, 0x40, 0xB0));
+		var customTintData = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: customColor);
+		using var customTinted = renderer.RenderItem("potion", customTintData, options);
 
-			var disableTint = new MinecraftBlockRenderer.ItemRenderData(DisableDefaultLayer0Tint: true);
-			using var untinted = renderer.RenderItem("potion", disableTint, options);
-			Assert.False(ImagesAreIdentical(tinted, untinted));
-			Assert.False(ImagesAreIdentical(customTinted, untinted));
-			Assert.False(ImagesAreIdentical(customTinted, tinted));
+		var disableTint = new MinecraftBlockRenderer.ItemRenderData(DisableDefaultLayer0Tint: true);
+		using var untinted = renderer.RenderItem("potion", disableTint, options);
+		Assert.False(ImagesAreIdentical(tinted, untinted));
+		Assert.False(ImagesAreIdentical(customTinted, untinted));
+		Assert.False(ImagesAreIdentical(customTinted, tinted));
 
-			var tintedAverage = ComputeAverageColor(tinted);
-			var untintedAverage = ComputeAverageColor(untinted);
-			var customAverage = ComputeAverageColor(customTinted);
-			var metadataDifference = Vector3.Distance(tintedAverage, untintedAverage);
-			var customDifference = Vector3.Distance(customAverage, untintedAverage);
-			var metadataVsCustomDifference = Vector3.Distance(customAverage, tintedAverage);
-			Assert.True(metadataDifference > 5f, $"Expected potion metadata tint to alter appearance (difference {metadataDifference:F2}).");
-			Assert.True(customDifference > 5f, $"Expected custom potion tint to alter appearance (difference {customDifference:F2}).");
-			Assert.True(metadataVsCustomDifference > 5f, $"Expected custom potion tint to differ from metadata tint (difference {metadataVsCustomDifference:F2}).");
-		}
+		var tintedAverage = ComputeAverageColor(tinted);
+		var untintedAverage = ComputeAverageColor(untinted);
+		var customAverage = ComputeAverageColor(customTinted);
+		var metadataDifference = Vector3.Distance(tintedAverage, untintedAverage);
+		var customDifference = Vector3.Distance(customAverage, untintedAverage);
+		var metadataVsCustomDifference = Vector3.Distance(customAverage, tintedAverage);
+		Assert.True(metadataDifference > 5f,
+			$"Expected potion metadata tint to alter appearance (difference {metadataDifference:F2}).");
+		Assert.True(customDifference > 5f,
+			$"Expected custom potion tint to alter appearance (difference {customDifference:F2}).");
+		Assert.True(metadataVsCustomDifference > 5f,
+			$"Expected custom potion tint to differ from metadata tint (difference {metadataVsCustomDifference:F2}).");
+	}
 
 	// TODO: Fix the issue and re-enable this test
 	// [Fact]
@@ -418,7 +441,6 @@ public sealed class BlockRendererTests
 	// 	Assert.Equal(512, image.Height);
 
 
-	
 	// 	var leftPixel = SamplePixel(image, 240, 125);
 	// 	var rightPixel = SamplePixel(image, 380, 125);
 
@@ -429,20 +451,20 @@ public sealed class BlockRendererTests
 	// 	Assert.False(bothTransparent, "Rendered candle cake should render side faces; sample pixels were both transparent.");
 	// }
 
-	static bool IsTransparent(Rgba32 pixel) => pixel.A <= 5;
-	
-	static Rgba32 SamplePixel(Image<Rgba32> source, int x, int y)
+	// private static bool IsTransparent(Rgba32 pixel) => pixel.A <= 5;
+
+	private static Rgba32 SamplePixel(Image<Rgba32> source, int x, int y)
 	{
 		var row = source.DangerousGetPixelRowMemory(y).Span;
 		return row[x];
 	}
-	
+
 	[Fact]
 	public void CubeFaceUvsAreOrientedCorrectly()
 	{
 		var createUvMap = typeof(MinecraftBlockRenderer)
-			.GetMethod("CreateUvMap", BindingFlags.NonPublic | BindingFlags.Static)
-			?? throw new InvalidOperationException("CreateUvMap method not found");
+			                  .GetMethod("CreateUvMap", BindingFlags.NonPublic | BindingFlags.Static)
+		                  ?? throw new InvalidOperationException("CreateUvMap method not found");
 
 		var element = new ModelElement(
 			new Vector3(0f, 0f, 0f),
@@ -450,13 +472,6 @@ public sealed class BlockRendererTests
 			null,
 			new Dictionary<BlockFaceDirection, ModelFace>(),
 			shade: true);
-
-		Vector2[] Map(BlockFaceDirection direction)
-		{
-			var result = createUvMap.Invoke(null, new object[] { element, direction, new Vector4(0f, 0f, 16f, 16f), 0 })
-				as Vector2[] ?? throw new InvalidOperationException("CreateUvMap returned null.");
-			return result;
-		}
 
 		var north = Map(BlockFaceDirection.North);
 		Assert.True(north[0].X > north[1].X, "North face should map east edge to higher U than west edge.");
@@ -481,6 +496,14 @@ public sealed class BlockRendererTests
 		var down = Map(BlockFaceDirection.Down);
 		Assert.True(down[1].X > down[0].X, "Down face should map east edge to higher U than west edge.");
 		Assert.True(down[3].Y > down[0].Y, "Down face should map north edge to higher V than south edge.");
+		return;
+
+		Vector2[] Map(BlockFaceDirection direction)
+		{
+			var result = createUvMap.Invoke(null, [element, direction, new Vector4(0f, 0f, 16f, 16f), 0])
+				as Vector2[] ?? throw new InvalidOperationException("CreateUvMap returned null.");
+			return result;
+		}
 	}
 
 	[Fact]
@@ -488,7 +511,8 @@ public sealed class BlockRendererTests
 	{
 		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
 
-		using (var customTexture = CreateVerticalSplitTexture(new Rgba32(0xE6, 0x3B, 0x3B, 0xFF), new Rgba32(0x3B, 0x6B, 0xE6, 0xFF)))
+		using (var customTexture =
+		       CreateVerticalSplitTexture(new Rgba32(0xE6, 0x3B, 0x3B, 0xFF), new Rgba32(0x3B, 0x6B, 0xE6, 0xFF)))
 		{
 			renderer.TextureRepository.RegisterTexture("minecraft:block/birch_sapling", customTexture, overwrite: true);
 		}
@@ -516,9 +540,12 @@ public sealed class BlockRendererTests
 			using var rendered = renderer.RenderBlock("birch_sapling", options);
 			var topColor = FindOpaquePixel(rendered, searchFromTop: true);
 			var bottomColor = FindOpaquePixel(rendered, searchFromTop: false);
-			_output.WriteLine($"Options (gui={options.UseGuiTransform}, yaw={options.YawInDegrees}) -> top {topColor}, bottom {bottomColor}");
-			Assert.True(topColor.R > topColor.B, $"Top of billboarded texture should preserve the top-half color for {options}.");
-			Assert.True(bottomColor.B > bottomColor.R, $"Bottom of billboarded texture should preserve the bottom-half color for {options}.");
+			output.WriteLine(
+				$"Options (gui={options.UseGuiTransform}, yaw={options.YawInDegrees}) -> top {topColor}, bottom {bottomColor}");
+			Assert.True(topColor.R > topColor.B,
+				$"Top of billboarded texture should preserve the top-half color for {options}.");
+			Assert.True(bottomColor.B > bottomColor.R,
+				$"Bottom of billboarded texture should preserve the bottom-half color for {options}.");
 		}
 	}
 
@@ -528,7 +555,8 @@ public sealed class BlockRendererTests
 		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
 
 		const string textureId = "minecraft:block/unit_test_cross_north";
-		using (var customTexture = CreateVerticalSplitTexture(new Rgba32(0xE6, 0x3B, 0x3B, 0xFF), new Rgba32(0x3B, 0x6B, 0xE6, 0xFF)))
+		using (var customTexture =
+		       CreateVerticalSplitTexture(new Rgba32(0xE6, 0x3B, 0x3B, 0xFF), new Rgba32(0x3B, 0x6B, 0xE6, 0xFF)))
 		{
 			renderer.TextureRepository.RegisterTexture(textureId, customTexture, overwrite: true);
 		}
@@ -545,7 +573,7 @@ public sealed class BlockRendererTests
 
 		var model = new BlockModelInstance(
 			"unit_test:cross_north",
-			Array.Empty<string>(),
+			[],
 			new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 			{
 				["cross"] = textureId
@@ -568,7 +596,8 @@ public sealed class BlockRendererTests
 		var bottomColor = FindOpaquePixel(rendered, searchFromTop: false);
 
 		Assert.True(topColor.R > topColor.B, "North billboard face should display the top-half color at the top.");
-		Assert.True(bottomColor.B > bottomColor.R, "North billboard face should display the bottom-half color at the bottom.");
+		Assert.True(bottomColor.B > bottomColor.R,
+			"North billboard face should display the bottom-half color at the bottom.");
 	}
 
 	[Fact]
@@ -597,12 +626,14 @@ public sealed class BlockRendererTests
 			new List<ModelElement> { element });
 
 		var buildTriangles = typeof(MinecraftBlockRenderer)
-			.GetMethod("BuildTriangles", BindingFlags.NonPublic | BindingFlags.Instance)
-			?? throw new InvalidOperationException("BuildTriangles method not found");
+			                     .GetMethod("BuildTriangles", BindingFlags.NonPublic | BindingFlags.Instance)
+		                     ?? throw new InvalidOperationException("BuildTriangles method not found");
 
-		var triangles = (System.Collections.IEnumerable)buildTriangles.Invoke(renderer, new object?[] { model, Matrix4x4.Identity, null })!;
+		var triangles =
+			(IEnumerable)buildTriangles.Invoke(renderer,
+				[model, Matrix4x4.Identity, null])!;
 		var v1Prop = triangles.GetType().GetGenericArguments().First().GetProperty("V1")
-			?? throw new InvalidOperationException("V1 property not found");
+		             ?? throw new InvalidOperationException("V1 property not found");
 		var v2Prop = triangles.GetType().GetGenericArguments().First().GetProperty("V2")!;
 		var v3Prop = triangles.GetType().GetGenericArguments().First().GetProperty("V3")!;
 		var t1Prop = triangles.GetType().GetGenericArguments().First().GetProperty("T1")!;
@@ -626,6 +657,7 @@ public sealed class BlockRendererTests
 				topVertexUv = t2;
 				topVertexY = v2.Y;
 			}
+
 			if (v3.Y > topVertexY)
 			{
 				topVertexUv = t3;
@@ -635,8 +667,9 @@ public sealed class BlockRendererTests
 		}
 
 		var maxTopUv = topUvValues.Max();
-		_output.WriteLine($"Top UV values: {string.Join(", ", topUvValues.Select(v => v.ToString("F3")))}");
-		Assert.True(maxTopUv <= 0.05f, $"Expected billboard north face top UV to be near 0 but found max {maxTopUv:F3}.");
+		output.WriteLine($"Top UV values: {string.Join(", ", topUvValues.Select(v => v.ToString("F3")))}");
+		Assert.True(maxTopUv <= 0.05f,
+			$"Expected billboard north face top UV to be near 0 but found max {maxTopUv:F3}.");
 	}
 
 	[Fact]
@@ -653,99 +686,101 @@ public sealed class BlockRendererTests
 		Assert.True(HasOpaquePixels(image), "Spore blossom viewed from above should contain visible pixels.");
 	}
 
-		[Fact]
-		public void RotatedHorizontalFanDownFaceUsesExpectedUvOrientation()
+	[Fact]
+	public void RotatedHorizontalFanDownFaceUsesExpectedUvOrientation()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+
+		using var gradient = CreateVerticalSplitTexture(new Rgba32(255, 0, 0, 255), new Rgba32(0, 0, 255, 255));
+		renderer.TextureRepository.RegisterTexture("minecraft:block/unit_test_rotated_fan", gradient, overwrite: true);
+
+		var faces = new Dictionary<BlockFaceDirection, ModelFace>
 		{
-			using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+			[BlockFaceDirection.Up] = new("#fan", new Vector4(0f, 0f, 16f, 16f), null, null, null),
+			[BlockFaceDirection.Down] = new("#fan", new Vector4(0f, 16f, 16f, 0f), null, null, null)
+		};
 
-			using var gradient = CreateVerticalSplitTexture(new Rgba32(255, 0, 0, 255), new Rgba32(0, 0, 255, 255));
-			renderer.TextureRepository.RegisterTexture("minecraft:block/unit_test_rotated_fan", gradient, overwrite: true);
+		var element = new ModelElement(
+			new Vector3(8f, 0f, 0f),
+			new Vector3(24f, 0f, 16f),
+			new ElementRotation(-22.5f, new Vector3(8f, 0f, 0f), "z", rescale: false),
+			faces,
+			shade: false);
 
-			var faces = new Dictionary<BlockFaceDirection, ModelFace>
+		var textures = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+		{
+			["fan"] = "minecraft:block/unit_test_rotated_fan",
+			["particle"] = "minecraft:block/unit_test_rotated_fan"
+		};
+
+		var model = new BlockModelInstance(
+			"unit_test:rotated_fan",
+			[],
+			textures,
+			new Dictionary<string, TransformDefinition>(StringComparer.OrdinalIgnoreCase),
+			new List<ModelElement> { element });
+
+		var buildTriangles = typeof(MinecraftBlockRenderer)
+			                     .GetMethod("BuildTriangles", BindingFlags.NonPublic | BindingFlags.Instance)
+		                     ?? throw new InvalidOperationException("BuildTriangles method not found");
+
+		var triangles =
+			(IEnumerable)buildTriangles.Invoke(renderer, [model, Matrix4x4.Identity, null])!;
+		var triangleType = triangles.GetType().GetGenericArguments().First();
+		var faceDirectionProp = triangleType.GetProperty("FaceDirection")
+		                        ?? throw new InvalidOperationException("FaceDirection property not found");
+		var v1Prop = triangleType.GetProperty("V1")!;
+		var v2Prop = triangleType.GetProperty("V2")!;
+		var v3Prop = triangleType.GetProperty("V3")!;
+		var t1Prop = triangleType.GetProperty("T1")!;
+		var t2Prop = triangleType.GetProperty("T2")!;
+		var t3Prop = triangleType.GetProperty("T3")!;
+
+		var upVertices = new List<(Vector3 Position, Vector2 Uv)>();
+		var downVertices = new List<(Vector3 Position, Vector2 Uv)>();
+		foreach (var triangle in triangles)
+		{
+			var faceDirection = (BlockFaceDirection)faceDirectionProp.GetValue(triangle)!;
+
+			var v1 = (Vector3)v1Prop.GetValue(triangle)!;
+			var v2 = (Vector3)v2Prop.GetValue(triangle)!;
+			var v3 = (Vector3)v3Prop.GetValue(triangle)!;
+			var t1 = (Vector2)t1Prop.GetValue(triangle)!;
+			var t2 = (Vector2)t2Prop.GetValue(triangle)!;
+			var t3 = (Vector2)t3Prop.GetValue(triangle)!;
+
+			if (faceDirection == BlockFaceDirection.Up)
 			{
-				[BlockFaceDirection.Up] = new("#fan", new Vector4(0f, 0f, 16f, 16f), null, null, null),
-				[BlockFaceDirection.Down] = new("#fan", new Vector4(0f, 16f, 16f, 0f), null, null, null)
-			};
-
-			var element = new ModelElement(
-				new Vector3(8f, 0f, 0f),
-				new Vector3(24f, 0f, 16f),
-				new ElementRotation(-22.5f, new Vector3(8f, 0f, 0f), "z", rescale: false),
-				faces,
-				shade: false);
-
-			var textures = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-			{
-				["fan"] = "minecraft:block/unit_test_rotated_fan",
-				["particle"] = "minecraft:block/unit_test_rotated_fan"
-			};
-
-			var model = new BlockModelInstance(
-				"unit_test:rotated_fan",
-				Array.Empty<string>(),
-				textures,
-				new Dictionary<string, TransformDefinition>(StringComparer.OrdinalIgnoreCase),
-				new List<ModelElement> { element });
-
-			var buildTriangles = typeof(MinecraftBlockRenderer)
-				.GetMethod("BuildTriangles", BindingFlags.NonPublic | BindingFlags.Instance)
-				?? throw new InvalidOperationException("BuildTriangles method not found");
-
-			var triangles = (IEnumerable)buildTriangles.Invoke(renderer, new object?[] { model, Matrix4x4.Identity, null })!;
-			var triangleType = triangles.GetType().GetGenericArguments().First();
-			var faceDirectionProp = triangleType.GetProperty("FaceDirection")
-				?? throw new InvalidOperationException("FaceDirection property not found");
-			var v1Prop = triangleType.GetProperty("V1")!;
-			var v2Prop = triangleType.GetProperty("V2")!;
-			var v3Prop = triangleType.GetProperty("V3")!;
-			var t1Prop = triangleType.GetProperty("T1")!;
-			var t2Prop = triangleType.GetProperty("T2")!;
-			var t3Prop = triangleType.GetProperty("T3")!;
-
-			var upVertices = new List<(Vector3 Position, Vector2 Uv)>();
-			var downVertices = new List<(Vector3 Position, Vector2 Uv)>();
-			foreach (var triangle in triangles)
-			{
-				var faceDirection = (BlockFaceDirection)faceDirectionProp.GetValue(triangle)!;
-
-				var v1 = (Vector3)v1Prop.GetValue(triangle)!;
-				var v2 = (Vector3)v2Prop.GetValue(triangle)!;
-				var v3 = (Vector3)v3Prop.GetValue(triangle)!;
-				var t1 = (Vector2)t1Prop.GetValue(triangle)!;
-				var t2 = (Vector2)t2Prop.GetValue(triangle)!;
-				var t3 = (Vector2)t3Prop.GetValue(triangle)!;
-
-				if (faceDirection == BlockFaceDirection.Up)
-				{
-					upVertices.Add((v1, t1));
-					upVertices.Add((v2, t2));
-					upVertices.Add((v3, t3));
-				}
-				else if (faceDirection == BlockFaceDirection.Down)
-				{
-					downVertices.Add((v1, t1));
-					downVertices.Add((v2, t2));
-					downVertices.Add((v3, t3));
-				}
+				upVertices.Add((v1, t1));
+				upVertices.Add((v2, t2));
+				upVertices.Add((v3, t3));
 			}
-
-			Assert.NotEmpty(upVertices);
-
-			var maxZUpVertex = upVertices.MaxBy(v => v.Position.Z);
-			var minZUpVertex = upVertices.MinBy(v => v.Position.Z);
-			_output.WriteLine($"Up face -> max Z vertex: Z={maxZUpVertex.Position.Z:F3}, UV={maxZUpVertex.Uv}");
-			_output.WriteLine($"Up face -> min Z vertex: Z={minZUpVertex.Position.Z:F3}, UV={minZUpVertex.Uv}");
-
-			Assert.True(maxZUpVertex.Uv.Y + 0.4f < minZUpVertex.Uv.Y, "Up face UV V coordinate should decrease as Z increases after rotation.");
-
-			if (downVertices.Count > 0)
+			else if (faceDirection == BlockFaceDirection.Down)
 			{
-				var maxZDownVertex = downVertices.MaxBy(v => v.Position.Z);
-				var minZDownVertex = downVertices.MinBy(v => v.Position.Z);
-				_output.WriteLine($"Down face -> max Z vertex: Z={maxZDownVertex.Position.Z:F3}, UV={maxZDownVertex.Uv}");
-				_output.WriteLine($"Down face -> min Z vertex: Z={minZDownVertex.Position.Z:F3}, UV={minZDownVertex.Uv}");
+				downVertices.Add((v1, t1));
+				downVertices.Add((v2, t2));
+				downVertices.Add((v3, t3));
 			}
 		}
+
+		Assert.NotEmpty(upVertices);
+
+		var maxZUpVertex = upVertices.MaxBy(v => v.Position.Z);
+		var minZUpVertex = upVertices.MinBy(v => v.Position.Z);
+		output.WriteLine($"Up face -> max Z vertex: Z={maxZUpVertex.Position.Z:F3}, UV={maxZUpVertex.Uv}");
+		output.WriteLine($"Up face -> min Z vertex: Z={minZUpVertex.Position.Z:F3}, UV={minZUpVertex.Uv}");
+
+		Assert.True(maxZUpVertex.Uv.Y + 0.4f < minZUpVertex.Uv.Y,
+			"Up face UV V coordinate should decrease as Z increases after rotation.");
+
+		if (downVertices.Count > 0)
+		{
+			var maxZDownVertex = downVertices.MaxBy(v => v.Position.Z);
+			var minZDownVertex = downVertices.MinBy(v => v.Position.Z);
+			output.WriteLine($"Down face -> max Z vertex: Z={maxZDownVertex.Position.Z:F3}, UV={maxZDownVertex.Uv}");
+			output.WriteLine($"Down face -> min Z vertex: Z={minZDownVertex.Position.Z:F3}, UV={minZDownVertex.Uv}");
+		}
+	}
 
 	[Fact]
 	public void BigDripleafHasRenderedStem()
@@ -757,7 +792,7 @@ public sealed class BlockRendererTests
 		// One pixel that should be in the stem area
 		var stemPixel = SamplePixel(image, 200, 300);
 
-		_output.WriteLine($"Stem pixel @ (200,300): {stemPixel}");
+		output.WriteLine($"Stem pixel @ (200,300): {stemPixel}");
 		Assert.True(stemPixel.A > 10, "Rendered big dripleaf should include the stem.");
 	}
 
@@ -833,10 +868,13 @@ public sealed class BlockRendererTests
 	public void CrafterFrontFaceMatchesNorthTexture()
 	{
 		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
-		using var rendered = renderer.RenderBlock("crafter", MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 256 });
+		using var rendered = renderer.RenderBlock("crafter",
+			MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 256 });
 
-		var rightColor = SampleAverageColor(rendered, (int)(rendered.Width * 0.70f), rendered.Width - 1, rendered.Height / 2 - 20, rendered.Height / 2 + 20);
-		var leftColor = SampleAverageColor(rendered, 0, (int)(rendered.Width * 0.30f), rendered.Height / 2 - 20, rendered.Height / 2 + 20);
+		var rightColor = SampleAverageColor(rendered, (int)(rendered.Width * 0.70f), rendered.Width - 1,
+			rendered.Height / 2 - 20, rendered.Height / 2 + 20);
+		var leftColor = SampleAverageColor(rendered, 0, (int)(rendered.Width * 0.30f), rendered.Height / 2 - 20,
+			rendered.Height / 2 + 20);
 
 		var northTexture = renderer.TextureRepository.GetTexture("minecraft:block/crafter_north");
 		var southTexture = renderer.TextureRepository.GetTexture("minecraft:block/crafter_south");
@@ -851,11 +889,12 @@ public sealed class BlockRendererTests
 		var rightVector = new Vector3(rightColor.R, rightColor.G, rightColor.B);
 		var northError = ComputeScaledError(rightVector, northAvg);
 		var southError = ComputeScaledError(rightVector, southAvg);
-		_output.WriteLine($"Right -> north error {northError}, south error {southError}");
-		_output.WriteLine($"Right color {rightColor}");
+		output.WriteLine($"Right -> north error {northError}, south error {southError}");
+		output.WriteLine($"Right color {rightColor}");
 		Assert.True(southError <= northError, "Right face should more closely match crafter south texture than north.");
 
-		Assert.True(IsCloserTo(leftColor, eastAvg, westAvg), "Left face should more closely match crafter east texture than west.");
+		Assert.True(IsCloserTo(leftColor, eastAvg, westAvg),
+			"Left face should more closely match crafter east texture than west.");
 	}
 
 	private static Rgba32 SampleSolidColor(Image<Rgba32> image, int xStart, int xEnd, int yStart, int yEnd)
@@ -943,83 +982,83 @@ public sealed class BlockRendererTests
 		return true;
 	}
 
-		private static Rgba32 SampleOpaqueRowAverageColor(Image<Rgba32> image, bool searchFromTop)
+	private static Rgba32 SampleOpaqueRowAverageColor(Image<Rgba32> image, bool searchFromTop)
+	{
+		if (searchFromTop)
 		{
-			if (searchFromTop)
+			for (var y = 0; y < image.Height; y++)
 			{
-				for (var y = 0; y < image.Height; y++)
+				var row = image.DangerousGetPixelRowMemory(y).Span;
+				long totalR = 0;
+				long totalG = 0;
+				long totalB = 0;
+				long totalA = 0;
+				long count = 0;
+
+				for (var x = 0; x < row.Length; x++)
 				{
-					var row = image.DangerousGetPixelRowMemory(y).Span;
-					long totalR = 0;
-					long totalG = 0;
-					long totalB = 0;
-					long totalA = 0;
-					long count = 0;
-
-					for (var x = 0; x < row.Length; x++)
+					var pixel = row[x];
+					if (pixel.A <= 10)
 					{
-						var pixel = row[x];
-						if (pixel.A <= 10)
-						{
-							continue;
-						}
-
-						totalR += pixel.R;
-						totalG += pixel.G;
-						totalB += pixel.B;
-						totalA += pixel.A;
-						count++;
+						continue;
 					}
 
-					if (count > 0)
-					{
-						return new Rgba32(
-							(byte)(totalR / count),
-							(byte)(totalG / count),
-							(byte)(totalB / count),
-							(byte)(totalA / count));
-					}
+					totalR += pixel.R;
+					totalG += pixel.G;
+					totalB += pixel.B;
+					totalA += pixel.A;
+					count++;
+				}
+
+				if (count > 0)
+				{
+					return new Rgba32(
+						(byte)(totalR / count),
+						(byte)(totalG / count),
+						(byte)(totalB / count),
+						(byte)(totalA / count));
 				}
 			}
-			else
-			{
-				for (var y = image.Height - 1; y >= 0; y--)
-				{
-					var row = image.DangerousGetPixelRowMemory(y).Span;
-					long totalR = 0;
-					long totalG = 0;
-					long totalB = 0;
-					long totalA = 0;
-					long count = 0;
-
-					for (var x = 0; x < row.Length; x++)
-					{
-						var pixel = row[x];
-						if (pixel.A <= 10)
-						{
-							continue;
-						}
-
-						totalR += pixel.R;
-						totalG += pixel.G;
-						totalB += pixel.B;
-						totalA += pixel.A;
-						count++;
-					}
-
-					if (count > 0)
-					{
-						return new Rgba32(
-							(byte)(totalR / count),
-							(byte)(totalG / count),
-							(byte)(totalB / count),
-							(byte)(totalA / count));
-					}
-				}
-			}
-
-			return default;
 		}
+		else
+		{
+			for (var y = image.Height - 1; y >= 0; y--)
+			{
+				var row = image.DangerousGetPixelRowMemory(y).Span;
+				long totalR = 0;
+				long totalG = 0;
+				long totalB = 0;
+				long totalA = 0;
+				long count = 0;
+
+				for (var x = 0; x < row.Length; x++)
+				{
+					var pixel = row[x];
+					if (pixel.A <= 10)
+					{
+						continue;
+					}
+
+					totalR += pixel.R;
+					totalG += pixel.G;
+					totalB += pixel.B;
+					totalA += pixel.A;
+					count++;
+				}
+
+				if (count > 0)
+				{
+					return new Rgba32(
+						(byte)(totalR / count),
+						(byte)(totalG / count),
+						(byte)(totalB / count),
+						(byte)(totalA / count));
+				}
+			}
+		}
+
+		return default;
+	}
 
 	private static bool HasOpaquePixels(Image<Rgba32> image)
 	{
@@ -1054,6 +1093,7 @@ public sealed class BlockRendererTests
 					{
 						min = x;
 					}
+
 					if (x > max)
 					{
 						max = x;
@@ -1132,7 +1172,7 @@ public sealed class BlockRendererTests
 	private static bool ColorsApproxEqual(Rgba32 left, Rgba32 right, int tolerance = 4)
 	{
 		return Math.Abs(left.R - right.R) <= tolerance
-			&& Math.Abs(left.G - right.G) <= tolerance
-			&& Math.Abs(left.B - right.B) <= tolerance;
+		       && Math.Abs(left.G - right.G) <= tolerance
+		       && Math.Abs(left.B - right.B) <= tolerance;
 	}
 }

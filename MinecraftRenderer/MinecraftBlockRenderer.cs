@@ -45,7 +45,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 			return null;
 		}
 	}
-	
+
 	public static bool DebugDisableCulling = false;
 
 	private readonly BlockModelResolver _modelResolver;
@@ -57,7 +57,8 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 
 	public TextureRepository TextureRepository => _textureRepository;
 
-	private MinecraftBlockRenderer(BlockModelResolver modelResolver, TextureRepository textureRepository, BlockRegistry blockRegistry, ItemRegistry? itemRegistry)
+	private MinecraftBlockRenderer(BlockModelResolver modelResolver, TextureRepository textureRepository,
+		BlockRegistry blockRegistry, ItemRegistry? itemRegistry)
 	{
 		_modelResolver = modelResolver;
 		_textureRepository = textureRepository;
@@ -78,7 +79,8 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		{
 			var modelResolver = BlockModelResolver.LoadFromFile(modelsPath);
 			var blockRegistry = BlockRegistry.LoadFromFile(texturesPath);
-			var textureRepository = new TextureRepository(dataDirectory, File.Exists(textureContentPath) ? textureContentPath : null);
+			var textureRepository = new TextureRepository(dataDirectory,
+				File.Exists(textureContentPath) ? textureContentPath : null);
 			ItemRegistry? itemRegistry = null;
 			if (File.Exists(itemsPath))
 			{
@@ -93,7 +95,8 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 			return CreateFromMinecraftAssets(dataDirectory);
 		}
 
-		throw new DirectoryNotFoundException($"The directory '{dataDirectory}' does not contain the expected aggregated JSON files or Minecraft asset folders.");
+		throw new DirectoryNotFoundException(
+			$"The directory '{dataDirectory}' does not contain the expected aggregated JSON files or Minecraft asset folders.");
 	}
 
 	public static MinecraftBlockRenderer CreateFromMinecraftAssets(string assetsDirectory)
@@ -102,8 +105,10 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 
 		var overlayRoots = DiscoverOverlayRoots(assetsDirectory);
 		var modelResolver = BlockModelResolver.LoadFromMinecraftAssets(assetsDirectory, overlayRoots);
-		var blockRegistry = BlockRegistry.LoadFromMinecraftAssets(assetsDirectory, modelResolver.Definitions, overlayRoots);
-		var itemRegistry = ItemRegistry.LoadFromMinecraftAssets(assetsDirectory, modelResolver.Definitions, overlayRoots);
+		var blockRegistry =
+			BlockRegistry.LoadFromMinecraftAssets(assetsDirectory, modelResolver.Definitions, overlayRoots);
+		var itemRegistry =
+			ItemRegistry.LoadFromMinecraftAssets(assetsDirectory, modelResolver.Definitions, overlayRoots);
 		var texturesRoot = Directory.Exists(Path.Combine(assetsDirectory, "textures"))
 			? Path.Combine(assetsDirectory, "textures")
 			: assetsDirectory;
@@ -155,8 +160,8 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		}
 
 		return Directory.Exists(Path.Combine(path, "models"))
-			&& Directory.Exists(Path.Combine(path, "blockstates"))
-			&& Directory.Exists(Path.Combine(path, "textures"));
+		       && Directory.Exists(Path.Combine(path, "blockstates"))
+		       && Directory.Exists(Path.Combine(path, "textures"));
 	}
 
 	public IReadOnlyList<string> GetKnownBlockNames() => _blockRegistry.GetAllBlockNames();
@@ -198,8 +203,8 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		{
 			image.Dispose();
 		}
+
 		_biomeTintedTextureCache.Clear();
-		
 	}
 
 	private void EnsureNotDisposed()
@@ -229,8 +234,9 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		{ "red", new Color(new Rgb24(176, 46, 38)) },
 		{ "black", new Color(new Rgb24(29, 29, 33)) }
 	};
-	
-	private static readonly Lazy<BiomeTintConfiguration> BiomeTintConfigurationLazy = new(BiomeTintConfiguration.LoadDefault);
+
+	private static readonly Lazy<BiomeTintConfiguration> BiomeTintConfigurationLazy =
+		new(BiomeTintConfiguration.LoadDefault);
 
 	private static BiomeTintConfiguration BiomeTints => BiomeTintConfigurationLazy.Value;
 
@@ -244,12 +250,13 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		DryFoliage
 	}
 
-	private static readonly Dictionary<BiomeTintKind, (float Temperature, float Downfall)> DefaultBiomeTintCoordinates = new()
-	{
-		[BiomeTintKind.Grass] = (0.5f, 1.0f),
-		[BiomeTintKind.Foliage] = (0.5f, 1.0f),
-		[BiomeTintKind.DryFoliage] = (0.5f, 0.25f)
-	};
+	private static readonly Dictionary<BiomeTintKind, (float Temperature, float Downfall)> DefaultBiomeTintCoordinates =
+		new()
+		{
+			[BiomeTintKind.Grass] = (0.5f, 1.0f),
+			[BiomeTintKind.Foliage] = (0.5f, 1.0f),
+			[BiomeTintKind.DryFoliage] = (0.5f, 0.25f)
+		};
 
 	private static Color? GetColorFromBlockName(string? blockName)
 	{
@@ -260,11 +267,11 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 
 		var name = NormalizeResourceKey(blockName);
 		if (name.EndsWith("bundle", StringComparison.OrdinalIgnoreCase) ||
-			name.Contains("_bundle", StringComparison.OrdinalIgnoreCase))
+		    name.Contains("_bundle", StringComparison.OrdinalIgnoreCase))
 		{
 			return null;
 		}
-		
+
 		var constantColors = BiomeTints.ConstantColors;
 		if (constantColors.TryGetValue(name, out var constantColor))
 		{
@@ -396,7 +403,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 
 		var normalized = identifier.Replace('\\', '/');
 		if (normalized.StartsWith("item/", StringComparison.OrdinalIgnoreCase) ||
-			normalized.StartsWith("items/", StringComparison.OrdinalIgnoreCase))
+		    normalized.StartsWith("items/", StringComparison.OrdinalIgnoreCase))
 		{
 			return true;
 		}
@@ -407,9 +414,9 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		}
 
 		return normalized.Contains("/item/", StringComparison.OrdinalIgnoreCase)
-			|| normalized.Contains(":item/", StringComparison.OrdinalIgnoreCase)
-			|| normalized.Contains("/items/", StringComparison.OrdinalIgnoreCase)
-			|| normalized.Contains(":items/", StringComparison.OrdinalIgnoreCase);
+		       || normalized.Contains(":item/", StringComparison.OrdinalIgnoreCase)
+		       || normalized.Contains("/items/", StringComparison.OrdinalIgnoreCase)
+		       || normalized.Contains(":items/", StringComparison.OrdinalIgnoreCase);
 	}
 
 	private static bool TryGetBiomeTintKind(string textureId, string? blockName, out BiomeTintKind kind)
@@ -420,7 +427,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		var isItemTexture = IsLikelyItemTexture(textureId);
 
 		if (isItemTexture &&
-			(IsInSet(config.ItemTintExclusions, textureKey) || IsInSet(config.ItemTintExclusions, blockKey)))
+		    (IsInSet(config.ItemTintExclusions, textureKey) || IsInSet(config.ItemTintExclusions, blockKey)))
 		{
 			kind = default;
 			return false;
@@ -507,5 +514,4 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 
 		return tinted;
 	}
-	
 }

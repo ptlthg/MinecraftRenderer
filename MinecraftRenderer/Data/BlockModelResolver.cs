@@ -31,15 +31,19 @@ public sealed class BlockModelResolver
 		};
 
 		var definitions = JsonSerializer.Deserialize<Dictionary<string, BlockModelDefinition>>(json, options)
-			?? throw new InvalidOperationException($"Failed to parse block model definitions from '{path}'.");
+		                  ?? throw new InvalidOperationException(
+			                  $"Failed to parse block model definitions from '{path}'.");
 
-		return new BlockModelResolver(new Dictionary<string, BlockModelDefinition>(definitions, StringComparer.OrdinalIgnoreCase));
+		return new BlockModelResolver(
+			new Dictionary<string, BlockModelDefinition>(definitions, StringComparer.OrdinalIgnoreCase));
 	}
 
-	public static BlockModelResolver LoadFromMinecraftAssets(string assetsRoot, IEnumerable<string>? overlayRoots = null)
+	public static BlockModelResolver LoadFromMinecraftAssets(string assetsRoot,
+		IEnumerable<string>? overlayRoots = null)
 	{
 		var definitions = MinecraftAssetLoader.LoadModelDefinitions(assetsRoot, overlayRoots);
-		return new BlockModelResolver(new Dictionary<string, BlockModelDefinition>(definitions, StringComparer.OrdinalIgnoreCase));
+		return new BlockModelResolver(
+			new Dictionary<string, BlockModelDefinition>(definitions, StringComparer.OrdinalIgnoreCase));
 	}
 
 	public BlockModelInstance Resolve(string name)
@@ -191,7 +195,8 @@ public sealed class BlockModelResolver
 		if (definition.Rotation is { } rotationDef && rotationDef.Origin is { Length: 3 } origin)
 		{
 			var originVec = new Vector3(origin[0], origin[1], origin[2]);
-			rotation = new ElementRotation(rotationDef.Angle, originVec, rotationDef.Axis.ToLowerInvariant(), rotationDef.Rescale ?? false);
+			rotation = new ElementRotation(rotationDef.Angle, originVec, rotationDef.Axis.ToLowerInvariant(),
+				rotationDef.Rescale ?? false);
 		}
 
 		var faces = new Dictionary<BlockFaceDirection, ModelFace>();
