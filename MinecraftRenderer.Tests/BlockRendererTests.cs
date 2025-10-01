@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Linq;
 using System.Numerics;
 using System.Reflection;
 using SixLabors.ImageSharp;
@@ -202,6 +203,143 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 		Assert.True(
 			IsCloserTo(topColor, ToVector(faceColors[BlockFaceDirection.Up]),
 				ToVector(faceColors[BlockFaceDirection.Down])), "Top face should prefer up color over down.");
+	}
+
+	[Fact]
+	public void InventoryLightingCreatesDirectionalHighlights()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+
+		const string textureId = "minecraft:block/unit_test_inventory_shading";
+		using var uniformTexture = new Image<Rgba32>(16, 16, new Rgba32(180, 180, 180));
+		renderer.TextureRepository.RegisterTexture(textureId, uniformTexture, overwrite: true);
+
+		var faces = new Dictionary<BlockFaceDirection, ModelFace>
+		{
+			[BlockFaceDirection.North] = new("#all", new Vector4(0, 0, 16, 16), null, null, null),
+			[BlockFaceDirection.South] = new("#all", new Vector4(0, 0, 16, 16), null, null, null),
+			[BlockFaceDirection.East] = new("#all", new Vector4(0, 0, 16, 16), null, null, null),
+			[BlockFaceDirection.West] = new("#all", new Vector4(0, 0, 16, 16), null, null, null),
+			[BlockFaceDirection.Up] = new("#all", new Vector4(0, 0, 16, 16), null, null, null),
+			[BlockFaceDirection.Down] = new("#all", new Vector4(0, 0, 16, 16), null, null, null)
+		};
+
+		var textures = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+		{
+			["particle"] = textureId,
+			["all"] = textureId
+		};
+
+		var element = new ModelElement(new Vector3(0, 0, 0), new Vector3(16, 16, 16), null, faces, shade: true);
+		var model = new BlockModelInstance("unit_test:inventory_shading", [], textures,
+			new Dictionary<string, TransformDefinition>(StringComparer.OrdinalIgnoreCase), [element]);
+
+		var options = MinecraftBlockRenderer.BlockRenderOptions.Default;
+		var defaultGuiTransformField = typeof(MinecraftBlockRenderer)
+			.GetField("DefaultGuiTransform", BindingFlags.NonPublic | BindingFlags.Static)
+			?? throw new InvalidOperationException("DefaultGuiTransform field not found");
+		var defaultGuiTransform = (TransformDefinition)defaultGuiTransformField.GetValue(null)!;
+
+		var buildDisplayTransform = typeof(MinecraftBlockRenderer)
+			.GetMethod("BuildDisplayTransform", BindingFlags.NonPublic | BindingFlags.Static)
+			?? throw new InvalidOperationException("BuildDisplayTransform method not found");
+		var createRotationMatrix = typeof(MinecraftBlockRenderer)
+			.GetMethod("CreateRotationMatrix", BindingFlags.NonPublic | BindingFlags.Static)
+			?? throw new InvalidOperationException("CreateRotationMatrix method not found");
+		var buildTriangles = typeof(MinecraftBlockRenderer)
+			.GetMethod("BuildTriangles", BindingFlags.NonPublic | BindingFlags.Instance)
+			?? throw new InvalidOperationException("BuildTriangles method not found");
+
+		var rotationFactor = MathF.PI / 180f;
+		var displayTransform = (Matrix4x4)buildDisplayTransform.Invoke(null, new object?[] { defaultGuiTransform, true })!;
+		var additionalRotation = (Matrix4x4)createRotationMatrix.Invoke(null, new object?[]
+		{
+			options.YawInDegrees * rotationFactor,
+			options.PitchInDegrees * rotationFactor,
+			options.RollInDegrees * rotationFactor
+		})!;
+		var scaleMatrix = Matrix4x4.CreateScale(options.AdditionalScale);
+		var translation = new Vector3(
+			options.AdditionalTranslation.X / 16f,
+			options.AdditionalTranslation.Y / 16f,
+			options.AdditionalTranslation.Z / 16f);
+		var translationMatrix = Matrix4x4.CreateTranslation(translation);
+		var orientationCorrection = Matrix4x4.CreateRotationY(MathF.PI / 2f);
+
+		var totalTransform = Matrix4x4.Identity;
+		totalTransform = Matrix4x4.Multiply(totalTransform, displayTransform);
+		totalTransform = Matrix4x4.Multiply(totalTransform, additionalRotation);
+		totalTransform = Matrix4x4.Multiply(totalTransform, scaleMatrix);
+		totalTransform = Matrix4x4.Multiply(totalTransform, translationMatrix);
+		totalTransform = Matrix4x4.Multiply(orientationCorrection, totalTransform);
+
+		var triangles = (IEnumerable)buildTriangles.Invoke(renderer, new object?[] { model, totalTransform, true, null })!;
+		var triangleType = triangles.GetType().GetGenericArguments().First();
+		var normalProp = triangleType.GetProperty("Normal")
+			?? throw new InvalidOperationException("Normal property not found");
+		var shadingProp = triangleType.GetProperty("Shading")
+			?? throw new InvalidOperationException("Shading property not found");
+
+		var shadingByOrientation = new Dictionary<string, List<float>>(StringComparer.OrdinalIgnoreCase);
+
+		foreach (var triangle in triangles)
+		{
+			var normal = (Vector3)normalProp.GetValue(triangle)!;
+			var shading = (float)shadingProp.GetValue(triangle)!;
+			if (normal.LengthSquared() < 1e-6f)
+			{
+				continue;
+			}
+
+			var normalized = Vector3.Normalize(normal);
+			var orientationCandidates = new (string Key, float Value)[]
+			{
+				("East", Vector3.Dot(normalized, Vector3.UnitX)),
+				("West", Vector3.Dot(normalized, -Vector3.UnitX)),
+				("North", Vector3.Dot(normalized, -Vector3.UnitZ)),
+				("South", Vector3.Dot(normalized, Vector3.UnitZ)),
+				("Up", Vector3.Dot(normalized, Vector3.UnitY)),
+				("Down", Vector3.Dot(normalized, -Vector3.UnitY))
+			};
+
+			var best = orientationCandidates.MaxBy(static candidate => candidate.Value);
+			if (best.Value <= 1e-4f)
+			{
+				continue;
+			}
+
+			if (!shadingByOrientation.TryGetValue(best.Key, out var list))
+			{
+				list = [];
+				shadingByOrientation[best.Key] = list;
+			}
+
+			list.Add(shading);
+		}
+
+		float AverageShading(string key)
+			=> shadingByOrientation.TryGetValue(key, out var list) && list.Count > 0 ? list.Average() : 0f;
+
+		var east = AverageShading("East");
+		var north = AverageShading("North");
+		var south = AverageShading("South");
+		var west = AverageShading("West");
+		var up = AverageShading("Up");
+		var down = AverageShading("Down");
+
+		output.WriteLine(
+			$"Inventory shading averages -> East: {east:F3}, North: {north:F3}, South: {south:F3}, West: {west:F3}, Up: {up:F3}, Down: {down:F3}");
+
+		Assert.True(up >= 0.95f,
+			$"Expected top face to retain full brightness (up {up:F3}).");
+		Assert.True(east <= up * 0.6f,
+			$"Expected east face to be significantly darker than top (up {up:F3}, east {east:F3}).");
+		Assert.True(north <= up * 0.25f,
+			$"Expected north face to be much darker than top (up {up:F3}, north {north:F3}).");
+		Assert.True(up - east >= 0.3f,
+			$"Expected a strong contrast between top and east faces (up {up:F3}, east {east:F3}).");
+		Assert.True(up - north >= 0.6f,
+			$"Expected a strong contrast between top and north faces (up {up:F3}, north {north:F3}).");
 	}
 
 	[Fact]
@@ -631,7 +769,7 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 
 		var triangles =
 			(IEnumerable)buildTriangles.Invoke(renderer,
-				[model, Matrix4x4.Identity, null])!;
+				[model, Matrix4x4.Identity, false, null])!;
 		var v1Prop = triangles.GetType().GetGenericArguments().First().GetProperty("V1")
 		             ?? throw new InvalidOperationException("V1 property not found");
 		var v2Prop = triangles.GetType().GetGenericArguments().First().GetProperty("V2")!;
@@ -725,7 +863,7 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 		                     ?? throw new InvalidOperationException("BuildTriangles method not found");
 
 		var triangles =
-			(IEnumerable)buildTriangles.Invoke(renderer, [model, Matrix4x4.Identity, null])!;
+			(IEnumerable)buildTriangles.Invoke(renderer, [model, Matrix4x4.Identity, false, null])!;
 		var triangleType = triangles.GetType().GetGenericArguments().First();
 		var faceDirectionProp = triangleType.GetProperty("FaceDirection")
 		                        ?? throw new InvalidOperationException("FaceDirection property not found");
@@ -1147,6 +1285,9 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 	}
 
 	private static Vector3 ToVector(Rgba32 color) => new(color.R, color.G, color.B);
+
+	private static float ComputeLuma(Rgba32 color) =>
+		0.2126f * color.R + 0.7152f * color.G + 0.0722f * color.B;
 
 	private static float ComputeScaledError(Vector3 sample, Vector3 reference)
 	{
