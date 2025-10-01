@@ -14,7 +14,7 @@
 - [x] Add way to specify leather armor dye colors (also the dyeable wolf armor)
 - [x] Add armor trims to armor items
   - [x] Use the correct color palettes and correctly darken trims that are the same material as the base (eg: iron trim + iron armor)
-- [ ] Rendered inventory models need to be shaded as they are in minecraft
+- [x] Rendered inventory models need to be shaded as they are in minecraft
 
 ## Big missing features
 - [ ] Add support for loading texture packs from a directory. Texture pack order can then be specified when using the renderer to use them.

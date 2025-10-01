@@ -6,6 +6,7 @@ appsettings.*.json
 old
 atlases
 /minecraft
+/texturepacks
 # /customdata
 
 ## Ignore Visual Studio temporary files, build results, and

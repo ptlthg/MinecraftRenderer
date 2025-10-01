@@ -242,7 +242,8 @@ public sealed class TextureRepository : IDisposable
 			yield break;
 		}
 
-		var candidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		var candidates = new List<string>();
+		var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
 		void AddCandidate(string relativePath)
 		{
@@ -252,10 +253,13 @@ public sealed class TextureRepository : IDisposable
 			}
 
 			var withExtension = relativePath.Replace('/', Path.DirectorySeparatorChar) + ".png";
-			foreach (var root in _dataRoots)
+			for (var i = _dataRoots.Count - 1; i >= 0; i--)
 			{
-				var combined = Path.Combine(root, withExtension);
-				candidates.Add(combined);
+				var combined = Path.Combine(_dataRoots[i], withExtension);
+				if (seen.Add(combined))
+				{
+					candidates.Add(combined);
+				}
 			}
 		}
 

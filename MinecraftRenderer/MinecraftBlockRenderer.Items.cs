@@ -10,6 +10,14 @@ using SixLabors.ImageSharp.Processing;
 
 public sealed partial class MinecraftBlockRenderer
 {
+	public Image<Rgba32> RenderGuiItem(string itemName, BlockRenderOptions? options = null)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(itemName);
+		var effectiveOptions = options ?? BlockRenderOptions.Default;
+		var renderer = ResolveRendererForOptions(effectiveOptions, out var forwardedOptions);
+		return renderer.RenderGuiItemInternal(itemName, forwardedOptions);
+	}
+
 	private static readonly (string Suffix, string Replacement)[] InventoryModelSuffixes =
 	{
 		("_fence", "_fence_inventory"),
@@ -55,10 +63,8 @@ public sealed partial class MinecraftBlockRenderer
 			["wolf_armor_dyed"] = new[] { 1 }
 		};
 
-	public Image<Rgba32> RenderGuiItem(string itemName, BlockRenderOptions? options = null)
+	private Image<Rgba32> RenderGuiItemInternal(string itemName, BlockRenderOptions options)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(itemName);
-		options ??= BlockRenderOptions.Default;
 		options = options with { Padding = 0f };
 		EnsureNotDisposed();
 

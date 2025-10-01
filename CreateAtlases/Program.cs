@@ -1,5 +1,6 @@
 using System.Globalization;
 using MinecraftRenderer;
+using MinecraftRenderer.TexturePacks;
 
 var options = ParseArguments(args);
 
@@ -24,6 +25,15 @@ Directory.CreateDirectory(outputDirectory);
 
 var views = BuildViews(options.ViewNames);
 
+if (options.TexturePackIds is { Count: > 0 })
+{
+	var packList = options.TexturePackIds.ToArray();
+	views = views.Select(view => view with
+	{
+		Options = view.Options with { PackIds = packList }
+	}).ToList();
+}
+
 if (views.Count == 0)
 {
 	Console.Error.WriteLine("No valid views selected. Use --views to specify a comma-separated list of: " + string.Join(", ", MinecraftAtlasGenerator.DefaultViews.Select(v => v.Name)) + ".");
@@ -47,9 +57,24 @@ Console.WriteLine($"Data directory: {resolvedAssetDirectory.Path}");
 Console.WriteLine($"Output directory: {outputDirectory}");
 Console.WriteLine($"Views: {string.Join(", ", views.Select(v => v.Name))}");
 
+TexturePackRegistry? texturePackRegistry = null;
+if ((options.TexturePackDirectories is { Count: > 0 } || options.TexturePackIds is { Count: > 0 })
+	&& resolvedAssetDirectory.IsAggregatedJson)
+{
+	Console.Error.WriteLine("Texture packs require a Minecraft assets directory. Aggregated JSON rendering does not support packs.");
+	Environment.ExitCode = 1;
+	return;
+}
+
+if (!resolvedAssetDirectory.IsAggregatedJson)
+{
+	texturePackRegistry = InitializeTexturePackRegistry(options, resolvedAssetDirectory.Path);
+}
+
 using var renderer = resolvedAssetDirectory.IsAggregatedJson
 	? MinecraftBlockRenderer.CreateFromDataDirectory(resolvedAssetDirectory.Path)
-	: MinecraftBlockRenderer.CreateFromMinecraftAssets(resolvedAssetDirectory.Path);
+	: MinecraftBlockRenderer.CreateFromMinecraftAssets(resolvedAssetDirectory.Path, texturePackRegistry,
+		options.TexturePackIds);
 
 var results = MinecraftAtlasGenerator.GenerateAtlases(
 	renderer,
@@ -124,6 +149,14 @@ static CliOptions ParseArguments(string[] arguments)
 				break;
 			case "--debug-block":
 				options.GenerateDebugBlock = true;
+				break;
+			case "--texture-pack-dir":
+				options.TexturePackDirectories ??= new List<string>();
+				options.TexturePackDirectories.Add(ReadNext(arguments, ref i, "--texture-pack-dir"));
+				break;
+			case "--texture-pack-id":
+				options.TexturePackIds ??= new List<string>();
+				options.TexturePackIds.Add(ReadNext(arguments, ref i, "--texture-pack-id"));
 				break;
 			default:
 				Console.Error.WriteLine($"Unknown argument '{arg}'. Use --help for usage information.");
@@ -301,6 +334,95 @@ static List<string>? ParseList(string? value)
 		.ToList();
 }
 
+static TexturePackRegistry? InitializeTexturePackRegistry(CliOptions options, string assetsPath)
+{
+	var needsRegistry = options.TexturePackDirectories is { Count: > 0 } || options.TexturePackIds is { Count: > 0 };
+	var discoveredDirectories = DiscoverDefaultTexturePacks(assetsPath);
+	if (!needsRegistry && discoveredDirectories.Count == 0)
+	{
+		return null;
+	}
+
+	var registry = TexturePackRegistry.Create();
+	var registeredIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+	void RegisterDirectory(string directory)
+	{
+		try
+		{
+			var registered = registry.RegisterPack(directory);
+			if (registeredIds.Add(registered.Id))
+			{
+				Console.WriteLine($"Registered texture pack '{registered.Id}' from '{directory}'.");
+			}
+		}
+		catch (Exception ex)
+		{
+			Console.Error.WriteLine($"Failed to register texture pack directory '{directory}': {ex.Message}");
+			Environment.Exit(1);
+		}
+	}
+
+	if (discoveredDirectories.Count > 0)
+	{
+		foreach (var directory in discoveredDirectories)
+		{
+			RegisterDirectory(directory);
+		}
+	}
+
+	if (options.TexturePackDirectories is { Count: > 0 })
+	{
+		foreach (var directory in options.TexturePackDirectories)
+		{
+			RegisterDirectory(directory);
+		}
+	}
+
+	if (options.TexturePackIds is { Count: > 0 })
+	{
+		foreach (var packId in options.TexturePackIds)
+		{
+			if (!registry.TryGetPack(packId, out _))
+			{
+				Console.Error.WriteLine($"Texture pack id '{packId}' was not registered. Use --texture-pack-dir to register it.");
+				Environment.Exit(1);
+			}
+		}
+	}
+
+	return registry;
+}
+
+static List<string> DiscoverDefaultTexturePacks(string assetsPath)
+{
+	var results = new List<string>();
+	var searchRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+	{
+		Path.Combine(Directory.GetCurrentDirectory(), "texturepacks"),
+		Path.Combine(Path.GetDirectoryName(Path.GetFullPath(assetsPath)) ?? assetsPath, "texturepacks")
+	};
+
+	foreach (var root in searchRoots)
+	{
+		if (!Directory.Exists(root))
+		{
+			continue;
+		}
+
+		foreach (var directory in Directory.EnumerateDirectories(root))
+		{
+			var metaPath = Path.Combine(directory, "meta.json");
+			if (File.Exists(metaPath))
+			{
+				results.Add(directory);
+			}
+		}
+	}
+
+	return results;
+}
+
 static void PrintHelp()
 {
 	Console.WriteLine("Minecraft Renderer – Atlas Generator");
@@ -320,6 +442,8 @@ static void PrintHelp()
 	Console.WriteLine("  --no-items           Skip item rendering");
 	Console.WriteLine("  --views <names>      Comma-separated view names (default: all). Available: " + string.Join(", ", MinecraftAtlasGenerator.DefaultViews.Select(v => v.Name)));
 	Console.WriteLine("  --debug-block        Generate a synthetic debug cube with colored faces into its own atlas");
+	Console.WriteLine("  --texture-pack-dir <path>  Register an unzipped resource pack directory (can be specified multiple times)");
+	Console.WriteLine("  --texture-pack-id <id>     Apply a registered pack id (last flag has highest priority; specify multiple for stacks)");
 	Console.WriteLine("  -h | --help          Show this help message");
 }
 
@@ -346,4 +470,6 @@ sealed class CliOptions
 	public bool IncludeItems { get; set; } = true;
 	public List<string>? ViewNames { get; set; }
 	public bool GenerateDebugBlock { get; set; }
+	public List<string>? TexturePackDirectories { get; set; }
+	public List<string>? TexturePackIds { get; set; }
 }

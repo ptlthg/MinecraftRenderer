@@ -1,11 +1,14 @@
 namespace MinecraftRenderer;
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Numerics;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
+using MinecraftRenderer.TexturePacks;
 
 public sealed partial class MinecraftBlockRenderer : IDisposable
 {
@@ -20,6 +23,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		float AdditionalScale = 1f,
 		Vector3 AdditionalTranslation = default,
 		TransformDefinition? OverrideGuiTransform = null,
+		IReadOnlyList<string>? PackIds = null,
 		ItemRenderData? ItemData = null)
 	{
 		public static BlockRenderOptions Default { get; } = new();
@@ -52,18 +56,30 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 	private readonly TextureRepository _textureRepository;
 	private readonly BlockRegistry _blockRegistry;
 	private readonly ItemRegistry? _itemRegistry;
+	private readonly RenderPackContext _packContext;
+	private readonly string? _assetsDirectory;
+	private readonly IReadOnlyList<OverlayRoot> _baseOverlayRoots;
+	private readonly TexturePackRegistry? _packRegistry;
+	private readonly ConcurrentDictionary<string, MinecraftBlockRenderer> _packRendererCache =
+		new(StringComparer.OrdinalIgnoreCase);
 	private readonly Dictionary<string, Image<Rgba32>> _biomeTintedTextureCache = new(StringComparer.OrdinalIgnoreCase);
 	private bool _disposed;
 
 	public TextureRepository TextureRepository => _textureRepository;
 
 	private MinecraftBlockRenderer(BlockModelResolver modelResolver, TextureRepository textureRepository,
-		BlockRegistry blockRegistry, ItemRegistry? itemRegistry)
+		BlockRegistry blockRegistry, ItemRegistry? itemRegistry, string? assetsDirectory,
+		IReadOnlyList<OverlayRoot> baseOverlayRoots, TexturePackRegistry? packRegistry,
+		RenderPackContext packContext)
 	{
 		_modelResolver = modelResolver;
 		_textureRepository = textureRepository;
 		_blockRegistry = blockRegistry;
 		_itemRegistry = itemRegistry;
+		_assetsDirectory = assetsDirectory;
+		_baseOverlayRoots = baseOverlayRoots;
+		_packRegistry = packRegistry;
+		_packContext = packContext;
 	}
 
 	public static MinecraftBlockRenderer CreateFromDataDirectory(string dataDirectory)
@@ -87,7 +103,9 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 				itemRegistry = ItemRegistry.LoadFromFile(itemsPath);
 			}
 
-			return new MinecraftBlockRenderer(modelResolver, textureRepository, blockRegistry, itemRegistry);
+			var packContext = RenderPackContext.Create(null, Array.Empty<OverlayRoot>(), null);
+			return new MinecraftBlockRenderer(modelResolver, textureRepository, blockRegistry, itemRegistry, null,
+				Array.Empty<OverlayRoot>(), null, packContext);
 		}
 
 		if (IsMinecraftAssetsRoot(dataDirectory))
@@ -99,27 +117,44 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 			$"The directory '{dataDirectory}' does not contain the expected aggregated JSON files or Minecraft asset folders.");
 	}
 
-	public static MinecraftBlockRenderer CreateFromMinecraftAssets(string assetsDirectory)
+	public static MinecraftBlockRenderer CreateFromMinecraftAssets(string assetsDirectory,
+		TexturePackRegistry? texturePackRegistry = null,
+		IReadOnlyList<string>? defaultPackIds = null)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(assetsDirectory);
 
 		var overlayRoots = DiscoverOverlayRoots(assetsDirectory);
-		var modelResolver = BlockModelResolver.LoadFromMinecraftAssets(assetsDirectory, overlayRoots);
+		List<string> overlayPaths = new(overlayRoots.Select(static root => root.Path));
+		TexturePackStack? defaultPackStack = null;
+		if (texturePackRegistry is not null && defaultPackIds is { Count: > 0 })
+		{
+			defaultPackStack = texturePackRegistry.BuildPackStack(defaultPackIds);
+			foreach (var overlay in defaultPackStack.OverlayRoots)
+			{
+				if (!overlayPaths.Contains(overlay.Path, StringComparer.OrdinalIgnoreCase))
+				{
+					overlayPaths.Add(overlay.Path);
+				}
+			}
+		}
+		var modelResolver = BlockModelResolver.LoadFromMinecraftAssets(assetsDirectory, overlayPaths);
 		var blockRegistry =
-			BlockRegistry.LoadFromMinecraftAssets(assetsDirectory, modelResolver.Definitions, overlayRoots);
+			BlockRegistry.LoadFromMinecraftAssets(assetsDirectory, modelResolver.Definitions, overlayPaths);
 		var itemRegistry =
-			ItemRegistry.LoadFromMinecraftAssets(assetsDirectory, modelResolver.Definitions, overlayRoots);
+			ItemRegistry.LoadFromMinecraftAssets(assetsDirectory, modelResolver.Definitions, overlayPaths);
 		var texturesRoot = Directory.Exists(Path.Combine(assetsDirectory, "textures"))
 			? Path.Combine(assetsDirectory, "textures")
 			: assetsDirectory;
-		var textureRepository = new TextureRepository(texturesRoot, overlayRoots: overlayRoots);
+		var textureRepository = new TextureRepository(texturesRoot, overlayRoots: overlayPaths);
+		var packContext = RenderPackContext.Create(assetsDirectory, overlayRoots, defaultPackStack);
 
-		return new MinecraftBlockRenderer(modelResolver, textureRepository, blockRegistry, itemRegistry);
+		return new MinecraftBlockRenderer(modelResolver, textureRepository, blockRegistry, itemRegistry,
+			assetsDirectory, overlayRoots, texturePackRegistry, packContext);
 	}
 
-	private static IReadOnlyList<string> DiscoverOverlayRoots(string assetsDirectory)
+	private static IReadOnlyList<OverlayRoot> DiscoverOverlayRoots(string assetsDirectory)
 	{
-		var overlays = new List<string>();
+		var overlays = new List<OverlayRoot>();
 		var assetRoot = Path.GetFullPath(assetsDirectory);
 		var parent = Directory.GetParent(assetRoot)?.FullName;
 
@@ -136,10 +171,13 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 				return;
 			}
 
-			if (!overlays.Contains(fullPath, StringComparer.OrdinalIgnoreCase))
+			if (overlays.Any(root => string.Equals(root.Path, fullPath, StringComparison.OrdinalIgnoreCase)))
 			{
-				overlays.Add(fullPath);
+				return;
 			}
+
+			var sourceId = $"customdata_{overlays.Count}";
+			overlays.Add(new OverlayRoot(fullPath, sourceId, OverlayRootKind.CustomData));
 		}
 
 		if (parent is not null)
@@ -171,8 +209,30 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 	public Image<Rgba32> RenderBlock(string blockName, BlockRenderOptions? options = null)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(blockName);
-		options ??= BlockRenderOptions.Default;
+		var effectiveOptions = options ?? BlockRenderOptions.Default;
+		var renderer = ResolveRendererForOptions(effectiveOptions, out var forwardedOptions);
+		return renderer.RenderBlockInternal(blockName, forwardedOptions);
+	}
 
+	public Image<Rgba32> RenderItem(string itemName, BlockRenderOptions? options = null)
+	{
+		var effectiveOptions = options ?? BlockRenderOptions.Default;
+		var renderer = ResolveRendererForOptions(effectiveOptions, out var forwardedOptions);
+		return renderer.RenderGuiItemInternal(itemName, forwardedOptions);
+	}
+
+	public Image<Rgba32> RenderItem(string itemName, ItemRenderData itemData, BlockRenderOptions? options = null)
+	{
+		ArgumentNullException.ThrowIfNull(itemData);
+		var baseOptions = options ?? BlockRenderOptions.Default;
+		var effectiveOptions = baseOptions with { ItemData = itemData };
+		var renderer = ResolveRendererForOptions(effectiveOptions, out var forwardedOptions);
+		return renderer.RenderGuiItemInternal(itemName, forwardedOptions);
+	}
+
+	private Image<Rgba32> RenderBlockInternal(string blockName, BlockRenderOptions options)
+	{
+		EnsureNotDisposed();
 		var modelName = blockName;
 		if (_blockRegistry.TryGetModel(blockName, out var mappedModel) && !string.IsNullOrWhiteSpace(mappedModel))
 		{
@@ -183,20 +243,16 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		return RenderModel(model, options, blockName);
 	}
 
-	public Image<Rgba32> RenderItem(string itemName, BlockRenderOptions? options = null)
-		=> RenderGuiItem(itemName, options);
-
-	public Image<Rgba32> RenderItem(string itemName, ItemRenderData itemData, BlockRenderOptions? options = null)
-	{
-		ArgumentNullException.ThrowIfNull(itemData);
-		var effectiveOptions = (options ?? BlockRenderOptions.Default) with { ItemData = itemData };
-		return RenderGuiItem(itemName, effectiveOptions);
-	}
-
 	public void Dispose()
 	{
 		if (_disposed) return;
 		_disposed = true;
+
+		foreach (var renderer in _packRendererCache.Values)
+		{
+			renderer.Dispose();
+		}
+		_packRendererCache.Clear();
 		_textureRepository.Dispose();
 
 		foreach (var image in _biomeTintedTextureCache.Values)
