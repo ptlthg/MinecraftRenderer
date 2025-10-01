@@ -620,7 +620,7 @@ public sealed partial class MinecraftBlockRenderer
 
 		private static void AdjustBedGuiTransform(Dictionary<string, TransformDefinition> display)
 		{
-			const float RotationAdjustment = -55f;
+			const float RotationAdjustment = -50f;
 			const float ScaleMultiplier = 0.9f;
 			var defaultScale = new[] { 0.48f, 0.48f, 0.48f };
 			var defaultTranslation = new[] { 2f, 2.5f, 0f };

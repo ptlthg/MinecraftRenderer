@@ -107,19 +107,19 @@ public sealed class BlockRendererTests
 		Assert.True(HasOpaquePixels(shulker), "White shulker box item render should contain opaque pixels.");
 	}
 
-		[Fact]
-		public void RenderBedItemUsesBlockModelFallback()
-		{
-			using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+	[Fact]
+	public void RenderBedItemUsesBlockModelFallback()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
 
-			using var bed = renderer.RenderGuiItem("white_bed");
-			Assert.True(HasOpaquePixels(bed), "White bed item render should contain opaque pixels.");
+		using var bed = renderer.RenderGuiItem("white_bed");
+		Assert.True(HasOpaquePixels(bed), "White bed item render should contain opaque pixels.");
 
-			var (minX, maxX) = GetOpaqueHorizontalBounds(bed);
-			Assert.True(minX >= 0 && maxX >= minX, "White bed render should contain opaque horizontal coverage.");
-			var horizontalSpan = maxX - minX;
-			Assert.True(horizontalSpan > bed.Width / 2, $"White bed render should span more than half the image width, but spanned {horizontalSpan} pixels out of {bed.Width}.");
-		}
+		var (minX, maxX) = GetOpaqueHorizontalBounds(bed);
+		Assert.True(minX >= 0 && maxX >= minX, "White bed render should contain opaque horizontal coverage.");
+		var horizontalSpan = maxX - minX;
+		Assert.True(horizontalSpan > bed.Width / 2, $"White bed render should span more than half the image width, but spanned {horizontalSpan} pixels out of {bed.Width}.");
+	}
 
 	[Fact]
 	public void DefaultInventoryOrientationShowsFrontOnRight()
