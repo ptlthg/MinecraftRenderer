@@ -51,6 +51,48 @@ public sealed class BlockRendererTests
 	}
 
 	[Fact]
+	public void BlockRenderOptionsRetainsItemDataWhenCloned()
+	{
+		var customTint = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(1, 2, 3)));
+		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { ItemData = customTint };
+		var mutated = options with { Padding = 0.25f };
+		Assert.Same(customTint, mutated.ItemData);
+	}
+
+	[Fact]
+	public void LeatherHelmetItemInfoContainsTintMetadata()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		var registryField = typeof(MinecraftBlockRenderer).GetField("_itemRegistry", BindingFlags.NonPublic | BindingFlags.Instance);
+		Assert.NotNull(registryField);
+		var registry = (ItemRegistry?)registryField!.GetValue(renderer);
+		Assert.NotNull(registry);
+		Assert.True(registry!.TryGetInfo("leather_helmet", out var info));
+		Assert.NotNull(info);
+		Assert.True(info.LayerTints.Count > 0);
+		Assert.Contains(0, info.LayerTints.Keys);
+		Assert.Equal(ItemRegistry.ItemTintKind.Dye, info.LayerTints[0].Kind);
+	}
+
+	[Fact]
+	public void RenderFlatItemWithCustomTintProducesDifferentResult()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 64, ItemData = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(10, 200, 240))) };
+		var method = typeof(MinecraftBlockRenderer).GetMethod("RenderFlatItem", BindingFlags.NonPublic | BindingFlags.Instance);
+		Assert.NotNull(method);
+		var textures = new[] { "minecraft:item/leather_helmet", "minecraft:item/leather_helmet_overlay" };
+		using var custom = (Image<Rgba32>)method!.Invoke(renderer, new object[] { textures, options, "leather_helmet" })!;
+		var baselineOptions = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 64 };
+		using var baseline = (Image<Rgba32>)method.Invoke(renderer, new object[] { textures, baselineOptions, "leather_helmet" })!;
+		Assert.False(ImagesAreIdentical(baseline, custom));
+		using var apiBaseline = renderer.RenderItem("leather_helmet", baselineOptions);
+		var customTint = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(10, 200, 240)));
+		using var apiCustom = renderer.RenderItem("leather_helmet", customTint, baselineOptions);
+		Assert.False(ImagesAreIdentical(apiBaseline, apiCustom));
+	}
+
+	[Fact]
 	public void ItemRegistryIncludesBlockInventoryItems()
 	{
 		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
@@ -205,6 +247,138 @@ public sealed class BlockRendererTests
 
 		Assert.True(hasNonMissingPixel, "Chest rendering should include non-missing texture pixels.");
 	}
+
+		[Fact]
+		public void LeatherHelmetUsesDefaultTintWhenNoOverride()
+		{
+			using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+			var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
+			using var baseline = renderer.RenderItem("leather_helmet", options);
+			var defaultTintData = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(0xA0, 0x65, 0x40)));
+			using var explicitDefault = renderer.RenderItem("leather_helmet", defaultTintData, options);
+
+			Assert.True(ImagesAreIdentical(baseline, explicitDefault));
+		}
+
+		[Fact]
+		public void LeatherHelmetRespectsCustomTint()
+		{
+			using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+			var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
+			using var baseline = renderer.RenderItem("leather_helmet", options);
+			var customTint = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(0x20, 0x60, 0xFF)));
+			using var custom = renderer.RenderItem("leather_helmet", customTint, options);
+			Assert.False(ImagesAreIdentical(baseline, custom));
+			var baselineAverage = ComputeAverageColor(baseline);
+			var customAverage = ComputeAverageColor(custom);
+			var difference = Vector3.Distance(baselineAverage, customAverage);
+			Assert.True(difference > 10f, $"Expected custom tint to alter color significantly (difference {difference:F2}).");
+		}
+
+		[Fact]
+		public void WolfArmorDyedUsesDefaultTint()
+		{
+			using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+			var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
+			using var baseline = renderer.RenderItem("wolf_armor_dyed", options);
+			var defaultTintData = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(0xA0, 0x65, 0x40)));
+			using var explicitDefault = renderer.RenderItem("wolf_armor_dyed", defaultTintData, options);
+
+			Assert.True(ImagesAreIdentical(baseline, explicitDefault));
+		}
+
+		[Fact]
+		public void WolfArmorDyedRespectsCustomTint()
+		{
+			using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+			var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
+			using var baseline = renderer.RenderItem("wolf_armor_dyed", options);
+			var customTint = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(0x40, 0x90, 0x30)));
+			using var custom = renderer.RenderItem("wolf_armor_dyed", customTint, options);
+			Assert.False(ImagesAreIdentical(baseline, custom));
+			var baselineAverage = ComputeAverageColor(baseline);
+			var customAverage = ComputeAverageColor(custom);
+			var difference = Vector3.Distance(baselineAverage, customAverage);
+			Assert.True(difference > 8f, $"Expected custom tint to alter wolf armor overlay significantly (difference {difference:F2}).");
+		}
+
+		[Fact]
+		public void WolfArmorDyedAllowsExplicitLayerTintOverride()
+		{
+			using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+			var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
+			using var baseline = renderer.RenderItem("wolf_armor_dyed", options);
+			var overrides = new Dictionary<int, Color> { [1] = new Color(new Rgba32(0x90, 0x20, 0xF0)) };
+			var customTint = new MinecraftBlockRenderer.ItemRenderData(AdditionalLayerTints: overrides);
+			using var custom = renderer.RenderItem("wolf_armor_dyed", customTint, options);
+			Assert.False(ImagesAreIdentical(baseline, custom));
+			var baselineAverage = ComputeAverageColor(baseline);
+			var customAverage = ComputeAverageColor(custom);
+			var difference = Vector3.Distance(baselineAverage, customAverage);
+			Assert.True(difference > 10f, $"Expected explicit layer tint to alter wolf armor overlay (difference {difference:F2}).");
+		}
+
+		[Fact]
+		public void LeatherHorseArmorUsesDefaultTint()
+		{
+			using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+			var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
+			using var baseline = renderer.RenderItem("leather_horse_armor", options);
+			var explicitDefault = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(0xA0, 0x65, 0x40)));
+			using var renderedDefault = renderer.RenderItem("leather_horse_armor", explicitDefault, options);
+			Assert.True(ImagesAreIdentical(baseline, renderedDefault));
+		}
+
+		[Fact]
+		public void LeatherHorseArmorRespectsCustomTint()
+		{
+			using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+			var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
+			using var baseline = renderer.RenderItem("leather_horse_armor", options);
+			var customTint = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(0x35, 0x99, 0xCF)));
+			using var custom = renderer.RenderItem("leather_horse_armor", customTint, options);
+			Assert.False(ImagesAreIdentical(baseline, custom));
+			var baselineAverage = ComputeAverageColor(baseline);
+			var customAverage = ComputeAverageColor(custom);
+			var difference = Vector3.Distance(baselineAverage, customAverage);
+			Assert.True(difference > 10f, $"Expected custom tint to alter leather horse armor color (difference {difference:F2}).");
+		}
+
+		[Fact]
+		public void LilyPadUsesMetadataTintWhenNoOverride()
+		{
+			using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+			var registryField = typeof(MinecraftBlockRenderer).GetField("_itemRegistry", BindingFlags.NonPublic | BindingFlags.Instance);
+			Assert.NotNull(registryField);
+			var registry = (ItemRegistry?)registryField!.GetValue(renderer);
+			Assert.NotNull(registry);
+			Assert.True(registry!.TryGetInfo("lily_pad", out var info));
+			Assert.NotNull(info);
+			Assert.True(info.LayerTints.TryGetValue(0, out var tintInfo));
+			Assert.NotNull(tintInfo);
+			Assert.True(tintInfo.DefaultColor.HasValue);
+			var defaultColor = tintInfo.DefaultColor.GetValueOrDefault();
+			var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
+			using var baseline = renderer.RenderItem("lily_pad", options);
+			var explicitDefault = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: defaultColor);
+			using var renderedDefault = renderer.RenderItem("lily_pad", explicitDefault, options);
+			Assert.True(ImagesAreIdentical(baseline, renderedDefault));
+		}
+
+		[Fact]
+		public void LilyPadRespectsCustomTint()
+		{
+			using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+			var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
+			using var baseline = renderer.RenderItem("lily_pad", options);
+			var customTint = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(0x40, 0xB0, 0x80)));
+			using var custom = renderer.RenderItem("lily_pad", customTint, options);
+			Assert.False(ImagesAreIdentical(baseline, custom));
+			var baselineAverage = ComputeAverageColor(baseline);
+			var customAverage = ComputeAverageColor(custom);
+			var difference = Vector3.Distance(baselineAverage, customAverage);
+			Assert.True(difference > 5f, $"Expected custom tint to alter lily pad appearance (difference {difference:F2}).");
+		}
 
 	// TODO: Fix the issue and re-enable this test
 	// [Fact]
@@ -717,6 +891,29 @@ public sealed class BlockRendererTests
 			(byte)(totalG / count),
 			(byte)(totalB / count),
 			(byte)(totalA / count));
+	}
+
+	private static bool ImagesAreIdentical(Image<Rgba32> left, Image<Rgba32> right)
+	{
+		if (left.Width != right.Width || left.Height != right.Height)
+		{
+			return false;
+		}
+
+		for (var y = 0; y < left.Height; y++)
+		{
+			var leftRow = left.DangerousGetPixelRowMemory(y).Span;
+			var rightRow = right.DangerousGetPixelRowMemory(y).Span;
+			for (var x = 0; x < leftRow.Length; x++)
+			{
+				if (!leftRow[x].Equals(rightRow[x]))
+				{
+					return false;
+				}
+			}
+		}
+
+		return true;
 	}
 
 		private static Rgba32 SampleOpaqueRowAverageColor(Image<Rgba32> image, bool searchFromTop)

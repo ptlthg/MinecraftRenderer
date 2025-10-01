@@ -4,6 +4,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 
 public sealed class ItemRegistry
 {
@@ -65,5 +67,20 @@ public sealed class ItemRegistry
 		public string Name { get; set; } = string.Empty;
 		public string? Model { get; set; }
 		public string? Texture { get; set; }
+		public Dictionary<int, ItemTintInfo> LayerTints { get; set; } = new();
+	}
+
+	public sealed class ItemTintInfo
+	{
+		public ItemTintKind Kind { get; set; } = ItemTintKind.Unspecified;
+		public Color? DefaultColor { get; set; }
+	}
+
+	public enum ItemTintKind
+	{
+		Unspecified,
+		Dye,
+		Constant,
+		Unknown
 	}
 }

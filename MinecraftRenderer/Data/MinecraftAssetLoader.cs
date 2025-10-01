@@ -2,9 +2,12 @@ namespace MinecraftRenderer;
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 
 internal static class MinecraftAssetLoader
 {
@@ -46,6 +49,8 @@ internal static class MinecraftAssetLoader
 		"down",
 		"particle"
 	];
+
+	private sealed record ItemDefinitionEntry(string Name, string? ModelReference, Dictionary<int, ItemRegistry.ItemTintInfo> LayerTints);
 
 	public static Dictionary<string, BlockModelDefinition> LoadModelDefinitions(string assetsRoot, IEnumerable<string>? overlayRoots = null)
 	{
@@ -169,8 +174,10 @@ internal static class MinecraftAssetLoader
 			}
 		}
 
-		foreach (var (itemName, modelReference) in EnumerateItemDefinitions(assetsRoot, overlayRoots))
+		foreach (var entry in EnumerateItemDefinitions(assetsRoot, overlayRoots))
 		{
+			var itemName = entry.Name;
+			var modelReference = entry.ModelReference;
 			if (string.IsNullOrWhiteSpace(itemName) || IsTemplateItem(itemName))
 			{
 				continue;
@@ -197,6 +204,14 @@ internal static class MinecraftAssetLoader
 							info.Texture = texture;
 						}
 					}
+				}
+			}
+
+			if (entry.LayerTints.Count > 0)
+			{
+				foreach (var (layerIndex, tintInfo) in entry.LayerTints)
+				{
+					info.LayerTints[layerIndex] = tintInfo;
 				}
 			}
 		}
@@ -304,7 +319,7 @@ internal static class MinecraftAssetLoader
 		}
 	}
 
-	private static IEnumerable<(string Name, string? ModelReference)> EnumerateItemDefinitions(string assetsRoot, IEnumerable<string>? overlayRoots)
+	private static IEnumerable<ItemDefinitionEntry> EnumerateItemDefinitions(string assetsRoot, IEnumerable<string>? overlayRoots)
 	{
 		var roots = BuildRootList(assetsRoot, overlayRoots);
 
@@ -325,20 +340,25 @@ internal static class MinecraftAssetLoader
 					continue;
 				}
 
-				string? modelReference;
-
+				ItemDefinitionEntry? entry = null;
 				try
 				{
 					using var stream = File.OpenRead(file);
 					using var document = JsonDocument.Parse(stream, new JsonDocumentOptions { AllowTrailingCommas = true });
-					modelReference = ResolveModelReferenceFromItemDefinition(document.RootElement);
+					var tintMap = new Dictionary<int, ItemRegistry.ItemTintInfo>();
+					ExtractTintInfoFromDefinition(document.RootElement, tintMap);
+					var modelReference = ResolveModelReferenceFromItemDefinition(document.RootElement);
+					entry = new ItemDefinitionEntry(itemName, modelReference, tintMap);
 				}
 				catch (JsonException)
 				{
 					continue;
 				}
 
-				yield return (itemName, modelReference);
+				if (entry is not null)
+				{
+					yield return entry;
+				}
 			}
 		}
 	}
@@ -555,6 +575,145 @@ internal static class MinecraftAssetLoader
 		}
 
 		return null;
+	}
+
+	private static void ExtractTintInfoFromDefinition(JsonElement element, Dictionary<int, ItemRegistry.ItemTintInfo> target)
+	{
+		switch (element.ValueKind)
+		{
+			case JsonValueKind.Object:
+			{
+				if (element.TryGetProperty("tints", out var tintsProperty) && tintsProperty.ValueKind == JsonValueKind.Array)
+				{
+					var index = 0;
+					foreach (var tintElement in tintsProperty.EnumerateArray())
+					{
+						if (!target.ContainsKey(index))
+						{
+							var tintInfo = CreateTintInfo(tintElement);
+							if (tintInfo is not null)
+							{
+								target[index] = tintInfo;
+							}
+						}
+
+						index++;
+					}
+				}
+
+				foreach (var property in element.EnumerateObject())
+				{
+					if (string.Equals(property.Name, "tints", StringComparison.OrdinalIgnoreCase))
+					{
+						continue;
+					}
+
+					ExtractTintInfoFromDefinition(property.Value, target);
+				}
+
+				break;
+			}
+			case JsonValueKind.Array:
+				foreach (var entry in element.EnumerateArray())
+				{
+					ExtractTintInfoFromDefinition(entry, target);
+				}
+				break;
+		}
+	}
+
+	private static ItemRegistry.ItemTintInfo? CreateTintInfo(JsonElement tintElement)
+	{
+		if (tintElement.ValueKind != JsonValueKind.Object)
+		{
+			return null;
+		}
+
+		var tintInfo = new ItemRegistry.ItemTintInfo();
+		if (tintElement.TryGetProperty("type", out var typeProperty) && typeProperty.ValueKind == JsonValueKind.String)
+		{
+			switch (typeProperty.GetString())
+			{
+				case "minecraft:dye":
+					tintInfo.Kind = ItemRegistry.ItemTintKind.Dye;
+					break;
+				case "minecraft:constant":
+					tintInfo.Kind = ItemRegistry.ItemTintKind.Constant;
+					break;
+				case null:
+					tintInfo.Kind = ItemRegistry.ItemTintKind.Unspecified;
+					break;
+				default:
+					tintInfo.Kind = ItemRegistry.ItemTintKind.Unknown;
+					break;
+			}
+		}
+
+		tintInfo.DefaultColor = tintInfo.Kind switch
+		{
+			ItemRegistry.ItemTintKind.Dye => TryReadColor(tintElement, "default"),
+			ItemRegistry.ItemTintKind.Constant => TryReadColor(tintElement, "value"),
+			_ => TryReadColor(tintElement, "default") ?? TryReadColor(tintElement, "value")
+		};
+
+		return tintInfo;
+	}
+
+	private static Color? TryReadColor(JsonElement element, string propertyName)
+	{
+		if (!element.TryGetProperty(propertyName, out var property))
+		{
+			return null;
+		}
+
+		return property.ValueKind switch
+		{
+			JsonValueKind.Number => ConvertIntToColor(property.GetInt32()),
+			JsonValueKind.String => ParseColorString(property.GetString()),
+			_ => null
+		};
+	}
+
+	private static Color? ParseColorString(string? value)
+	{
+		if (string.IsNullOrWhiteSpace(value))
+		{
+			return null;
+		}
+
+		var text = value.Trim();
+		if (text.StartsWith("#", StringComparison.Ordinal))
+		{
+			text = text[1..];
+		}
+		else if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+		{
+			text = text[2..];
+		}
+
+		if (uint.TryParse(text, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out var hex))
+		{
+			var intValue = unchecked((int)hex);
+			return ConvertIntToColor(intValue);
+		}
+
+		return null;
+	}
+
+	private static Color ConvertIntToColor(int argb)
+	{
+		var raw = unchecked((uint)argb);
+		var a = (byte)((raw >> 24) & 0xFF);
+		var r = (byte)((raw >> 16) & 0xFF);
+		var g = (byte)((raw >> 8) & 0xFF);
+		var b = (byte)(raw & 0xFF);
+
+		if (a == 0 && raw != 0)
+		{
+			a = 0xFF;
+		}
+
+		return new Color(new Rgba32(r, g, b, a == 0 ? (byte)0xFF : a));
 	}
 
 	private static string? ResolveModelReferenceFromItemDefinition(JsonElement root)

@@ -37,6 +37,22 @@ public sealed partial class MinecraftBlockRenderer
 		"clock"
 	};
 
+	private static readonly Color DefaultLeatherArmorColor = new(new Rgba32(0xA0, 0x65, 0x40));
+	private static readonly Dictionary<string, Color> LegacyDefaultTintOverrides = new(StringComparer.OrdinalIgnoreCase)
+	{
+		["leather_helmet"] = DefaultLeatherArmorColor,
+		["leather_chestplate"] = DefaultLeatherArmorColor,
+		["leather_leggings"] = DefaultLeatherArmorColor,
+		["leather_boots"] = DefaultLeatherArmorColor,
+		["leather_horse_armor"] = DefaultLeatherArmorColor,
+		["wolf_armor_dyed"] = DefaultLeatherArmorColor
+	};
+
+	private static readonly Dictionary<string, int[]> LegacyDefaultTintLayerOverrides = new(StringComparer.OrdinalIgnoreCase)
+	{
+		["wolf_armor_dyed"] = new[] { 1 }
+	};
+
 	public Image<Rgba32> RenderGuiItem(string itemName, BlockRenderOptions? options = null)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(itemName);
@@ -960,7 +976,13 @@ public sealed partial class MinecraftBlockRenderer
 				continue;
 			}
 
-			if (seen.Add(textureId))
+			var canonical = NormalizeResourceKey(textureId);
+			if (string.IsNullOrWhiteSpace(canonical))
+			{
+				canonical = textureId;
+			}
+
+			if (seen.Add(canonical))
 			{
 				resolved.Add(textureId);
 			}
@@ -998,10 +1020,59 @@ public sealed partial class MinecraftBlockRenderer
 	private Image<Rgba32> RenderFlatItem(IReadOnlyList<string> layerTextureIds, BlockRenderOptions options, string? tintContext)
 	{
 		var canvas = new Image<Rgba32>(options.Size, options.Size, Color.Transparent);
+		ItemRegistry.ItemInfo? itemInfo = null;
+		string? normalizedItemKey = null;
 
-		foreach (var textureId in layerTextureIds)
+		if (!string.IsNullOrWhiteSpace(tintContext))
 		{
-			var texture = ResolveItemLayerTexture(textureId, tintContext);
+			normalizedItemKey = NormalizeItemTextureKey(tintContext);
+
+			if (_itemRegistry is not null)
+			{
+				if (!_itemRegistry.TryGetInfo(tintContext, out itemInfo) && !string.Equals(normalizedItemKey, tintContext, StringComparison.OrdinalIgnoreCase))
+				{
+					_itemRegistry.TryGetInfo(normalizedItemKey, out itemInfo);
+				}
+			}
+		}
+
+		var primaryTintLayerIndex = DeterminePrimaryTintLayerIndex(normalizedItemKey, itemInfo);
+		var explicitItemData = options.ItemData;
+		var disablePrimaryDefault = explicitItemData?.DisableDefaultLayer0Tint ?? false;
+
+		for (var layerIndex = 0; layerIndex < layerTextureIds.Count; layerIndex++)
+		{
+			var textureId = layerTextureIds[layerIndex];
+			var explicitLayerTint = GetExplicitLayerTint(explicitItemData, layerIndex, primaryTintLayerIndex);
+			Color? layerTint = explicitLayerTint;
+			if (!layerTint.HasValue)
+			{
+				var defaultTint = ResolveDefaultLayerTint(normalizedItemKey, itemInfo, layerIndex, layerIndex == primaryTintLayerIndex, disablePrimaryDefault);
+				if (defaultTint.HasValue)
+				{
+					layerTint = defaultTint.Value;
+				}
+			}
+
+			var hasMetadataTint = itemInfo?.LayerTints.ContainsKey(layerIndex) == true;
+			var hasLegacyTint = false;
+			if (!string.IsNullOrWhiteSpace(normalizedItemKey) && LegacyDefaultTintOverrides.ContainsKey(normalizedItemKey))
+			{
+				if (LegacyDefaultTintLayerOverrides.TryGetValue(normalizedItemKey, out var constrainedLayers))
+				{
+					hasLegacyTint = constrainedLayers.Contains(layerIndex);
+				}
+				else
+				{
+					hasLegacyTint = layerIndex == 0;
+				}
+			}
+
+			var hasExplicitPerLayerTint = explicitItemData?.AdditionalLayerTints is not null
+				&& explicitItemData.AdditionalLayerTints.ContainsKey(layerIndex);
+			var hasPrimaryExplicitTint = layerIndex == primaryTintLayerIndex && explicitItemData?.Layer0Tint.HasValue == true;
+			var skipContextTint = hasMetadataTint || hasLegacyTint || hasExplicitPerLayerTint || hasPrimaryExplicitTint;
+			var texture = ResolveItemLayerTexture(textureId, tintContext, skipContextTint);
 			var scale = MathF.Min(options.Size / (float)texture.Width, options.Size / (float)texture.Height);
 			var targetWidth = Math.Max(1, (int)MathF.Round(texture.Width * scale));
 			var targetHeight = Math.Max(1, (int)MathF.Round(texture.Height * scale));
@@ -1012,12 +1083,160 @@ public sealed partial class MinecraftBlockRenderer
 				Sampler = KnownResamplers.NearestNeighbor,
 				Mode = ResizeMode.Stretch
 			}));
+			if (layerTint.HasValue)
+			{
+				ApplyLayerTint(resized, layerTint.Value);
+			}
 
 			var offset = new Point((canvas.Width - targetWidth) / 2, (canvas.Height - targetHeight) / 2);
 			canvas.Mutate(ctx => ctx.DrawImage(resized, offset, 1f));
 		}
 
 		return canvas;
+	}
+
+	private static Color? GetExplicitLayerTint(ItemRenderData? itemData, int layerIndex, int primaryTintLayerIndex)
+	{
+		if (itemData is null)
+		{
+			return null;
+		}
+
+		if (itemData.AdditionalLayerTints is not null && itemData.AdditionalLayerTints.TryGetValue(layerIndex, out var explicitTint))
+		{
+			return explicitTint;
+		}
+
+		if (layerIndex == primaryTintLayerIndex && itemData.Layer0Tint.HasValue)
+		{
+			return itemData.Layer0Tint.Value;
+		}
+
+		return null;
+	}
+
+	private static int DeterminePrimaryTintLayerIndex(string? normalizedItemKey, ItemRegistry.ItemInfo? itemInfo)
+	{
+		if (itemInfo is not null && itemInfo.LayerTints.Count > 0)
+		{
+			var dyeLayers = itemInfo.LayerTints
+				.Where(static kvp => kvp.Value.Kind == ItemRegistry.ItemTintKind.Dye)
+				.Select(static kvp => kvp.Key)
+				.OrderBy(static index => index)
+				.ToList();
+
+			if (dyeLayers.Count > 0)
+			{
+				return dyeLayers[0];
+			}
+
+			var firstTintLayer = itemInfo.LayerTints.Keys.OrderBy(static index => index).FirstOrDefault();
+			return firstTintLayer;
+		}
+
+		if (!string.IsNullOrWhiteSpace(normalizedItemKey) && LegacyDefaultTintLayerOverrides.TryGetValue(normalizedItemKey, out var overrides) && overrides.Length > 0)
+		{
+			return overrides.Min();
+		}
+
+		return 0;
+	}
+
+	private static Color? ResolveDefaultLayerTint(string? normalizedItemKey, ItemRegistry.ItemInfo? itemInfo, int layerIndex, bool isPrimaryDyeLayer, bool disablePrimaryDefault)
+	{
+		if (itemInfo is not null && itemInfo.LayerTints.Count > 0 && itemInfo.LayerTints.TryGetValue(layerIndex, out var tintInfo))
+		{
+			switch (tintInfo.Kind)
+			{
+				case ItemRegistry.ItemTintKind.Dye:
+					if (disablePrimaryDefault && isPrimaryDyeLayer)
+					{
+						return null;
+					}
+
+					if (tintInfo.DefaultColor.HasValue)
+					{
+						return tintInfo.DefaultColor.Value;
+					}
+					break;
+				case ItemRegistry.ItemTintKind.Constant:
+					if (tintInfo.DefaultColor.HasValue)
+					{
+						return tintInfo.DefaultColor.Value;
+					}
+					break;
+				default:
+					if (tintInfo.DefaultColor.HasValue && !(disablePrimaryDefault && isPrimaryDyeLayer))
+					{
+						return tintInfo.DefaultColor.Value;
+					}
+					break;
+			}
+		}
+
+		if (string.IsNullOrWhiteSpace(normalizedItemKey))
+		{
+			return null;
+		}
+
+		if (LegacyDefaultTintLayerOverrides.TryGetValue(normalizedItemKey, out var overrides) && overrides.Contains(layerIndex))
+		{
+			if (disablePrimaryDefault && isPrimaryDyeLayer)
+			{
+				return null;
+			}
+
+			if (LegacyDefaultTintOverrides.TryGetValue(normalizedItemKey, out var overrideColor))
+			{
+				return overrideColor;
+			}
+		}
+
+		if (layerIndex == 0
+			&& LegacyDefaultTintOverrides.TryGetValue(normalizedItemKey, out var legacyColor)
+			&& (!LegacyDefaultTintLayerOverrides.TryGetValue(normalizedItemKey, out var constrainedLayers) || constrainedLayers.Contains(layerIndex)))
+		{
+			if (disablePrimaryDefault && isPrimaryDyeLayer)
+			{
+				return null;
+			}
+
+			return legacyColor;
+		}
+
+		if (!string.IsNullOrWhiteSpace(normalizedItemKey)
+			&& normalizedItemKey.StartsWith("leather_", StringComparison.OrdinalIgnoreCase)
+			&& layerIndex == 0
+			&& !(disablePrimaryDefault && isPrimaryDyeLayer))
+		{
+			return DefaultLeatherArmorColor;
+		}
+
+		return null;
+	}
+
+	private static void ApplyLayerTint(Image<Rgba32> image, Color tint)
+	{
+		var tintVector = tint.ToPixel<Rgba32>().ToVector4();
+		tintVector.W = 1f;
+
+		image.ProcessPixelRows(accessor =>
+		{
+			for (var y = 0; y < accessor.Height; y++)
+			{
+				var row = accessor.GetRowSpan(y);
+				for (var x = 0; x < row.Length; x++)
+				{
+					var pixelVector = row[x].ToVector4();
+					var alpha = pixelVector.W;
+					pixelVector.X = MathF.Min(pixelVector.X * tintVector.X, 1f);
+					pixelVector.Y = MathF.Min(pixelVector.Y * tintVector.Y, 1f);
+					pixelVector.Z = MathF.Min(pixelVector.Z * tintVector.Z, 1f);
+					pixelVector.W = alpha;
+					row[x].FromVector4(pixelVector);
+				}
+			}
+		});
 	}
 
 	private static bool ShouldAlignGuiItemToBottom(string? normalizedItemKey)
@@ -1181,8 +1400,13 @@ public sealed partial class MinecraftBlockRenderer
 		return Rectangle.FromLTRB(minX, minY, maxX + 1, maxY + 1);
 	}
 
-	private Image<Rgba32> ResolveItemLayerTexture(string textureId, string? tintContext)
+	private Image<Rgba32> ResolveItemLayerTexture(string textureId, string? tintContext, bool skipContextTint)
 	{
+		if (skipContextTint)
+		{
+			return _textureRepository.GetTexture(textureId);
+		}
+
 		var constantTint = TryGetConstantTint(textureId, tintContext);
 		if (constantTint.HasValue)
 		{

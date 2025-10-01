@@ -19,9 +19,31 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		float Padding = 0.12f,
 		float AdditionalScale = 1f,
 		Vector3 AdditionalTranslation = default,
-		TransformDefinition? OverrideGuiTransform = null)
+		TransformDefinition? OverrideGuiTransform = null,
+		ItemRenderData? ItemData = null)
 	{
 		public static BlockRenderOptions Default { get; } = new();
+	}
+
+	public sealed record ItemRenderData(
+		Color? Layer0Tint = null,
+		IReadOnlyDictionary<int, Color>? AdditionalLayerTints = null,
+		bool DisableDefaultLayer0Tint = false)
+	{
+		public Color? GetLayerTint(int layerIndex)
+		{
+			if (AdditionalLayerTints is not null && AdditionalLayerTints.TryGetValue(layerIndex, out var explicitTint))
+			{
+				return explicitTint;
+			}
+
+			if (layerIndex == 0 && Layer0Tint.HasValue)
+			{
+				return Layer0Tint.Value;
+			}
+
+			return null;
+		}
 	}
 	
 	public static bool DebugDisableCulling = false;
@@ -158,6 +180,13 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 
 	public Image<Rgba32> RenderItem(string itemName, BlockRenderOptions? options = null)
 		=> RenderGuiItem(itemName, options);
+
+	public Image<Rgba32> RenderItem(string itemName, ItemRenderData itemData, BlockRenderOptions? options = null)
+	{
+		ArgumentNullException.ThrowIfNull(itemData);
+		var effectiveOptions = (options ?? BlockRenderOptions.Default) with { ItemData = itemData };
+		return RenderGuiItem(itemName, effectiveOptions);
+	}
 
 	public void Dispose()
 	{
