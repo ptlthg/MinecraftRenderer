@@ -23,6 +23,13 @@ public sealed partial class MinecraftBlockRenderer
 	private static readonly float DefaultGuiScaleNormalization =
 		DefaultGuiScaleMagnitude > 1e-6f ? 1f / DefaultGuiScaleMagnitude : 1f;
 
+	// A single, strong, directional light from the top-left-front. This does all the work.
+	// The flipped version, if the one above is backwards.
+	private static readonly Vector3 InventoryLightDirection = Vector3.Normalize(new Vector3(0.55f, -1f, 1.8f));
+
+	private const float InventoryDiffuseStrength = 0.8f;
+	private const float InventoryAmbientStrength = 0.2f;
+
 	private const float DegreesToRadians = MathF.PI / 180f;
 
 	public Image<Rgba32> RenderModel(BlockModelInstance model, BlockRenderOptions options, string? blockName = null)
@@ -62,7 +69,8 @@ public sealed partial class MinecraftBlockRenderer
 		referenceTransform = Matrix4x4.Multiply(referenceTransform, translationMatrix);
 		referenceTransform = Matrix4x4.Multiply(orientationCorrection, referenceTransform);
 
-		var triangles = BuildTriangles(model, totalTransform, blockName);
+		var applyInventoryLighting = options.UseGuiTransform || options.OverrideGuiTransform is not null;
+		var triangles = BuildTriangles(model, totalTransform, applyInventoryLighting, blockName);
 		var cullTargets = DetermineCullTargets(model);
 		if (cullTargets.Count > 0)
 		{
@@ -143,7 +151,8 @@ public sealed partial class MinecraftBlockRenderer
 				tri.T2,
 				tri.T3,
 				tri.Texture,
-				tri.TextureRect);
+				tri.TextureRect,
+				tri.Shading);
 		}
 
 		return canvas;
@@ -396,7 +405,8 @@ public sealed partial class MinecraftBlockRenderer
 		Vector2 p1, Vector2 p2, Vector2 p3,
 		Vector2 t1, Vector2 t2, Vector2 t3,
 		Image<Rgba32> texture,
-		Rectangle textureRect)
+		Rectangle textureRect,
+		float shadingFactor)
 	{
 		var area = (p2.X - p1.X) * (p3.Y - p1.Y) - (p3.X - p1.X) * (p2.Y - p1.Y);
 		if (MathF.Abs(area) < 0.01f) return;
@@ -459,9 +469,50 @@ public sealed partial class MinecraftBlockRenderer
 				}
 
 				depthBuffer[bufferIndex] = depth;
-				row[x] = color;
+				row[x] = shadingFactor is >= 0.999f and <= 1.001f
+					? color
+					: ApplyShading(color, shadingFactor);
 			}
 		});
+	}
+
+	private static Rgba32 ApplyShading(Rgba32 original, float shadingFactor)
+	{
+		var factor = MathF.Max(shadingFactor, 0f);
+		if (MathF.Abs(factor - 1f) <= 1e-4f)
+		{
+			return original;
+		}
+
+		var scaledR = (int)MathF.Round(original.R * factor);
+		var scaledG = (int)MathF.Round(original.G * factor);
+		var scaledB = (int)MathF.Round(original.B * factor);
+
+		var r = (byte)Math.Clamp(scaledR, 0, 255);
+		var g = (byte)Math.Clamp(scaledG, 0, 255);
+		var b = (byte)Math.Clamp(scaledB, 0, 255);
+
+		return new Rgba32(r, g, b, original.A);
+	}
+
+	private static float ComputeInventoryLightingIntensity(Vector3 normal)
+	{
+		const float normalEpsilon = 1e-6f;
+		var lengthSquared = normal.LengthSquared();
+		if (lengthSquared <= normalEpsilon)
+		{
+			return 1f;
+		}
+
+		var normalized = normal / MathF.Sqrt(lengthSquared);
+		if (normalized.Y >= 0.6f)
+		{
+			return 1f;
+		}
+
+		var lightContribution0 = MathF.Max(0f, Vector3.Dot(normalized, InventoryLightDirection));
+		var intensity = InventoryAmbientStrength + InventoryDiffuseStrength * MathF.Min(1f, lightContribution0);
+		return Math.Clamp(intensity, 0.2f, 1f);
 	}
 
 	private static Matrix4x4 CreateRotationMatrix(float yaw, float pitch, float roll)
@@ -509,7 +560,8 @@ public sealed partial class MinecraftBlockRenderer
 		Vector3 Centroid,
 		BlockFaceDirection FaceDirection,
 		int ElementIndex,
-		int RenderPriority);
+		int RenderPriority,
+		float Shading);
 
 	private readonly record struct Bounds(float MinX, float MaxX, float MinY, float MaxY);
 

@@ -19,6 +19,7 @@ public sealed partial class MinecraftBlockRenderer
 	};
 
 	private List<VisibleTriangle> BuildTriangles(BlockModelInstance model, Matrix4x4 transform,
+		bool applyInventoryLighting,
 		string? blockName = null)
 	{
 		var triangles = new List<VisibleTriangle>(model.Elements.Count * 12);
@@ -26,7 +27,8 @@ public sealed partial class MinecraftBlockRenderer
 		for (var elementIndex = 0; elementIndex < model.Elements.Count; elementIndex++)
 		{
 			var element = model.Elements[elementIndex];
-			var elementTriangles = BuildTrianglesForElement(model, element, transform, elementIndex, blockName);
+			var elementTriangles = BuildTrianglesForElement(model, element, transform, elementIndex,
+				applyInventoryLighting, blockName);
 			triangles.AddRange(elementTriangles);
 		}
 
@@ -34,7 +36,7 @@ public sealed partial class MinecraftBlockRenderer
 	}
 
 	private List<VisibleTriangle> BuildTrianglesForElement(BlockModelInstance model, ModelElement element,
-		Matrix4x4 transform, int elementIndex, string? blockName)
+		Matrix4x4 transform, int elementIndex, bool applyInventoryLighting, string? blockName)
 	{
 		var vertices = BuildElementVertices(element);
 		ApplyElementRotation(element, vertices);
@@ -109,6 +111,9 @@ public sealed partial class MinecraftBlockRenderer
 			var triangle2Normal = Vector3.Cross(transformed[2] - transformed[0], transformed[3] - transformed[0]);
 			var triangle1Centroid = (transformed[0] + transformed[1] + transformed[2]) / 3f;
 			var triangle2Centroid = (transformed[0] + transformed[2] + transformed[3]) / 3f;
+			var shadingEnabled = applyInventoryLighting && element.Shade;
+			var triangle1Shading = shadingEnabled ? ComputeInventoryLightingIntensity(triangle1Normal) : 1f;
+			var triangle2Shading = shadingEnabled ? ComputeInventoryLightingIntensity(triangle2Normal) : 1f;
 
 			results.Add(new VisibleTriangle(
 				transformed[0], transformed[1], transformed[2],
@@ -120,7 +125,8 @@ public sealed partial class MinecraftBlockRenderer
 				triangle1Centroid,
 				direction,
 				elementIndex,
-				renderPriority));
+				renderPriority,
+				triangle1Shading));
 
 			results.Add(new VisibleTriangle(
 				transformed[0], transformed[2], transformed[3],
@@ -132,7 +138,8 @@ public sealed partial class MinecraftBlockRenderer
 				triangle2Centroid,
 				direction,
 				elementIndex,
-				renderPriority));
+				renderPriority,
+				triangle2Shading));
 		}
 
 		return results;
