@@ -2,6 +2,7 @@ namespace MinecraftRenderer;
 
 using System.Linq;
 using System.Text.Json;
+using MinecraftRenderer.Assets;
 
 public sealed class BlockRegistry
 {
@@ -33,12 +34,13 @@ public sealed class BlockRegistry
 	}
 
 	public static BlockRegistry LoadFromMinecraftAssets(string assetsRoot,
-		IReadOnlyDictionary<string, BlockModelDefinition> modelDefinitions, IEnumerable<string>? overlayRoots = null)
+		IReadOnlyDictionary<string, BlockModelDefinition> modelDefinitions, IEnumerable<string>? overlayRoots = null,
+		AssetNamespaceRegistry? assetNamespaces = null)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(assetsRoot);
 		ArgumentNullException.ThrowIfNull(modelDefinitions);
 
-		var entries = MinecraftAssetLoader.LoadBlockInfos(assetsRoot, modelDefinitions, overlayRoots);
+		var entries = MinecraftAssetLoader.LoadBlockInfos(assetsRoot, modelDefinitions, overlayRoots, assetNamespaces);
 		return new BlockRegistry(entries.Where(static entry => !string.IsNullOrWhiteSpace(entry.Name)));
 	}
 

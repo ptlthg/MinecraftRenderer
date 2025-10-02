@@ -8,6 +8,7 @@ using System.IO;
 using System.Linq;
 using System.Numerics;
 using System.Text.Json;
+using MinecraftRenderer.Assets;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Advanced;
 using SixLabors.ImageSharp.PixelFormats;
@@ -16,6 +17,7 @@ using SixLabors.ImageSharp.Processing;
 public sealed class TextureRepository : IDisposable
 {
 	private readonly IReadOnlyList<string> _dataRoots;
+	private readonly AssetNamespaceRegistry? _assetNamespaces;
 	private readonly ConcurrentDictionary<string, Image<Rgba32>> _cache = new(StringComparer.OrdinalIgnoreCase);
 	private readonly Dictionary<string, string> _embedded = new(StringComparer.OrdinalIgnoreCase);
 	private readonly Image<Rgba32> _missingTexture;
@@ -27,9 +29,10 @@ public sealed class TextureRepository : IDisposable
 	private bool _disposed;
 
 	public TextureRepository(string dataRoot, string? embeddedTextureFile = null,
-		IEnumerable<string>? overlayRoots = null)
+		IEnumerable<string>? overlayRoots = null, AssetNamespaceRegistry? assetNamespaces = null)
 	{
 		_dataRoots = BuildRootList(dataRoot, overlayRoots);
+		_assetNamespaces = assetNamespaces;
 		_missingTexture = CreateMissingTexture();
 
 		if (TryLoadTrimPaletteColors(out var trimPaletteColors))
@@ -242,20 +245,54 @@ public sealed class TextureRepository : IDisposable
 			yield break;
 		}
 
+		var namespaceName = "minecraft";
+		var pathWithinNamespace = sanitized;
+		var colonIndex = sanitized.IndexOf(':');
+		if (colonIndex >= 0)
+		{
+			namespaceName = sanitized[..colonIndex];
+			pathWithinNamespace = sanitized[(colonIndex + 1)..];
+		}
+
 		var candidates = new List<string>();
 		var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-		void AddCandidate(string relativePath)
+		IEnumerable<string> EnumerateRoots(string targetNamespace)
+		{
+			if (_assetNamespaces is null)
+			{
+				for (var i = _dataRoots.Count - 1; i >= 0; i--)
+				{
+					yield return _dataRoots[i];
+				}
+
+				yield break;
+			}
+
+			IReadOnlyList<AssetNamespaceRoot> resolved = _assetNamespaces.ResolveRoots(targetNamespace);
+			if (resolved.Count == 0 && !string.Equals(targetNamespace, "minecraft", StringComparison.OrdinalIgnoreCase))
+			{
+				resolved = _assetNamespaces.ResolveRoots("minecraft");
+			}
+
+			for (var i = resolved.Count - 1; i >= 0; i--)
+			{
+				yield return resolved[i].Path;
+			}
+		}
+
+		void AddCandidate(string relativePath, string? explicitNamespace = null)
 		{
 			if (string.IsNullOrWhiteSpace(relativePath))
 			{
 				return;
 			}
 
+			var targetNamespace = explicitNamespace ?? namespaceName;
 			var withExtension = relativePath.Replace('/', Path.DirectorySeparatorChar) + ".png";
-			for (var i = _dataRoots.Count - 1; i >= 0; i--)
+			foreach (var root in EnumerateRoots(targetNamespace))
 			{
-				var combined = Path.Combine(_dataRoots[i], withExtension);
+				var combined = Path.Combine(root, withExtension);
 				if (seen.Add(combined))
 				{
 					candidates.Add(combined);
@@ -263,9 +300,9 @@ public sealed class TextureRepository : IDisposable
 			}
 		}
 
-		AddCandidate(sanitized);
+		AddCandidate(pathWithinNamespace);
 
-		var segments = sanitized.Split('/', StringSplitOptions.RemoveEmptyEntries);
+		var segments = pathWithinNamespace.Split('/', StringSplitOptions.RemoveEmptyEntries);
 		var workingSegments = segments;
 
 		if (workingSegments.Length > 1 && workingSegments[0].Equals("textures", StringComparison.OrdinalIgnoreCase))

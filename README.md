@@ -69,6 +69,14 @@ dotnet run --project CreateAtlases/CreateAtlases.csproj -- --tile-size 192 --col
 dotnet run --project CreateAtlases/CreateAtlases.csproj -- --blocks stone,grass_block --items diamond_sword
 ```
 
+Working with Hypixel-style SNBT exports? Point the generator at a directory of `.snbt` item stacks to produce dedicated atlases (each file becomes its own tile) while still honouring any texture packs passed via `--texture-pack-id`:
+
+```powershell
+dotnet run --project CreateAtlases/CreateAtlases.csproj -- --snbt-dir snbt-test-items --texture-pack-id firmskyblock
+```
+
+SNBT atlases are written to an `atlases/snbt/` subfolder alongside the standard block/item output, and their manifests include any per-item parsing or render errors.
+
 Prefer to drive it from code? Use the generator API directly:
 
 ```csharp

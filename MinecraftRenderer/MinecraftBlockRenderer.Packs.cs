@@ -9,6 +9,7 @@ using System.Security.Cryptography;
 using System.Text;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
+using MinecraftRenderer.Assets;
 using MinecraftRenderer.TexturePacks;
 
 public sealed partial class MinecraftBlockRenderer
@@ -76,23 +77,23 @@ public sealed partial class MinecraftBlockRenderer
 
 	private MinecraftBlockRenderer CreatePackRenderer(TexturePackStack packStack)
 	{
-		var overlayPaths = new List<string>(_baseOverlayRoots.Select(static root => root.Path));
-		foreach (var overlay in packStack.OverlayRoots)
-		{
-			if (!overlayPaths.Contains(overlay.Path, StringComparer.OrdinalIgnoreCase))
-			{
-				overlayPaths.Add(overlay.Path);
-			}
-		}
+		var packContext = RenderPackContext.Create(_assetsDirectory, _baseOverlayRoots, packStack);
+		var overlayPaths = packContext.OverlayRoots
+			.Select(static root => root.Path)
+			.Distinct(StringComparer.OrdinalIgnoreCase)
+			.ToList();
 
-		var modelResolver = BlockModelResolver.LoadFromMinecraftAssets(_assetsDirectory!, overlayPaths);
-		var blockRegistry = BlockRegistry.LoadFromMinecraftAssets(_assetsDirectory!, modelResolver.Definitions, overlayPaths);
-		var itemRegistry = ItemRegistry.LoadFromMinecraftAssets(_assetsDirectory!, modelResolver.Definitions, overlayPaths);
+		var modelResolver = BlockModelResolver.LoadFromMinecraftAssets(_assetsDirectory!, overlayPaths,
+			packContext.AssetNamespaces);
+		var blockRegistry = BlockRegistry.LoadFromMinecraftAssets(_assetsDirectory!, modelResolver.Definitions,
+			overlayPaths, packContext.AssetNamespaces);
+		var itemRegistry = ItemRegistry.LoadFromMinecraftAssets(_assetsDirectory!, modelResolver.Definitions,
+			overlayPaths, packContext.AssetNamespaces);
 		var texturesRoot = Directory.Exists(Path.Combine(_assetsDirectory!, "textures"))
 			? Path.Combine(_assetsDirectory!, "textures")
 			: _assetsDirectory!;
-		var textureRepository = new TextureRepository(texturesRoot, overlayRoots: overlayPaths);
-		var packContext = RenderPackContext.Create(_assetsDirectory, _baseOverlayRoots, packStack);
+		var textureRepository = new TextureRepository(texturesRoot, overlayRoots: overlayPaths,
+			assetNamespaces: packContext.AssetNamespaces);
 
 		return new MinecraftBlockRenderer(modelResolver, textureRepository, blockRegistry, itemRegistry, _assetsDirectory,
 			_baseOverlayRoots, null, packContext);
@@ -375,6 +376,7 @@ public sealed partial class MinecraftBlockRenderer
 			PackStackHash = packStackHash;
 			Packs = packs;
 			SearchRoots = BuildSearchRoots();
+			AssetNamespaces = BuildAssetNamespaces();
 		}
 
 		public string AssetsRoot { get; }
@@ -383,6 +385,7 @@ public sealed partial class MinecraftBlockRenderer
 		public string PackStackHash { get; }
 		public IReadOnlyList<RegisteredResourcePack> Packs { get; }
 		public IReadOnlyList<OverlaySearchRoot> SearchRoots { get; }
+        public AssetNamespaceRegistry AssetNamespaces { get; }
 
 		private IReadOnlyList<OverlaySearchRoot> BuildSearchRoots()
 		{
@@ -398,6 +401,66 @@ public sealed partial class MinecraftBlockRenderer
 			}
 
 			return roots;
+		}
+
+		private AssetNamespaceRegistry BuildAssetNamespaces()
+		{
+			var registry = new AssetNamespaceRegistry();
+
+			if (!string.IsNullOrWhiteSpace(AssetsRoot) && Directory.Exists(AssetsRoot))
+			{
+				RegisterNamespaceRoot(registry, "minecraft", AssetsRoot, VanillaPackId, isVanilla: true);
+			}
+
+			foreach (var overlay in OverlayRoots)
+			{
+				AddOverlayNamespaces(registry, overlay);
+			}
+
+			return registry;
+		}
+
+		private static void AddOverlayNamespaces(AssetNamespaceRegistry registry, OverlayRoot overlay)
+		{
+			if (string.IsNullOrWhiteSpace(overlay.Path) || !Directory.Exists(overlay.Path))
+			{
+				return;
+			}
+
+			var normalized = Path.GetFullPath(overlay.Path);
+			var directoryInfo = new DirectoryInfo(normalized);
+			if (directoryInfo.Parent is { } parent && parent.Name.Equals("assets", StringComparison.OrdinalIgnoreCase))
+			{
+				RegisterNamespaceRoot(registry, directoryInfo.Name, normalized, overlay.SourceId,
+					overlay.Kind == OverlayRootKind.Vanilla);
+				return;
+			}
+
+			var assetsDirectory = Path.Combine(normalized, "assets");
+			if (Directory.Exists(assetsDirectory))
+			{
+				foreach (var namespaceDirectory in Directory.EnumerateDirectories(assetsDirectory, "*",
+					SearchOption.TopDirectoryOnly))
+				{
+					var namespaceName = Path.GetFileName(namespaceDirectory);
+					RegisterNamespaceRoot(registry, namespaceName, Path.GetFullPath(namespaceDirectory), overlay.SourceId,
+						overlay.Kind == OverlayRootKind.Vanilla);
+				}
+				return;
+			}
+
+			RegisterNamespaceRoot(registry, "minecraft", normalized, overlay.SourceId, overlay.Kind == OverlayRootKind.Vanilla);
+		}
+
+		private static void RegisterNamespaceRoot(AssetNamespaceRegistry registry, string namespaceName, string path,
+			string sourceId, bool isVanilla)
+		{
+			registry.AddNamespace(namespaceName, path, sourceId, isVanilla);
+			var texturesPath = Path.Combine(path, "textures");
+			if (Directory.Exists(texturesPath))
+			{
+				registry.AddNamespace(namespaceName, texturesPath, sourceId, isVanilla);
+			}
 		}
 
 		public static RenderPackContext Create(string? assetsDirectory, IReadOnlyList<OverlayRoot> baseOverlayRoots,

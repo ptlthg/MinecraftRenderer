@@ -8,6 +8,7 @@ using System.Linq;
 using System.Text.Json;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
+using MinecraftRenderer.Assets;
 
 internal static class MinecraftAssetLoader
 {
@@ -56,11 +57,11 @@ internal static class MinecraftAssetLoader
 		Dictionary<int, ItemRegistry.ItemTintInfo> LayerTints);
 
 	public static Dictionary<string, BlockModelDefinition> LoadModelDefinitions(string assetsRoot,
-		IEnumerable<string>? overlayRoots = null)
+		IEnumerable<string>? overlayRoots = null, AssetNamespaceRegistry? assetNamespaces = null)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(assetsRoot);
 
-		var roots = BuildRootList(assetsRoot, overlayRoots);
+		var roots = BuildRootList(assetsRoot, overlayRoots, assetNamespaces);
 		var definitions = new Dictionary<string, BlockModelDefinition>(StringComparer.OrdinalIgnoreCase);
 
 		var hasAnyModels = false;
@@ -101,12 +102,13 @@ internal static class MinecraftAssetLoader
 	}
 
 	public static List<BlockRegistry.BlockInfo> LoadBlockInfos(string assetsRoot,
-		IReadOnlyDictionary<string, BlockModelDefinition> models, IEnumerable<string>? overlayRoots = null)
+		IReadOnlyDictionary<string, BlockModelDefinition> models, IEnumerable<string>? overlayRoots = null,
+		AssetNamespaceRegistry? assetNamespaces = null)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(assetsRoot);
 		ArgumentNullException.ThrowIfNull(models);
 
-		var roots = BuildRootList(assetsRoot, overlayRoots);
+		var roots = BuildRootList(assetsRoot, overlayRoots, assetNamespaces);
 		var entries = new Dictionary<string, BlockRegistry.BlockInfo>(StringComparer.OrdinalIgnoreCase);
 		var hasAnyBlockstates = false;
 		foreach (var root in roots)
@@ -147,7 +149,8 @@ internal static class MinecraftAssetLoader
 	}
 
 	public static List<ItemRegistry.ItemInfo> LoadItemInfos(string assetsRoot,
-		IReadOnlyDictionary<string, BlockModelDefinition> models, IEnumerable<string>? overlayRoots = null)
+		IReadOnlyDictionary<string, BlockModelDefinition> models, IEnumerable<string>? overlayRoots = null,
+		AssetNamespaceRegistry? assetNamespaces = null)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(assetsRoot);
 		ArgumentNullException.ThrowIfNull(models);
@@ -182,7 +185,7 @@ internal static class MinecraftAssetLoader
 			}
 		}
 
-		foreach (var entry in EnumerateItemDefinitions(assetsRoot, overlayRoots))
+		foreach (var entry in EnumerateItemDefinitions(assetsRoot, overlayRoots, assetNamespaces))
 		{
 			var itemName = entry.Name;
 			var modelReference = entry.ModelReference;
@@ -268,8 +271,21 @@ internal static class MinecraftAssetLoader
 		});
 	}
 
-	private static IReadOnlyList<string> BuildRootList(string primaryRoot, IEnumerable<string>? overlayRoots)
+	private static IReadOnlyList<string> BuildRootList(string primaryRoot, IEnumerable<string>? overlayRoots,
+		AssetNamespaceRegistry? assetNamespaces, string namespaceName = "minecraft")
 	{
+		if (assetNamespaces is not null)
+		{
+			var resolved = assetNamespaces.ResolveRoots(namespaceName);
+			if (resolved.Count > 0)
+			{
+				return resolved
+					.Select(static root => root.Path)
+					.Distinct(StringComparer.OrdinalIgnoreCase)
+					.ToList();
+			}
+		}
+
 		var ordered = new List<string>();
 
 		void TryAdd(string? candidate)
@@ -329,9 +345,9 @@ internal static class MinecraftAssetLoader
 	}
 
 	private static IEnumerable<ItemDefinitionEntry> EnumerateItemDefinitions(string assetsRoot,
-		IEnumerable<string>? overlayRoots)
+		IEnumerable<string>? overlayRoots, AssetNamespaceRegistry? assetNamespaces)
 	{
-		var roots = BuildRootList(assetsRoot, overlayRoots);
+		var roots = BuildRootList(assetsRoot, overlayRoots, assetNamespaces);
 
 		foreach (var root in roots)
 		{

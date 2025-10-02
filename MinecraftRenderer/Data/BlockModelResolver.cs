@@ -3,6 +3,7 @@ namespace MinecraftRenderer;
 using System.Linq;
 using System.Numerics;
 using System.Text.Json;
+using MinecraftRenderer.Assets;
 
 public sealed class BlockModelResolver
 {
@@ -39,9 +40,9 @@ public sealed class BlockModelResolver
 	}
 
 	public static BlockModelResolver LoadFromMinecraftAssets(string assetsRoot,
-		IEnumerable<string>? overlayRoots = null)
+		IEnumerable<string>? overlayRoots = null, AssetNamespaceRegistry? assetNamespaces = null)
 	{
-		var definitions = MinecraftAssetLoader.LoadModelDefinitions(assetsRoot, overlayRoots);
+		var definitions = MinecraftAssetLoader.LoadModelDefinitions(assetsRoot, overlayRoots, assetNamespaces);
 		return new BlockModelResolver(
 			new Dictionary<string, BlockModelDefinition>(definitions, StringComparer.OrdinalIgnoreCase));
 	}

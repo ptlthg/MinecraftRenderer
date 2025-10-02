@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text.Json;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
+using MinecraftRenderer.Assets;
 
 public sealed class ItemRegistry
 {
@@ -38,12 +39,13 @@ public sealed class ItemRegistry
 	}
 
 	public static ItemRegistry LoadFromMinecraftAssets(string assetsRoot,
-		IReadOnlyDictionary<string, BlockModelDefinition> modelDefinitions, IEnumerable<string>? overlayRoots = null)
+		IReadOnlyDictionary<string, BlockModelDefinition> modelDefinitions, IEnumerable<string>? overlayRoots = null,
+		AssetNamespaceRegistry? assetNamespaces = null)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(assetsRoot);
 		ArgumentNullException.ThrowIfNull(modelDefinitions);
 
-		var entries = MinecraftAssetLoader.LoadItemInfos(assetsRoot, modelDefinitions, overlayRoots);
+		var entries = MinecraftAssetLoader.LoadItemInfos(assetsRoot, modelDefinitions, overlayRoots, assetNamespaces);
 		return new ItemRegistry(entries.Where(static entry => !string.IsNullOrWhiteSpace(entry.Name)));
 	}
 

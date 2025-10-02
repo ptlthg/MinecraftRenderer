@@ -8,6 +8,8 @@ using System.Linq;
 using System.Numerics;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
+using MinecraftRenderer.Nbt;
+using MinecraftRenderer.Snbt;
 using MinecraftRenderer.TexturePacks;
 
 public sealed partial class MinecraftBlockRenderer : IDisposable
@@ -124,29 +126,26 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		ArgumentException.ThrowIfNullOrWhiteSpace(assetsDirectory);
 
 		var overlayRoots = DiscoverOverlayRoots(assetsDirectory);
-		List<string> overlayPaths = new(overlayRoots.Select(static root => root.Path));
 		TexturePackStack? defaultPackStack = null;
 		if (texturePackRegistry is not null && defaultPackIds is { Count: > 0 })
 		{
 			defaultPackStack = texturePackRegistry.BuildPackStack(defaultPackIds);
-			foreach (var overlay in defaultPackStack.OverlayRoots)
-			{
-				if (!overlayPaths.Contains(overlay.Path, StringComparer.OrdinalIgnoreCase))
-				{
-					overlayPaths.Add(overlay.Path);
-				}
-			}
 		}
-		var modelResolver = BlockModelResolver.LoadFromMinecraftAssets(assetsDirectory, overlayPaths);
+		var packContext = RenderPackContext.Create(assetsDirectory, overlayRoots, defaultPackStack);
+		var overlayPaths = packContext.OverlayRoots
+			.Select(static root => root.Path)
+			.Distinct(StringComparer.OrdinalIgnoreCase)
+			.ToList();
+		var modelResolver = BlockModelResolver.LoadFromMinecraftAssets(assetsDirectory, overlayPaths, packContext.AssetNamespaces);
 		var blockRegistry =
-			BlockRegistry.LoadFromMinecraftAssets(assetsDirectory, modelResolver.Definitions, overlayPaths);
+			BlockRegistry.LoadFromMinecraftAssets(assetsDirectory, modelResolver.Definitions, overlayPaths, packContext.AssetNamespaces);
 		var itemRegistry =
-			ItemRegistry.LoadFromMinecraftAssets(assetsDirectory, modelResolver.Definitions, overlayPaths);
+			ItemRegistry.LoadFromMinecraftAssets(assetsDirectory, modelResolver.Definitions, overlayPaths, packContext.AssetNamespaces);
 		var texturesRoot = Directory.Exists(Path.Combine(assetsDirectory, "textures"))
 			? Path.Combine(assetsDirectory, "textures")
 			: assetsDirectory;
-		var textureRepository = new TextureRepository(texturesRoot, overlayRoots: overlayPaths);
-		var packContext = RenderPackContext.Create(assetsDirectory, overlayRoots, defaultPackStack);
+		var textureRepository = new TextureRepository(texturesRoot, overlayRoots: overlayPaths,
+			assetNamespaces: packContext.AssetNamespaces);
 
 		return new MinecraftBlockRenderer(modelResolver, textureRepository, blockRegistry, itemRegistry,
 			assetsDirectory, overlayRoots, texturePackRegistry, packContext);
@@ -228,6 +227,26 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		var effectiveOptions = baseOptions with { ItemData = itemData };
 		var renderer = ResolveRendererForOptions(effectiveOptions, out var forwardedOptions);
 		return renderer.RenderGuiItemInternal(itemName, forwardedOptions);
+	}
+
+	public Image<Rgba32> RenderItemFromNbt(NbtDocument document, BlockRenderOptions? options = null)
+	{
+		ArgumentNullException.ThrowIfNull(document);
+		var compound = document.RootCompound
+		                ?? throw new ArgumentException("SNBT document must have a compound root.", nameof(document));
+		return RenderItemFromNbt(compound, options);
+	}
+
+	public Image<Rgba32> RenderItemFromNbt(NbtCompound compound, BlockRenderOptions? options = null)
+	{
+		ArgumentNullException.ThrowIfNull(compound);
+		var itemId = SnbtItemUtilities.TryGetItemId(compound)
+		             ?? throw new ArgumentException("SNBT item payload did not contain an item id.", nameof(compound));
+
+		var itemData = ExtractItemRenderDataFromComponents(compound);
+		return itemData is not null
+			? RenderItem(itemId, itemData, options)
+			: RenderItem(itemId, options);
 	}
 
 	private Image<Rgba32> RenderBlockInternal(string blockName, BlockRenderOptions options)
@@ -343,6 +362,150 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		}
 
 		return null;
+	}
+
+	private static ItemRenderData? ExtractItemRenderDataFromComponents(NbtCompound root)
+	{
+		var components = ResolveComponentsCompound(root);
+		if (components is null)
+		{
+			return null;
+		}
+
+		Color? layer0Tint = null;
+		var disableDefaultLayer0Tint = false;
+		Dictionary<int, Color>? additionalLayerTints = null;
+
+		if (components.TryGetValue("minecraft:dyed_color", out var dyedTag) &&
+		    TryExtractColor(dyedTag, out var dyedColor))
+		{
+			layer0Tint = dyedColor;
+			disableDefaultLayer0Tint = true;
+		}
+
+		if (layer0Tint.HasValue || additionalLayerTints is { Count: > 0 } || disableDefaultLayer0Tint)
+		{
+			return new ItemRenderData(layer0Tint, additionalLayerTints, disableDefaultLayer0Tint);
+		}
+
+		return null;
+	}
+
+	private static NbtCompound? ResolveComponentsCompound(NbtCompound root)
+	{
+		if (root.TryGetValue("components", out var componentsTag) && componentsTag is NbtCompound components)
+		{
+			return components;
+		}
+
+		if (root.TryGetValue("tag", out var legacyTag) && legacyTag is NbtCompound legacyCompound)
+		{
+			var nested = ResolveComponentsCompound(legacyCompound);
+			if (nested is not null)
+			{
+				return nested;
+			}
+		}
+
+		return null;
+	}
+
+	private static bool TryExtractColor(NbtTag tag, out Color color)
+	{
+		switch (tag)
+		{
+			case NbtInt intTag:
+				color = ColorFromRgb(intTag.Value);
+				return true;
+			case NbtLong longTag:
+				color = ColorFromRgb(unchecked((int)longTag.Value));
+				return true;
+			case NbtCompound compound:
+			{
+				if (compound.TryGetValue("rgb", out var rgbTag) && TryExtractColor(rgbTag, out color))
+				{
+					return true;
+				}
+
+				if (compound.TryGetValue("value", out var valueTag) && TryExtractColor(valueTag, out color))
+				{
+					return true;
+				}
+
+				if (compound.TryGetValue("color", out var colorTag) && TryExtractColor(colorTag, out color))
+				{
+					return true;
+				}
+
+				if (TryExtractChannelColor(compound, out color))
+				{
+					return true;
+				}
+
+				break;
+			}
+		}
+
+		color = default;
+		return false;
+	}
+
+	private static bool TryExtractChannelColor(NbtCompound compound, out Color color)
+	{
+		if (TryGetByte(compound, "red", out var r) && TryGetByte(compound, "green", out var g) &&
+		    TryGetByte(compound, "blue", out var b))
+		{
+			color = new Color(new Rgba32(r, g, b, 255));
+			return true;
+		}
+
+		if (TryGetByte(compound, "r", out r) && TryGetByte(compound, "g", out g) && TryGetByte(compound, "b", out b))
+		{
+			color = new Color(new Rgba32(r, g, b, 255));
+			return true;
+		}
+
+		color = default;
+		return false;
+	}
+
+	private static bool TryGetByte(NbtCompound compound, string key, out byte value)
+	{
+		if (!compound.TryGetValue(key, out var tag))
+		{
+			value = 0;
+			return false;
+		}
+
+		return TryGetByte(tag, out value);
+	}
+
+	private static bool TryGetByte(NbtTag tag, out byte value)
+	{
+		switch (tag)
+		{
+			case NbtByte b:
+				value = unchecked((byte)b.Value);
+				return true;
+			case NbtShort s when s.Value >= byte.MinValue && s.Value <= byte.MaxValue:
+				value = (byte)s.Value;
+				return true;
+			case NbtInt i when i.Value >= byte.MinValue && i.Value <= byte.MaxValue:
+				value = (byte)i.Value;
+				return true;
+		}
+
+		value = 0;
+		return false;
+	}
+
+	private static Color ColorFromRgb(int rgb)
+	{
+		var value = unchecked((uint)rgb);
+		var r = (byte)((value >> 16) & 0xFF);
+		var g = (byte)((value >> 8) & 0xFF);
+		var b = (byte)(value & 0xFF);
+		return new Color(new Rgba32(r, g, b, 255));
 	}
 
 	private Image<Rgba32> GetBiomeTintedTexture(string textureId, BiomeTintKind kind)

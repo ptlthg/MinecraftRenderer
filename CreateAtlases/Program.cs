@@ -1,5 +1,7 @@
 using System.Globalization;
+using System.Linq;
 using MinecraftRenderer;
+using MinecraftRenderer.Snbt;
 using MinecraftRenderer.TexturePacks;
 
 var options = ParseArguments(args);
@@ -88,6 +90,40 @@ var results = MinecraftAtlasGenerator.GenerateAtlases(
 	includeBlocks,
 	includeItems).ToList();
 
+if (!string.IsNullOrWhiteSpace(options.SnbtItemDirectory))
+{
+	var snbtDirectory = Path.GetFullPath(options.SnbtItemDirectory);
+	if (!Directory.Exists(snbtDirectory))
+	{
+		Console.Error.WriteLine($"SNBT directory '{options.SnbtItemDirectory}' was not found.");
+		Environment.ExitCode = 1;
+		return;
+	}
+
+	Console.WriteLine();
+	Console.WriteLine($"Loading SNBT items from {snbtDirectory}...");
+	var snbtEntries = SnbtItemAtlasGenerator.LoadDirectory(snbtDirectory);
+	var snbtCount = snbtEntries.Count;
+	var parseErrors = snbtEntries.Count(entry => entry.Error is not null);
+	Console.WriteLine(parseErrors > 0
+		? $"Found {snbtCount} SNBT {(snbtCount == 1 ? "item" : "items")}, {parseErrors} with parse errors."
+		: $"Found {snbtCount} SNBT {(snbtCount == 1 ? "item" : "items")}." );
+
+	if (snbtCount > 0)
+	{
+		var snbtOutputDirectory = Path.Combine(outputDirectory, "snbt");
+		var snbtResults = SnbtItemAtlasGenerator.GenerateAtlases(
+			renderer,
+			snbtOutputDirectory,
+			views,
+			options.TileSize,
+			options.Columns,
+			options.Rows,
+			snbtEntries);
+		results.AddRange(snbtResults);
+	}
+}
+
 if (options.GenerateDebugBlock)
 {
 	var debugOutput = Path.Combine(outputDirectory, "debug_block");
@@ -157,6 +193,9 @@ static CliOptions ParseArguments(string[] arguments)
 			case "--texture-pack-id":
 				options.TexturePackIds ??= new List<string>();
 				options.TexturePackIds.Add(ReadNext(arguments, ref i, "--texture-pack-id"));
+				break;
+			case "--snbt-dir":
+				options.SnbtItemDirectory = ReadNext(arguments, ref i, "--snbt-dir");
 				break;
 			default:
 				Console.Error.WriteLine($"Unknown argument '{arg}'. Use --help for usage information.");
@@ -444,6 +483,7 @@ static void PrintHelp()
 	Console.WriteLine("  --debug-block        Generate a synthetic debug cube with colored faces into its own atlas");
 	Console.WriteLine("  --texture-pack-dir <path>  Register an unzipped resource pack directory (can be specified multiple times)");
 	Console.WriteLine("  --texture-pack-id <id>     Apply a registered pack id (last flag has highest priority; specify multiple for stacks)");
+	Console.WriteLine("  --snbt-dir <path>    Render SNBT item stacks from the specified directory (outputs to an 'snbt' subfolder)");
 	Console.WriteLine("  -h | --help          Show this help message");
 }
 
@@ -472,4 +512,5 @@ sealed class CliOptions
 	public bool GenerateDebugBlock { get; set; }
 	public List<string>? TexturePackDirectories { get; set; }
 	public List<string>? TexturePackIds { get; set; }
+	public string? SnbtItemDirectory { get; set; }
 }
