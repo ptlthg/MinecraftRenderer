@@ -62,29 +62,29 @@ public sealed class ItemModelSelectorTests : IDisposable
 		var packId = "nestedcustomheadpack";
 		var modelName = "nested_custom_player_head";
 		var itemDefinition =
-"
+"""
 {
-  \"model\": {
-    \"type\": \"condition\",
-    \"property\": \"component\",
-    \"predicate\": \"custom_data\",
-    \"value\": {
-      \"id\": \"nested_head_test\",
-      \"runes\": {
-        \"AXE_FADING_GREEN\": 2
-      }
-    },
-    \"on_true\": {
-      \"type\": \"model\",
-      \"model\": \"minecraft:item/nested_custom_player_head\"
-    },
-    \"on_false\": {
-      \"type\": \"model\",
-      \"model\": \"minecraft:item/player_head\"
-    }
-  }
+	"model": {
+		"type": "condition",
+		"property": "component",
+		"predicate": "custom_data",
+		"value": {
+			"id": "nested_head_test",
+			"runes": {
+				"AXE_FADING_GREEN": 2
+			}
+		},
+		"on_true": {
+			"type": "model",
+			"model": "minecraft:item/nested_custom_player_head"
+		},
+		"on_false": {
+			"type": "model",
+			"model": "minecraft:item/player_head"
+		}
+	}
 }
-";
+""";
 
 		var packRoot = CreateCustomHeadPack(packId, new Rgba32(0x12, 0x34, 0x56, 0xFF), itemDefinition, modelName);
 

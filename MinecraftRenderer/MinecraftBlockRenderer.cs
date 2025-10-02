@@ -35,7 +35,8 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		Color? Layer0Tint = null,
 		IReadOnlyDictionary<int, Color>? AdditionalLayerTints = null,
 		bool DisableDefaultLayer0Tint = false,
-		NbtCompound? CustomData = null)
+		NbtCompound? CustomData = null,
+		NbtCompound? Profile = null)
 	{
 		public Color? GetLayerTint(int layerIndex)
 		{
@@ -66,6 +67,8 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 	private readonly ConcurrentDictionary<string, MinecraftBlockRenderer> _packRendererCache =
 		new(StringComparer.OrdinalIgnoreCase);
 	private readonly Dictionary<string, Image<Rgba32>> _biomeTintedTextureCache = new(StringComparer.OrdinalIgnoreCase);
+	private readonly ConcurrentDictionary<string, Lazy<Image<Rgba32>>> _playerSkinCache =
+		new(StringComparer.OrdinalIgnoreCase);
 	private bool _disposed;
 
 	public TextureRepository TextureRepository => _textureRepository;
@@ -282,6 +285,16 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		}
 
 		_biomeTintedTextureCache.Clear();
+
+		foreach (var skin in _playerSkinCache.Values)
+		{
+			if (skin.IsValueCreated)
+			{
+				skin.Value.Dispose();
+			}
+		}
+
+		_playerSkinCache.Clear();
 	}
 
 	private void EnsureNotDisposed()
@@ -378,6 +391,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		var disableDefaultLayer0Tint = false;
 		Dictionary<int, Color>? additionalLayerTints = null;
 		NbtCompound? customData = null;
+		NbtCompound? profile = null;
 
 		if (components.TryGetValue("minecraft:dyed_color", out var dyedTag) &&
 		    TryExtractColor(dyedTag, out var dyedColor))
@@ -392,9 +406,15 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 			customData = customCompound;
 		}
 
-		if (layer0Tint.HasValue || additionalLayerTints is { Count: > 0 } || disableDefaultLayer0Tint || customData is not null)
+		if (components.TryGetValue("minecraft:profile", out var profileTag) && profileTag is NbtCompound profileCompound &&
+		    profileCompound.Count > 0)
 		{
-			return new ItemRenderData(layer0Tint, additionalLayerTints, disableDefaultLayer0Tint, customData);
+			profile = profileCompound;
+		}
+
+		if (layer0Tint.HasValue || additionalLayerTints is { Count: > 0 } || disableDefaultLayer0Tint || customData is not null || profile is not null)
+		{
+			return new ItemRenderData(layer0Tint, additionalLayerTints, disableDefaultLayer0Tint, customData, profile);
 		}
 
 		return null;

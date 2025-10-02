@@ -3,10 +3,14 @@ namespace MinecraftRenderer;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
 using System.Numerics;
+using System.Text.Json;
+using System.Threading;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
+using MinecraftRenderer.Nbt;
 
 public sealed partial class MinecraftBlockRenderer
 {
@@ -37,6 +41,8 @@ public sealed partial class MinecraftBlockRenderer
 	{
 		"_banner"
 	};
+
+	private static readonly HttpClient PlayerSkinClient = CreatePlayerSkinClient();
 
 	private static readonly HashSet<string> AnimatedDialItems = new(StringComparer.OrdinalIgnoreCase)
 	{
@@ -118,6 +124,11 @@ public sealed partial class MinecraftBlockRenderer
 		if (TryRenderBedItem(itemName, model, options, out var bedComposite))
 		{
 			return FinalizeGuiResult(bedComposite);
+		}
+
+		if (TryRenderPlayerHead(itemName, model, modelCandidates, options, out var headComposite))
+		{
+			return FinalizeGuiResult(headComposite);
 		}
 
 		if (model is not null && IsBillboardModel(model))
@@ -487,6 +498,331 @@ public sealed partial class MinecraftBlockRenderer
 		}
 
 		return RenderFlatItem(new[] { "minecraft:missingno" }, options, itemName);
+	}
+
+	private bool TryRenderPlayerHead(string itemName, BlockModelInstance? model,
+		IReadOnlyList<string> modelCandidates, BlockRenderOptions options, out Image<Rgba32> rendered)
+	{
+		rendered = null!;
+		if (!IsPlayerHeadCandidate(itemName, model, modelCandidates))
+		{
+			return false;
+		}
+
+		if (!TryResolveHeadSkin(options, out var skinSource))
+		{
+			return false;
+		}
+
+		using var skin = skinSource.Clone();
+
+		var rotation = options.OverrideGuiTransform?.Rotation ?? model?.GetDisplayTransform("gui")?.Rotation;
+		var pitch = options.PitchInDegrees;
+		var yaw = options.YawInDegrees;
+		var roll = options.RollInDegrees;
+
+		if (rotation is not null)
+		{
+			if (rotation.Length > 0)
+			{
+				pitch += rotation[0];
+			}
+
+			if (rotation.Length > 1)
+			{
+				yaw += rotation[1];
+			}
+
+			if (rotation.Length > 2)
+			{
+				roll += rotation[2];
+			}
+		}
+
+		var headOptions = new MinecraftHeadRenderer.RenderOptions(
+			options.Size,
+			yaw,
+			pitch,
+			roll,
+			options.PerspectiveAmount,
+			ShowOverlay: true);
+
+		rendered = MinecraftHeadRenderer.RenderHead(headOptions, skin);
+		return true;
+	}
+
+	private static bool IsPlayerHeadCandidate(string itemName, BlockModelInstance? model,
+		IReadOnlyList<string> modelCandidates)
+	{
+		var normalized = NormalizeItemTextureKey(itemName);
+		if (!string.Equals(normalized, "player_head", StringComparison.OrdinalIgnoreCase))
+		{
+			return false;
+		}
+
+		return ModelChainContainsTemplateSkull(model) ||
+		       modelCandidates.Any(static candidate => ContainsTemplateSkullToken(candidate));
+	}
+
+	private static bool ModelChainContainsTemplateSkull(BlockModelInstance? model)
+	{
+		if (model is null)
+		{
+			return false;
+		}
+
+		if (ContainsTemplateSkullToken(model.Name))
+		{
+			return true;
+		}
+
+		foreach (var parent in model.ParentChain)
+		{
+			if (ContainsTemplateSkullToken(parent))
+			{
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	private static bool ContainsTemplateSkullToken(string? candidate)
+	{
+		if (string.IsNullOrWhiteSpace(candidate))
+		{
+			return false;
+		}
+
+		return candidate.IndexOf("template_skull", StringComparison.OrdinalIgnoreCase) >= 0;
+	}
+
+	private bool TryResolveHeadSkin(BlockRenderOptions options, out Image<Rgba32> skin)
+	{
+		skin = null!;
+		var itemData = options.ItemData;
+
+		if (itemData?.CustomData is not null &&
+		    TryGetHeadTextureOverride(itemData.CustomData, out var textureId) &&
+		    _textureRepository.TryGetTexture(textureId, out var textureOverride))
+		{
+			skin = textureOverride;
+			return true;
+		}
+
+		if (itemData?.Profile is not null && TryGetProfileSkin(itemData.Profile, out var profileSkin))
+		{
+			skin = profileSkin;
+			return true;
+		}
+
+		return TryGetDefaultPlayerSkin(out skin);
+	}
+
+	private static bool TryGetHeadTextureOverride(NbtCompound customData, out string textureId)
+	{
+		if (TryGetString(customData, "texture", out var value) && !string.IsNullOrWhiteSpace(value))
+		{
+			textureId = value!;
+			return true;
+		}
+
+		if (TryGetString(customData, "skin", out value) && !string.IsNullOrWhiteSpace(value))
+		{
+			textureId = value!;
+			return true;
+		}
+
+		if (TryGetString(customData, "skin_texture", out value) && !string.IsNullOrWhiteSpace(value))
+		{
+			textureId = value!;
+			return true;
+		}
+
+		textureId = string.Empty;
+		return false;
+	}
+
+	private bool TryGetProfileSkin(NbtCompound profile, out Image<Rgba32> skin)
+	{
+		skin = null!;
+		if (!TryExtractSkinUrl(profile, out var url))
+		{
+			return false;
+		}
+
+		return TryLoadSkinFromUrl(url, out skin);
+	}
+
+	private static bool TryExtractSkinUrl(NbtCompound profile, out string url)
+	{
+		url = string.Empty;
+		if (!profile.TryGetValue("properties", out var propertiesTag) || propertiesTag is not NbtList properties)
+		{
+			return false;
+		}
+
+		foreach (var entry in properties)
+		{
+			if (entry is not NbtCompound propertyCompound)
+			{
+				continue;
+			}
+
+			if (!TryGetString(propertyCompound, "name", out var name) ||
+			    !string.Equals(name, "textures", StringComparison.OrdinalIgnoreCase))
+			{
+				continue;
+			}
+
+			if (!TryGetString(propertyCompound, "value", out var encoded) || string.IsNullOrWhiteSpace(encoded))
+			{
+				continue;
+			}
+
+			if (TryDecodeSkinPayload(encoded!, out var decodedUrl))
+			{
+				url = decodedUrl;
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	private static bool TryDecodeSkinPayload(string encodedPayload, out string url)
+	{
+		url = string.Empty;
+		try
+		{
+			var payloadBytes = Convert.FromBase64String(encodedPayload);
+			using var document = JsonDocument.Parse(payloadBytes);
+			if (document.RootElement.TryGetProperty("textures", out var texturesElement) &&
+			    texturesElement.TryGetProperty("SKIN", out var skinElement) &&
+			    skinElement.TryGetProperty("url", out var urlElement) &&
+			    urlElement.ValueKind == JsonValueKind.String)
+			{
+				var candidate = urlElement.GetString();
+				if (!string.IsNullOrWhiteSpace(candidate))
+				{
+					url = candidate!;
+					return true;
+				}
+			}
+		}
+		catch (FormatException)
+		{
+			return false;
+		}
+		catch (JsonException)
+		{
+			return false;
+		}
+
+		return false;
+	}
+
+	private bool TryLoadSkinFromUrl(string url, out Image<Rgba32> skin)
+	{
+		skin = null!;
+		if (!TryNormalizeSkinUrl(url, out var normalized))
+		{
+			return false;
+		}
+
+		try
+		{
+			var cached = _playerSkinCache.GetOrAdd(normalized,
+				static key => new Lazy<Image<Rgba32>>(() => DownloadPlayerSkin(key), LazyThreadSafetyMode.ExecutionAndPublication));
+
+			skin = cached.Value;
+			return true;
+		}
+		catch
+		{
+			_playerSkinCache.TryRemove(normalized, out _);
+			return false;
+		}
+	}
+
+	private static bool TryNormalizeSkinUrl(string url, out string normalized)
+	{
+		normalized = string.Empty;
+		if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+		{
+			return false;
+		}
+
+		if (!string.Equals(uri.Host, "textures.minecraft.net", StringComparison.OrdinalIgnoreCase))
+		{
+			return false;
+		}
+
+		var builder = new UriBuilder(uri)
+		{
+			Scheme = Uri.UriSchemeHttps,
+			Port = -1
+		};
+
+		normalized = builder.Uri.ToString();
+		return true;
+	}
+
+	private static Image<Rgba32> DownloadPlayerSkin(string url)
+	{
+		using var response = PlayerSkinClient.GetAsync(url).GetAwaiter().GetResult();
+		response.EnsureSuccessStatusCode();
+		using var stream = response.Content.ReadAsStreamAsync().GetAwaiter().GetResult();
+		return Image.Load<Rgba32>(stream);
+	}
+
+	private bool TryGetDefaultPlayerSkin(out Image<Rgba32> skin)
+	{
+		var candidates = new[]
+		{
+			"minecraft:entity/player/wide/steve",
+			"minecraft:entity/steve",
+			"minecraft:entity/player/wide/alex",
+			"minecraft:entity/alex"
+		};
+
+		foreach (var candidate in candidates)
+		{
+			if (_textureRepository.TryGetTexture(candidate, out skin))
+			{
+				return true;
+			}
+		}
+
+		skin = null!;
+		return false;
+	}
+
+	private static bool TryGetString(NbtCompound compound, string key, out string? value)
+	{
+		value = null;
+		if (!compound.TryGetValue(key, out var tag))
+		{
+			return false;
+		}
+
+		if (tag is NbtString nbtString)
+		{
+			value = nbtString.Value;
+			return true;
+		}
+
+		return false;
+	}
+
+	private static HttpClient CreatePlayerSkinClient()
+	{
+		var client = new HttpClient
+		{
+			Timeout = TimeSpan.FromSeconds(10)
+		};
+		client.DefaultRequestHeaders.UserAgent.ParseAdd("MinecraftRenderer/1.0");
+		return client;
 	}
 
 	private bool TryRenderBedItem(string itemName, BlockModelInstance? itemModel, BlockRenderOptions options,

@@ -44,7 +44,7 @@ public class MinecraftHeadRenderer
 		{ Face.Top, new Rectangle(40, 0, 8, 8) },
 		{ Face.Bottom, new Rectangle(48, 0, 8, 8) }
 	};
-
+	
 	// Define cube vertices (unit cube centered at origin)
 	private static readonly Vector3[] Vertices =
 	[
@@ -66,7 +66,7 @@ public class MinecraftHeadRenderer
 		new(1, 0), new(0, 0), new(0, 1), new(1, 1)
 	];
 
-	private static readonly Vector2[] BackFaceUvMap = [new(0, 0), new(1, 0), new(1, 1), new(0, 1)];
+	private static readonly Vector2[] BackFaceUvMap = [new(0, 1), new(1, 1), new(1, 0), new(0, 0)];
 	private static readonly Vector2[] BottomFaceUvMap = [new(1, 1), new(0, 1), new(0, 0), new(1, 0)];
 
 	// Define faces with correct winding order and UV mappings

@@ -236,8 +236,54 @@ public sealed partial class MinecraftBlockRenderer
 			builder.Append(";custom=none");
 		}
 
+		if (data.Profile is not null)
+		{
+			builder.Append(";profile=");
+			builder.Append(BuildProfileKey(data.Profile));
+		}
+		else
+		{
+			builder.Append(";profile=none");
+		}
+
 		return builder.ToString();
 	}
+
+		private static string BuildProfileKey(NbtCompound profile)
+		{
+			if (profile.TryGetValue("properties", out var propertiesTag) && propertiesTag is NbtList properties)
+			{
+				foreach (var entry in properties)
+				{
+					if (entry is not NbtCompound propertyCompound)
+					{
+						continue;
+					}
+
+					if (propertyCompound.TryGetValue("name", out var nameTag) &&
+					    nameTag is NbtString nameValue &&
+					    nameValue.Value.Equals("textures", StringComparison.OrdinalIgnoreCase) &&
+					    propertyCompound.TryGetValue("value", out var valueTag) &&
+					    valueTag is NbtString valueString &&
+					    !string.IsNullOrWhiteSpace(valueString.Value))
+					{
+						var hash = SHA256.HashData(Encoding.UTF8.GetBytes(valueString.Value));
+						return Convert.ToHexString(hash);
+					}
+				}
+			}
+
+		if (profile.TryGetValue("id", out var idTag))
+		{
+			var formatted = FormatNbtValue(idTag);
+			if (!string.IsNullOrWhiteSpace(formatted))
+			{
+				return formatted;
+			}
+		}
+
+		return "none";
+		}
 
 		private static string BuildCustomDataKey(NbtCompound compound)
 		{
