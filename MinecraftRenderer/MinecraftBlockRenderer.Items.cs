@@ -93,7 +93,7 @@ public sealed partial class MinecraftBlockRenderer
 			_itemRegistry.TryGetInfo(itemName, out itemInfo);
 		}
 
-		var (model, modelCandidates) = ResolveItemModel(itemName, itemInfo);
+		var (model, modelCandidates) = ResolveItemModel(itemName, itemInfo, options);
 		if (options.OverrideGuiTransform is null && options.UseGuiTransform && model is not null)
 		{
 			var guiOverride = model.GetDisplayTransform("gui");
@@ -143,24 +143,65 @@ public sealed partial class MinecraftBlockRenderer
 	}
 
 	private (BlockModelInstance? Model, IReadOnlyList<string> Candidates) ResolveItemModel(string itemName,
-		ItemRegistry.ItemInfo? itemInfo)
+		ItemRegistry.ItemInfo? itemInfo, BlockRenderOptions options)
 	{
-		var modelName = itemInfo?.Model;
-		if (string.IsNullOrWhiteSpace(modelName))
+		var displayContext = DetermineDisplayContext(options);
+		string? dynamicModel = null;
+		if (itemInfo?.Selector is not null)
 		{
-			if (_blockRegistry.TryGetModel(itemName, out var blockModel) && !string.IsNullOrWhiteSpace(blockModel))
+			var selectorContext = new ItemModelContext(options.ItemData, displayContext);
+			dynamicModel = itemInfo.Selector.Resolve(selectorContext);
+		}
+
+		var primaryModel = itemInfo?.Model;
+		string fallbackModel;
+		if (!string.IsNullOrWhiteSpace(dynamicModel))
+		{
+			fallbackModel = dynamicModel!;
+		}
+		else if (!string.IsNullOrWhiteSpace(primaryModel))
+		{
+			fallbackModel = primaryModel!;
+		}
+		else if (_blockRegistry.TryGetModel(itemName, out var blockModel) && !string.IsNullOrWhiteSpace(blockModel))
+		{
+			fallbackModel = blockModel;
+		}
+		else
+		{
+			fallbackModel = itemName;
+		}
+
+		var candidates = new List<string>();
+		var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+		void AppendCandidates(string? primary)
+		{
+			if (string.IsNullOrWhiteSpace(primary))
 			{
-				modelName = blockModel;
+				return;
 			}
-			else
+
+			foreach (var candidate in BuildModelCandidates(primary, itemName))
 			{
-				modelName = itemName;
+				if (seen.Add(candidate))
+				{
+					candidates.Add(candidate);
+				}
 			}
 		}
 
-		var candidates = BuildModelCandidates(modelName!, itemName).ToList();
-		BlockModelInstance? model = null;
+		AppendCandidates(dynamicModel);
+		AppendCandidates(primaryModel);
+		AppendCandidates(fallbackModel);
+		AppendCandidates(itemName);
 
+		if (candidates.Count == 0)
+		{
+			candidates.Add(itemName);
+		}
+
+		BlockModelInstance? model = null;
 		foreach (var candidate in candidates)
 		{
 			try
@@ -181,14 +222,18 @@ public sealed partial class MinecraftBlockRenderer
 		return (model, candidates);
 	}
 
+	private static string DetermineDisplayContext(BlockRenderOptions options)
+		=> options.UseGuiTransform ? "gui" : "none";
+
 	private bool TryRenderGuiTextureLayers(string itemName, ItemRegistry.ItemInfo? itemInfo, BlockModelInstance? model,
 		BlockRenderOptions options, out Image<Rgba32> rendered)
 	{
 		var candidates = new List<string>();
 		var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 		var isBillboardModel = model is not null && IsBillboardModel(model);
+		var hasModelLayer = false;
 
-		void TryAdd(string? candidate, bool allowNonGuiTexture = false)
+		void TryAdd(string? candidate, bool allowNonGuiTexture = false, bool markModelLayer = false)
 		{
 			if (string.IsNullOrWhiteSpace(candidate))
 			{
@@ -203,6 +248,10 @@ public sealed partial class MinecraftBlockRenderer
 			if (seen.Add(candidate))
 			{
 				candidates.Add(candidate);
+				if (markModelLayer)
+				{
+					hasModelLayer = true;
+				}
 			}
 		}
 
@@ -214,11 +263,11 @@ public sealed partial class MinecraftBlockRenderer
 
 			foreach (var layer in orderedLayers)
 			{
-				TryAdd(layer.Value, allowNonGuiTexture: isBillboardModel);
+				TryAdd(layer.Value, allowNonGuiTexture: isBillboardModel, markModelLayer: true);
 			}
 		}
 
-		if (itemInfo is not null && !string.IsNullOrWhiteSpace(itemInfo.Texture))
+		if (!hasModelLayer && itemInfo is not null && !string.IsNullOrWhiteSpace(itemInfo.Texture))
 		{
 			TryAdd(itemInfo.Texture, allowNonGuiTexture: isBillboardModel);
 		}

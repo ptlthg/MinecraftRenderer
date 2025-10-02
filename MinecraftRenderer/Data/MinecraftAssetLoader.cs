@@ -54,26 +54,28 @@ internal static class MinecraftAssetLoader
 	private sealed record ItemDefinitionEntry(
 		string Name,
 		string? ModelReference,
-		Dictionary<int, ItemRegistry.ItemTintInfo> LayerTints);
+		Dictionary<int, ItemRegistry.ItemTintInfo> LayerTints,
+		ItemModelSelector? Selector);
 
 	public static Dictionary<string, BlockModelDefinition> LoadModelDefinitions(string assetsRoot,
 		IEnumerable<string>? overlayRoots = null, AssetNamespaceRegistry? assetNamespaces = null)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(assetsRoot);
 
-		var roots = BuildRootList(assetsRoot, overlayRoots, assetNamespaces);
+		var namespaceRoots = BuildNamespaceRootList(assetsRoot, overlayRoots, assetNamespaces,
+			includeAllNamespaces: true);
 		var definitions = new Dictionary<string, BlockModelDefinition>(StringComparer.OrdinalIgnoreCase);
 
 		var hasAnyModels = false;
-		foreach (var root in roots)
+		foreach (var root in namespaceRoots)
 		{
-			foreach (var directory in EnumerateModelDirectories(root))
+			foreach (var directory in EnumerateModelDirectories(root.Path))
 			{
 				hasAnyModels = true;
 				foreach (var file in Directory.EnumerateFiles(directory, "*.json", SearchOption.AllDirectories))
 				{
 					var relativePath = Path.GetRelativePath(directory, file);
-					var key = NormalizeModelKey(relativePath);
+					var key = NormalizeModelKey(relativePath, root.Namespace);
 					if (string.IsNullOrWhiteSpace(key))
 					{
 						continue;
@@ -218,6 +220,11 @@ internal static class MinecraftAssetLoader
 				}
 			}
 
+			if (entry.Selector is not null)
+			{
+				info.Selector = entry.Selector;
+			}
+
 			if (entry.LayerTints.Count > 0)
 			{
 				foreach (var (layerIndex, tintInfo) in entry.LayerTints)
@@ -230,7 +237,7 @@ internal static class MinecraftAssetLoader
 		return entries.Values.ToList();
 	}
 
-	private static string NormalizeModelKey(string relativePath)
+	private static string NormalizeModelKey(string relativePath, string? namespaceName = null)
 	{
 		if (string.IsNullOrWhiteSpace(relativePath))
 		{
@@ -255,7 +262,16 @@ internal static class MinecraftAssetLoader
 			normalized = normalized[7..];
 		}
 
-		return normalized.TrimStart('/');
+		normalized = normalized.TrimStart('/');
+
+		if (!string.IsNullOrWhiteSpace(namespaceName) &&
+		    !namespaceName.Equals("minecraft", StringComparison.OrdinalIgnoreCase) &&
+		    !normalized.StartsWith(namespaceName + ":", StringComparison.OrdinalIgnoreCase))
+		{
+			normalized = $"{namespaceName}:{normalized}";
+		}
+
+		return normalized;
 	}
 
 	private static IEnumerable<(string Key, BlockModelDefinition Definition)> GetBuiltinModelDefinitions()
@@ -272,21 +288,42 @@ internal static class MinecraftAssetLoader
 	}
 
 	private static IReadOnlyList<string> BuildRootList(string primaryRoot, IEnumerable<string>? overlayRoots,
-		AssetNamespaceRegistry? assetNamespaces, string namespaceName = "minecraft")
+		AssetNamespaceRegistry? assetNamespaces, string namespaceName = "minecraft", bool includeAllNamespaces = false)
+	{
+		var namespaceRoots = BuildNamespaceRootList(primaryRoot, overlayRoots, assetNamespaces, namespaceName,
+			includeAllNamespaces);
+		return namespaceRoots
+			.Select(static root => root.Path)
+			.Distinct(StringComparer.OrdinalIgnoreCase)
+			.ToList();
+	}
+
+	private static IReadOnlyList<AssetNamespaceRoot> BuildNamespaceRootList(string primaryRoot,
+		IEnumerable<string>? overlayRoots, AssetNamespaceRegistry? assetNamespaces, string namespaceName = "minecraft",
+		bool includeAllNamespaces = false)
 	{
 		if (assetNamespaces is not null)
 		{
-			var resolved = assetNamespaces.ResolveRoots(namespaceName);
-			if (resolved.Count > 0)
+			IEnumerable<AssetNamespaceRoot> resolvedNamespaces;
+			if (includeAllNamespaces)
 			{
-				return resolved
-					.Select(static root => root.Path)
-					.Distinct(StringComparer.OrdinalIgnoreCase)
-					.ToList();
+				resolvedNamespaces = assetNamespaces.Roots;
+			}
+			else
+			{
+				resolvedNamespaces = assetNamespaces.ResolveRoots(namespaceName);
+			}
+
+			var resolvedList = DeduplicateNamespaceRoots(resolvedNamespaces);
+			if (resolvedList.Count > 0)
+			{
+				return resolvedList;
 			}
 		}
 
-		var ordered = new List<string>();
+		var dedupe = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		var results = new List<AssetNamespaceRoot>();
+		var effectiveNamespace = string.IsNullOrWhiteSpace(namespaceName) ? "minecraft" : namespaceName;
 
 		void TryAdd(string? candidate)
 		{
@@ -295,11 +332,18 @@ internal static class MinecraftAssetLoader
 				return;
 			}
 
-			var full = Path.GetFullPath(candidate);
-			if (!ordered.Contains(full, StringComparer.OrdinalIgnoreCase))
+			var fullPath = Path.GetFullPath(candidate);
+			if (!Directory.Exists(fullPath))
 			{
-				ordered.Add(full);
+				return;
 			}
+
+			if (!dedupe.Add(fullPath))
+			{
+				return;
+			}
+
+			results.Add(new AssetNamespaceRoot(effectiveNamespace, fullPath, "external", false));
 		}
 
 		TryAdd(primaryRoot);
@@ -311,7 +355,44 @@ internal static class MinecraftAssetLoader
 			}
 		}
 
-		return ordered;
+		return results;
+	}
+
+	private static IReadOnlyList<AssetNamespaceRoot> DeduplicateNamespaceRoots(IEnumerable<AssetNamespaceRoot> roots)
+	{
+		var results = new List<AssetNamespaceRoot>();
+		var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+		foreach (var root in roots)
+		{
+			if (root is null)
+			{
+				continue;
+			}
+
+			var path = root.Path;
+			if (string.IsNullOrWhiteSpace(path))
+			{
+				continue;
+			}
+
+			var fullPath = Path.GetFullPath(path);
+			if (!Directory.Exists(fullPath))
+			{
+				continue;
+			}
+
+			var namespaceKey = string.IsNullOrWhiteSpace(root.Namespace) ? "minecraft" : root.Namespace;
+			var identity = $"{namespaceKey.ToLowerInvariant()}|{fullPath.ToLowerInvariant()}";
+			if (!seen.Add(identity))
+			{
+				continue;
+			}
+
+			results.Add(new AssetNamespaceRoot(namespaceKey, fullPath, root.SourceId, root.IsVanilla));
+		}
+
+		return results;
 	}
 
 	private static IEnumerable<string> EnumerateModelDirectories(string root)
@@ -374,8 +455,9 @@ internal static class MinecraftAssetLoader
 						JsonDocument.Parse(stream, new JsonDocumentOptions { AllowTrailingCommas = true });
 					var tintMap = new Dictionary<int, ItemRegistry.ItemTintInfo>();
 					ExtractTintInfoFromDefinition(document.RootElement, tintMap);
+					var selector = ItemModelSelectorParser.ParseFromRoot(document.RootElement);
 					var modelReference = ResolveModelReferenceFromItemDefinition(document.RootElement);
-					entry = new ItemDefinitionEntry(itemName, modelReference, tintMap);
+					entry = new ItemDefinitionEntry(itemName, modelReference, tintMap, selector);
 				}
 				catch (JsonException)
 				{

@@ -10,6 +10,7 @@ using System.Text;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using MinecraftRenderer.Assets;
+using MinecraftRenderer.Nbt;
 using MinecraftRenderer.TexturePacks;
 
 public sealed partial class MinecraftBlockRenderer
@@ -138,7 +139,7 @@ public sealed partial class MinecraftBlockRenderer
 				referenceModel = itemModel;
 			}
 
-			var (model, _) = ResolveItemModel(normalizedTarget, itemInfo);
+			var (model, _) = ResolveItemModel(normalizedTarget, itemInfo, options);
 			if (model is not null)
 			{
 				modelPath = model.Name;
@@ -225,8 +226,49 @@ public sealed partial class MinecraftBlockRenderer
 			}
 		}
 
+		if (data.CustomData is not null)
+		{
+			builder.Append(";custom=");
+			builder.Append(BuildCustomDataKey(data.CustomData));
+		}
+		else
+		{
+			builder.Append(";custom=none");
+		}
+
 		return builder.ToString();
 	}
+
+		private static string BuildCustomDataKey(NbtCompound compound)
+		{
+			var segments = new List<string>();
+			foreach (var pair in compound.OrderBy(static kvp => kvp.Key, StringComparer.OrdinalIgnoreCase))
+			{
+				var key = pair.Key ?? string.Empty;
+				var value = FormatNbtValue(pair.Value);
+				segments.Add($"{key}={value}");
+			}
+
+			return segments.Count == 0 ? "empty" : string.Join('|', segments);
+		}
+
+		private static string FormatNbtValue(NbtTag tag)
+			=> tag switch
+			{
+				NbtString s => s.Value,
+				NbtInt i => i.Value.ToString(CultureInfo.InvariantCulture),
+				NbtLong l => l.Value.ToString(CultureInfo.InvariantCulture),
+				NbtShort s16 => s16.Value.ToString(CultureInfo.InvariantCulture),
+				NbtByte b => b.Value.ToString(CultureInfo.InvariantCulture),
+				NbtDouble d => d.Value.ToString(CultureInfo.InvariantCulture),
+				NbtFloat f => f.Value.ToString(CultureInfo.InvariantCulture),
+				NbtCompound compound => '{' + BuildCustomDataKey(compound) + '}',
+				NbtList list => '[' + string.Join(',', list.Select(FormatNbtValue)) + ']',
+				NbtIntArray intArray => '[' + string.Join(',', intArray.Values.Select(v => v.ToString(CultureInfo.InvariantCulture))) + ']',
+				NbtLongArray longArray => '[' + string.Join(',', longArray.Values.Select(v => v.ToString(CultureInfo.InvariantCulture))) + ']',
+				NbtByteArray byteArray => '[' + string.Join(',', byteArray.Values.Select(v => v.ToString(CultureInfo.InvariantCulture))) + ']',
+				_ => string.Empty
+			};
 
 	private string DetermineSourcePackId(string? modelPath, IReadOnlyCollection<string> textureIds)
 	{

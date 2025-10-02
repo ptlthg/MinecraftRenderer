@@ -65,6 +65,7 @@ public static class SnbtItemAtlasGenerator
 			}
 			catch (Exception ex)
 			{
+				Console.WriteLine($"[DEBUG] Error loading SNBT file '{path}': {ex.Message}");
 				results.Add(new SnbtItemEntry(name, path, null, ex.Message));
 			}
 		}
@@ -156,7 +157,8 @@ public static class SnbtItemAtlasGenerator
 							{
 								try
 								{
-									using var tile = renderer.RenderItemFromNbt(compound, view.Options);
+									var itemOptions = NormalizeItemRenderOptions(view.Options);
+									using var tile = renderer.RenderItemFromNbt(compound, itemOptions);
 									tile.Mutate(ctx => ctx.Resize(tileSize, tileSize));
 									canvas.Mutate(ctx => ctx.DrawImage(tile, new Point(col * tileSize, row * tileSize), 1f));
 								}
@@ -189,6 +191,24 @@ public static class SnbtItemAtlasGenerator
 		}
 
 		return results;
+	}
+
+	private static MinecraftBlockRenderer.BlockRenderOptions NormalizeItemRenderOptions(
+		MinecraftBlockRenderer.BlockRenderOptions options)
+	{
+		var normalized = options;
+		if (MathF.Abs(normalized.YawInDegrees) > 0.01f || MathF.Abs(normalized.PitchInDegrees) > 0.01f ||
+		    MathF.Abs(normalized.RollInDegrees) > 0.01f)
+		{
+			normalized = normalized with { YawInDegrees = 0f, PitchInDegrees = 0f, RollInDegrees = 0f };
+		}
+
+		if (!normalized.UseGuiTransform)
+		{
+			normalized = normalized with { UseGuiTransform = true };
+		}
+
+		return normalized;
 	}
 
 	private static string Sanitize(string input)

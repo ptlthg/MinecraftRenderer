@@ -34,7 +34,8 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 	public sealed record ItemRenderData(
 		Color? Layer0Tint = null,
 		IReadOnlyDictionary<int, Color>? AdditionalLayerTints = null,
-		bool DisableDefaultLayer0Tint = false)
+		bool DisableDefaultLayer0Tint = false,
+		NbtCompound? CustomData = null)
 	{
 		public Color? GetLayerTint(int layerIndex)
 		{
@@ -242,11 +243,12 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		ArgumentNullException.ThrowIfNull(compound);
 		var itemId = SnbtItemUtilities.TryGetItemId(compound)
 		             ?? throw new ArgumentException("SNBT item payload did not contain an item id.", nameof(compound));
+		var normalizedItemId = NormalizeItemTextureKey(itemId);
 
 		var itemData = ExtractItemRenderDataFromComponents(compound);
 		return itemData is not null
-			? RenderItem(itemId, itemData, options)
-			: RenderItem(itemId, options);
+			? RenderItem(normalizedItemId, itemData, options)
+			: RenderItem(normalizedItemId, options);
 	}
 
 	private Image<Rgba32> RenderBlockInternal(string blockName, BlockRenderOptions options)
@@ -375,6 +377,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		Color? layer0Tint = null;
 		var disableDefaultLayer0Tint = false;
 		Dictionary<int, Color>? additionalLayerTints = null;
+		NbtCompound? customData = null;
 
 		if (components.TryGetValue("minecraft:dyed_color", out var dyedTag) &&
 		    TryExtractColor(dyedTag, out var dyedColor))
@@ -383,9 +386,15 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 			disableDefaultLayer0Tint = true;
 		}
 
-		if (layer0Tint.HasValue || additionalLayerTints is { Count: > 0 } || disableDefaultLayer0Tint)
+		if (components.TryGetValue("minecraft:custom_data", out var customDataTag) && customDataTag is NbtCompound customCompound &&
+		    customCompound.Count > 0)
 		{
-			return new ItemRenderData(layer0Tint, additionalLayerTints, disableDefaultLayer0Tint);
+			customData = customCompound;
+		}
+
+		if (layer0Tint.HasValue || additionalLayerTints is { Count: > 0 } || disableDefaultLayer0Tint || customData is not null)
+		{
+			return new ItemRenderData(layer0Tint, additionalLayerTints, disableDefaultLayer0Tint, customData);
 		}
 
 		return null;

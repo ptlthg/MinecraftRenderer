@@ -71,6 +71,7 @@ public sealed class ItemRegistry
 		public string Name { get; set; } = string.Empty;
 		public string? Model { get; set; }
 		public string? Texture { get; set; }
+		internal ItemModelSelector? Selector { get; set; }
 		public Dictionary<int, ItemTintInfo> LayerTints { get; set; } = new();
 	}
 
