@@ -122,8 +122,9 @@ public sealed partial class MinecraftBlockRenderer
 
 		if (TryRenderGuiTextureLayers(itemName, itemInfo, model, options, out var flatRender))
 		{
-			if (ShouldPreferPlayerHeadRenderer(itemName, model, modelCandidates, options) &&
-			    TryRenderPlayerHead(itemName, model, modelCandidates, options, out var preferredHead))
+			var shouldPrefer = ShouldPreferPlayerHeadRenderer(itemName, model, modelCandidates, options);
+			
+			if (shouldPrefer && TryRenderPlayerHead(itemName, model, modelCandidates, options, out var preferredHead))
 			{
 				flatRender.Dispose();
 				return FinalizeGuiResult(preferredHead);
@@ -137,7 +138,7 @@ public sealed partial class MinecraftBlockRenderer
 			return FinalizeGuiResult(bedComposite);
 		}
 
-		if (!HasExplicitFlatHeadOverride(model, modelCandidates) &&
+		if (!HasExplicitFlatHeadOverride(model, modelCandidates, options) &&
 		    TryRenderPlayerHead(itemName, model, modelCandidates, options, out var headComposite))
 		{
 			return FinalizeGuiResult(headComposite);
@@ -176,9 +177,16 @@ public sealed partial class MinecraftBlockRenderer
 			dynamicModel = itemInfo.Selector.Resolve(selectorContext);
 		}
 
+		// Check for Firmament-style firmskyblock models based on SkyBlock ID
+		string? firmamentModel = TryGetFirmamentModel(options.ItemData);
+
 		var primaryModel = itemInfo?.Model;
 		string fallbackModel;
-		if (!string.IsNullOrWhiteSpace(dynamicModel))
+		if (!string.IsNullOrWhiteSpace(firmamentModel))
+		{
+			fallbackModel = firmamentModel!;
+		}
+		else if (!string.IsNullOrWhiteSpace(dynamicModel))
 		{
 			fallbackModel = dynamicModel!;
 		}
@@ -214,6 +222,8 @@ public sealed partial class MinecraftBlockRenderer
 			}
 		}
 
+		// Firmament models take priority
+		AppendCandidates(firmamentModel);
 		AppendCandidates(dynamicModel);
 		AppendCandidates(primaryModel);
 		AppendCandidates(fallbackModel);
@@ -552,7 +562,7 @@ public sealed partial class MinecraftBlockRenderer
 				return false;
 			}
 
-			if (HasExplicitFlatHeadOverride(model, modelCandidates))
+			if (HasExplicitFlatHeadOverride(model, modelCandidates, options))
 			{
 				return false;
 			}
@@ -561,8 +571,14 @@ public sealed partial class MinecraftBlockRenderer
 		}
 
 		private static bool HasExplicitFlatHeadOverride(BlockModelInstance? model,
-			IReadOnlyList<string> modelCandidates)
+			IReadOnlyList<string> modelCandidates, BlockRenderOptions options)
 		{
+			// If we have Profile data, prefer 3D head rendering over non-existent Firmament models
+			if (options.ItemData?.Profile is not null)
+			{
+				return false;
+			}
+
 			var hasNonDefaultCandidate = HasNonDefaultPlayerHeadModelCandidate(modelCandidates);
 
 			if (ModelChainContainsTemplateSkull(model))
@@ -742,13 +758,39 @@ public sealed partial class MinecraftBlockRenderer
 			return true;
 		}
 
-		if (itemData?.Profile is not null && TryGetProfileSkin(itemData.Profile, out var profileSkin))
+		if (itemData?.Profile is not null)
 		{
-			skin = profileSkin;
-			return true;
+			if (TryGetProfileSkin(itemData.Profile, out var profileSkin))
+			{
+				skin = profileSkin;
+				return true;
+			}
 		}
 
 		return TryGetDefaultPlayerSkin(out skin);
+	}
+
+	/// <summary>
+	/// Tries to get a Firmament-style model path from the item's custom_data.
+	/// Firmament uses firmskyblock:item/&lt;skyblock_id&gt; for SkyBlock items.
+	/// The SkyBlock ID is taken from custom_data.id and converted to lowercase.
+	/// </summary>
+	private static string? TryGetFirmamentModel(ItemRenderData? itemData)
+	{
+		if (itemData?.CustomData is null)
+		{
+			return null;
+		}
+
+		if (!TryGetString(itemData.CustomData, "id", out var skyblockId) || string.IsNullOrWhiteSpace(skyblockId))
+		{
+			return null;
+		}
+
+		// Convert SkyBlock ID to lowercase for Firmament model path
+		// Example: "ABIPHONE_XIII_PRO" -> "firmskyblock:item/abiphone_xiii_pro"
+		var lowercaseId = skyblockId!.ToLowerInvariant();
+		return $"firmskyblock:item/{lowercaseId}";
 	}
 
 	private static bool TryGetHeadTextureOverride(NbtCompound customData, out string textureId)
@@ -772,6 +814,48 @@ public sealed partial class MinecraftBlockRenderer
 		}
 
 		textureId = string.Empty;
+		return false;
+	}
+
+	/// <summary>
+	/// Extracts a texture identifier from a player head profile.
+	/// Returns the base64 encoded texture value as the identifier for profile-based skins.
+	/// </summary>
+	private static bool TryExtractProfileTextureId(NbtCompound profile, out string textureId)
+	{
+		textureId = string.Empty;
+		if (!profile.TryGetValue("properties", out var propertiesTag) || propertiesTag is not NbtList properties)
+		{
+			return false;
+		}
+
+		foreach (var entry in properties)
+		{
+			if (entry is not NbtCompound propertyCompound)
+			{
+				continue;
+			}
+
+			if (!propertyCompound.TryGetValue("name", out var nameTag) ||
+			    nameTag is not NbtString nameString ||
+			    !string.Equals(nameString.Value, "textures", StringComparison.OrdinalIgnoreCase))
+			{
+				continue;
+			}
+
+			if (!propertyCompound.TryGetValue("value", out var valueTag) ||
+			    valueTag is not NbtString valueString ||
+			    string.IsNullOrWhiteSpace(valueString.Value))
+			{
+				continue;
+			}
+
+			// Use the base64 encoded value as the texture identifier
+			// This uniquely identifies the skin without needing to decode it
+			textureId = $"player_skin:{valueString.Value}";
+			return true;
+		}
+
 		return false;
 	}
 

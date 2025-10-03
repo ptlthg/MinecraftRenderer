@@ -77,18 +77,7 @@ using var renderer = resolvedAssetDirectory.IsAggregatedJson
 	? MinecraftBlockRenderer.CreateFromDataDirectory(resolvedAssetDirectory.Path)
 	: MinecraftBlockRenderer.CreateFromMinecraftAssets(resolvedAssetDirectory.Path, texturePackRegistry,
 		options.TexturePackIds);
-
-var results = MinecraftAtlasGenerator.GenerateAtlases(
-	renderer,
-	outputDirectory,
-	views,
-	options.TileSize,
-	options.Columns,
-	options.Rows,
-	blockFilter,
-	itemFilter,
-	includeBlocks,
-	includeItems).ToList();
+var results = new List<MinecraftAtlasGenerator.AtlasResult>();
 
 if (!string.IsNullOrWhiteSpace(options.SnbtItemDirectory))
 {
@@ -122,6 +111,18 @@ if (!string.IsNullOrWhiteSpace(options.SnbtItemDirectory))
 			snbtEntries);
 		results.AddRange(snbtResults);
 	}
+} else {
+	results = MinecraftAtlasGenerator.GenerateAtlases(
+		renderer,
+		outputDirectory,
+		views,
+		options.TileSize,
+		options.Columns,
+		options.Rows,
+		blockFilter,
+		itemFilter,
+		includeBlocks,
+		includeItems).ToList();
 }
 
 if (options.GenerateDebugBlock)
