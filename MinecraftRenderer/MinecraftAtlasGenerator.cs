@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
@@ -21,7 +22,17 @@ public static class MinecraftAtlasGenerator
 		string ImagePath,
 		string ManifestPath);
 
-	public sealed record AtlasManifestEntry(int SequentialIndex, string Name, int Column, int Row, string? Error);
+	public sealed record AtlasManifestEntry(int SequentialIndex, string Name, int Column, int Row, string? Error)
+	{
+		[JsonPropertyName("model")]
+		public string? Model { get; init; }
+
+		[JsonPropertyName("textures")]
+		public IReadOnlyList<string>? Textures { get; init; }
+
+		[JsonPropertyName("texturePack")]
+		public string? TexturePack { get; init; }
+	}
 
 	public static readonly IReadOnlyList<AtlasView> DefaultViews =
 	[
@@ -64,7 +75,11 @@ public static class MinecraftAtlasGenerator
 		itemNames.Sort(StringComparer.OrdinalIgnoreCase);
 
 		var results = new List<AtlasResult>();
-		var serializerOptions = new JsonSerializerOptions { WriteIndented = true };
+		var serializerOptions = new JsonSerializerOptions
+		{
+			WriteIndented = true,
+			DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+		};
 		var perPage = columns * rows;
 
 		if (perPage <= 0)

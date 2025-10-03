@@ -44,6 +44,10 @@ public class MinecraftHeadRenderer
 		{ Face.Top, new Rectangle(40, 0, 8, 8) },
 		{ Face.Bottom, new Rectangle(48, 0, 8, 8) }
 	};
+
+	private static readonly Vector3 InventoryLightDirection = Vector3.Normalize(new Vector3(0.55f, -1f, 1.8f));
+	private const float InventoryAmbientStrength = 0.2f;
+	private const float InventoryDiffuseStrength = 0.8f;
 	
 	// Define cube vertices (unit cube centered at origin)
 	private static readonly Vector3[] Vertices =
@@ -169,7 +173,8 @@ public class MinecraftHeadRenderer
 				tri.T2,
 				tri.T3,
 				skin,
-				tri.TextureRect);
+				tri.TextureRect,
+				tri.Shading);
 		}
 
 		return canvas;
@@ -237,16 +242,15 @@ public class MinecraftHeadRenderer
 				transformed[i] = Vector3.Transform(face.Vertices[i], transform);
 			}
 
-			// Backface culling for non-overlay faces
-			if (!isOverlay)
-			{
-				// Calculate face normal for backface culling
-				var v1 = transformed[1] - transformed[0];
-				var v2 = transformed[2] - transformed[0];
-				var normal = Vector3.Cross(v1, v2);
+			var v1 = transformed[1] - transformed[0];
+			var v2 = transformed[2] - transformed[0];
+			var normal = Vector3.Cross(v1, v2);
+			var shading = ComputeInventoryLightingIntensity(normal);
 
-				// Skip back-facing triangles
-				if (normal.Z < 0) continue;
+			// Backface culling for non-overlay faces
+			if (!isOverlay && normal.Z < 0)
+			{
+				continue;
 			}
 
 			// Calculate average depth for sorting
@@ -256,13 +260,15 @@ public class MinecraftHeadRenderer
 			triangles.Add(new VisibleTriangle(
 				transformed[0], transformed[1], transformed[2],
 				face.UvMap[0], face.UvMap[1], face.UvMap[2],
-				texRect, depth
+				texRect, depth,
+				shading
 			));
 
 			triangles.Add(new VisibleTriangle(
 				transformed[0], transformed[2], transformed[3],
 				face.UvMap[0], face.UvMap[2], face.UvMap[3],
-				texRect, depth
+				texRect, depth,
+				shading
 			));
 		}
 	}
@@ -276,7 +282,8 @@ public class MinecraftHeadRenderer
 		float z3,
 		Vector2 p1, Vector2 p2, Vector2 p3,
 		Vector2 t1, Vector2 t2, Vector2 t3,
-		Image<Rgba32> skin, Rectangle textureRect)
+		Image<Rgba32> skin, Rectangle textureRect,
+		float shadingFactor)
 	{
 		var area = (p2.X - p1.X) * (p3.Y - p1.Y) - (p3.X - p1.X) * (p2.Y - p1.Y);
 		if (MathF.Abs(area) < 0.01f) return; // Degenerate triangle
@@ -345,9 +352,50 @@ public class MinecraftHeadRenderer
 				}
 
 				depthBuffer[bufferIndex] = depth;
-				canvasRow[x] = color;
+				canvasRow[x] = shadingFactor is >= 0.999f and <= 1.001f
+					? color
+					: ApplyShading(color, shadingFactor);
 			}
 		});
+	}
+
+	private static Rgba32 ApplyShading(Rgba32 original, float shadingFactor)
+	{
+		var factor = MathF.Max(shadingFactor, 0f);
+		if (MathF.Abs(factor - 1f) <= 1e-4f)
+		{
+			return original;
+		}
+
+		var scaledR = (int)MathF.Round(original.R * factor);
+		var scaledG = (int)MathF.Round(original.G * factor);
+		var scaledB = (int)MathF.Round(original.B * factor);
+
+		var r = (byte)Math.Clamp(scaledR, 0, 255);
+		var g = (byte)Math.Clamp(scaledG, 0, 255);
+		var b = (byte)Math.Clamp(scaledB, 0, 255);
+
+		return new Rgba32(r, g, b, original.A);
+	}
+
+	private static float ComputeInventoryLightingIntensity(Vector3 normal)
+	{
+		const float normalEpsilon = 1e-6f;
+		var lengthSquared = normal.LengthSquared();
+		if (lengthSquared <= normalEpsilon)
+		{
+			return 1f;
+		}
+
+		var normalized = normal / MathF.Sqrt(lengthSquared);
+		if (normalized.Y >= 0.6f)
+		{
+			return 1f;
+		}
+
+		var lightContribution0 = MathF.Max(0f, Vector3.Dot(normalized, InventoryLightDirection));
+		var intensity = InventoryAmbientStrength + InventoryDiffuseStrength * MathF.Min(1f, lightContribution0);
+		return Math.Clamp(intensity, 0.2f, 1f);
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -384,7 +432,8 @@ public class MinecraftHeadRenderer
 		Vector2 T2,
 		Vector2 T3,
 		Rectangle TextureRect,
-		float Depth);
+		float Depth,
+		float Shading);
 
 	private readonly record struct BarycentricData(
 		Vector2 V0,

@@ -2,12 +2,16 @@ namespace MinecraftRenderer;
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Numerics;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using MinecraftRenderer.Nbt;
@@ -99,7 +103,7 @@ public sealed partial class MinecraftBlockRenderer
 			_itemRegistry.TryGetInfo(itemName, out itemInfo);
 		}
 
-		var (model, modelCandidates) = ResolveItemModel(itemName, itemInfo, options);
+		var (model, modelCandidates, _) = ResolveItemModel(itemName, itemInfo, options);
 		if (options.OverrideGuiTransform is null && options.UseGuiTransform && model is not null)
 		{
 			var guiOverride = model.GetDisplayTransform("gui");
@@ -118,6 +122,13 @@ public sealed partial class MinecraftBlockRenderer
 
 		if (TryRenderGuiTextureLayers(itemName, itemInfo, model, options, out var flatRender))
 		{
+			if (ShouldPreferPlayerHeadRenderer(itemName, model, modelCandidates, options) &&
+			    TryRenderPlayerHead(itemName, model, modelCandidates, options, out var preferredHead))
+			{
+				flatRender.Dispose();
+				return FinalizeGuiResult(preferredHead);
+			}
+
 			return FinalizeGuiResult(flatRender);
 		}
 
@@ -126,7 +137,8 @@ public sealed partial class MinecraftBlockRenderer
 			return FinalizeGuiResult(bedComposite);
 		}
 
-		if (TryRenderPlayerHead(itemName, model, modelCandidates, options, out var headComposite))
+		if (!HasExplicitFlatHeadOverride(model, modelCandidates) &&
+		    TryRenderPlayerHead(itemName, model, modelCandidates, options, out var headComposite))
 		{
 			return FinalizeGuiResult(headComposite);
 		}
@@ -153,7 +165,7 @@ public sealed partial class MinecraftBlockRenderer
 		return FinalizeGuiResult(RenderFallbackTexture(itemName, itemInfo, model, options));
 	}
 
-	private (BlockModelInstance? Model, IReadOnlyList<string> Candidates) ResolveItemModel(string itemName,
+	private (BlockModelInstance? Model, IReadOnlyList<string> Candidates, string? ResolvedModelName) ResolveItemModel(string itemName,
 		ItemRegistry.ItemInfo? itemInfo, BlockRenderOptions options)
 	{
 		var displayContext = DetermineDisplayContext(options);
@@ -213,11 +225,23 @@ public sealed partial class MinecraftBlockRenderer
 		}
 
 		BlockModelInstance? model = null;
+		string? resolvedModelName = null;
 		foreach (var candidate in candidates)
 		{
 			try
 			{
 				model = _modelResolver.Resolve(candidate);
+				resolvedModelName = candidate;
+				var normalizedName = NormalizeModelIdentifier(resolvedModelName);
+				if (!string.Equals(model.Name, normalizedName, StringComparison.OrdinalIgnoreCase))
+				{
+					model = new BlockModelInstance(
+						normalizedName,
+						model.ParentChain,
+						model.Textures,
+						model.Display,
+						model.Elements);
+				}
 				break;
 			}
 			catch (KeyNotFoundException)
@@ -230,7 +254,7 @@ public sealed partial class MinecraftBlockRenderer
 			}
 		}
 
-		return (model, candidates);
+		return (model, candidates, resolvedModelName);
 	}
 
 	private static string DetermineDisplayContext(BlockRenderOptions options)
@@ -500,6 +524,60 @@ public sealed partial class MinecraftBlockRenderer
 		return RenderFlatItem(new[] { "minecraft:missingno" }, options, itemName);
 	}
 
+		private static bool ShouldPreferPlayerHeadRenderer(string itemName, BlockModelInstance? model,
+			IReadOnlyList<string> modelCandidates, BlockRenderOptions options)
+		{
+			var itemData = options.ItemData;
+			if (itemData is null)
+			{
+				return false;
+			}
+
+			if (!string.Equals(NormalizeItemTextureKey(itemName), "player_head", StringComparison.OrdinalIgnoreCase))
+			{
+				return false;
+			}
+
+			var hasSkinSource = itemData.Profile is not null
+			                  || (itemData.CustomData is not null &&
+			                      TryGetHeadTextureOverride(itemData.CustomData, out _));
+			if (!hasSkinSource)
+			{
+				return false;
+			}
+
+			if (HasExplicitFlatHeadOverride(model, modelCandidates))
+			{
+				return false;
+			}
+
+			return true;
+		}
+
+		private static bool HasExplicitFlatHeadOverride(BlockModelInstance? model,
+			IReadOnlyList<string> modelCandidates)
+		{
+			var hasNonDefaultCandidate = HasNonDefaultPlayerHeadModelCandidate(modelCandidates);
+
+			if (ModelChainContainsTemplateSkull(model))
+			{
+				return hasNonDefaultCandidate;
+			}
+
+			if (!hasNonDefaultCandidate &&
+			    modelCandidates.Any(static candidate => ContainsTemplateSkullToken(candidate)))
+			{
+				return false;
+			}
+
+			if (model is not null)
+			{
+				return true;
+			}
+
+			return hasNonDefaultCandidate;
+		}
+
 	private bool TryRenderPlayerHead(string itemName, BlockModelInstance? model,
 		IReadOnlyList<string> modelCandidates, BlockRenderOptions options, out Image<Rgba32> rendered)
 	{
@@ -539,6 +617,8 @@ public sealed partial class MinecraftBlockRenderer
 			}
 		}
 
+		yaw -= 180f;
+
 		var headOptions = new MinecraftHeadRenderer.RenderOptions(
 			options.Size,
 			yaw,
@@ -560,8 +640,15 @@ public sealed partial class MinecraftBlockRenderer
 			return false;
 		}
 
-		return ModelChainContainsTemplateSkull(model) ||
-		       modelCandidates.Any(static candidate => ContainsTemplateSkullToken(candidate));
+		if (ModelChainContainsTemplateSkull(model) ||
+		    modelCandidates.Any(static candidate => ContainsTemplateSkullToken(candidate)))
+		{
+			return true;
+		}
+
+		// Some aggregated asset bundles omit the explicit template_skull parent chain. Fall back to treating all
+		// player_head items as candidates so profile-based skins can still render correctly.
+		return true;
 	}
 
 	private static bool ModelChainContainsTemplateSkull(BlockModelInstance? model)
@@ -595,6 +682,45 @@ public sealed partial class MinecraftBlockRenderer
 		}
 
 		return candidate.IndexOf("template_skull", StringComparison.OrdinalIgnoreCase) >= 0;
+	}
+
+	private static bool HasNonDefaultPlayerHeadModelCandidate(IReadOnlyList<string> modelCandidates)
+	{
+		if (modelCandidates.Count == 0)
+		{
+			return false;
+		}
+
+		foreach (var candidate in modelCandidates)
+		{
+			if (IsDefaultPlayerHeadModelCandidate(candidate))
+			{
+				continue;
+			}
+
+			if (!ContainsTemplateSkullToken(candidate))
+			{
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	private static bool IsDefaultPlayerHeadModelCandidate(string? candidate)
+	{
+		if (string.IsNullOrWhiteSpace(candidate))
+		{
+			return false;
+		}
+
+		var normalized = NormalizeItemTextureKey(candidate);
+		return string.Equals(normalized, "player_head", StringComparison.OrdinalIgnoreCase)
+		       || string.Equals(normalized, "item/player_head", StringComparison.OrdinalIgnoreCase)
+		       || string.Equals(normalized, "player_head_inventory", StringComparison.OrdinalIgnoreCase)
+		       || string.Equals(normalized, "item/player_head_inventory", StringComparison.OrdinalIgnoreCase)
+		       || string.Equals(normalized, "player_head#inventory", StringComparison.OrdinalIgnoreCase)
+		       || string.Equals(normalized, "item/player_head#inventory", StringComparison.OrdinalIgnoreCase);
 	}
 
 	private bool TryResolveHeadSkin(BlockRenderOptions options, out Image<Rgba32> skin)
@@ -733,7 +859,7 @@ public sealed partial class MinecraftBlockRenderer
 		try
 		{
 			var cached = _playerSkinCache.GetOrAdd(normalized,
-				static key => new Lazy<Image<Rgba32>>(() => DownloadPlayerSkin(key), LazyThreadSafetyMode.ExecutionAndPublication));
+				key => new Lazy<Image<Rgba32>>(() => LoadOrDownloadPlayerSkin(key), LazyThreadSafetyMode.ExecutionAndPublication));
 
 			skin = cached.Value;
 			return true;
@@ -768,12 +894,110 @@ public sealed partial class MinecraftBlockRenderer
 		return true;
 	}
 
-	private static Image<Rgba32> DownloadPlayerSkin(string url)
+	private Image<Rgba32> LoadOrDownloadPlayerSkin(string normalizedUrl)
 	{
-		using var response = PlayerSkinClient.GetAsync(url).GetAwaiter().GetResult();
+		if (TryLoadSkinFromDisk(normalizedUrl, out var skin))
+		{
+			return skin;
+		}
+
+		return DownloadPlayerSkin(normalizedUrl);
+	}
+
+	private bool TryLoadSkinFromDisk(string normalizedUrl, out Image<Rgba32> skin)
+	{
+		skin = null!;
+		var path = GetSkinCachePath(normalizedUrl);
+		if (path is null || !File.Exists(path))
+		{
+			return false;
+		}
+
+		try
+		{
+			skin = Image.Load<Rgba32>(path);
+			return true;
+		}
+		catch
+		{
+			try
+			{
+				File.Delete(path);
+			}
+			catch
+			{
+				// Ignore deletion failures; cache entry may get retried later.
+			}
+
+			return false;
+		}
+	}
+
+	private Image<Rgba32> DownloadPlayerSkin(string normalizedUrl)
+	{
+		using var response = PlayerSkinClient.GetAsync(normalizedUrl).GetAwaiter().GetResult();
 		response.EnsureSuccessStatusCode();
 		using var stream = response.Content.ReadAsStreamAsync().GetAwaiter().GetResult();
-		return Image.Load<Rgba32>(stream);
+		var image = Image.Load<Rgba32>(stream);
+		TryPersistSkin(normalizedUrl, image);
+		return image;
+	}
+
+	private void TryPersistSkin(string normalizedUrl, Image<Rgba32> image)
+	{
+		var path = GetSkinCachePath(normalizedUrl);
+		if (path is null)
+		{
+			return;
+		}
+
+		try
+		{
+			var directory = Path.GetDirectoryName(path);
+			if (!string.IsNullOrEmpty(directory))
+			{
+				Directory.CreateDirectory(directory);
+			}
+
+			image.SaveAsPng(path);
+		}
+		catch
+		{
+			// Ignore persistence failures to avoid interrupting rendering.
+		}
+	}
+
+	private string? GetSkinCachePath(string normalizedUrl)
+	{
+		if (string.IsNullOrWhiteSpace(_playerSkinCacheDirectory))
+		{
+			return null;
+		}
+
+		var fileName = GetSkinCacheFileName(normalizedUrl);
+		return Path.Combine(_playerSkinCacheDirectory, fileName);
+	}
+
+	private static string GetSkinCacheFileName(string normalizedUrl)
+	{
+		try
+		{
+			var uri = new Uri(normalizedUrl, UriKind.Absolute);
+			var lastSegment = uri.Segments.LastOrDefault()?.Trim('/') ?? string.Empty;
+			if (!string.IsNullOrWhiteSpace(lastSegment))
+			{
+				return lastSegment.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
+					? lastSegment
+					: lastSegment + ".png";
+			}
+		}
+		catch (UriFormatException)
+		{
+			// Fall back to hashing logic.
+		}
+
+		var hash = SHA256.HashData(Encoding.UTF8.GetBytes(normalizedUrl));
+		return Convert.ToHexString(hash) + ".png";
 	}
 
 	private bool TryGetDefaultPlayerSkin(out Image<Rgba32> skin)

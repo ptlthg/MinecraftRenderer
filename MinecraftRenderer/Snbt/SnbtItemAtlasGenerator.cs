@@ -4,6 +4,8 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using MinecraftRenderer;
 using MinecraftRenderer.Nbt;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -103,7 +105,11 @@ public static class SnbtItemAtlasGenerator
 		Directory.CreateDirectory(outputDirectory);
 
 		var results = new List<MinecraftAtlasGenerator.AtlasResult>();
-		var serializerOptions = new JsonSerializerOptions { WriteIndented = true };
+		var serializerOptions = new JsonSerializerOptions
+		{
+			WriteIndented = true,
+			DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+		};
 		var perPage = columns * rows;
 		if (perPage <= 0)
 		{
@@ -137,6 +143,9 @@ public static class SnbtItemAtlasGenerator
 					var row = localIndex / columns;
 					var label = entry.Name;
 					string? error = entry.Error;
+					string? model = null;
+					IReadOnlyList<string>? textures = null;
+					string? texturePack = null;
 
 					if (entry.Document is not null)
 					{
@@ -153,12 +162,40 @@ public static class SnbtItemAtlasGenerator
 								label = $"{label} ({itemId})";
 							}
 
+							var itemOptions = NormalizeItemRenderOptions(view.Options);
+							MinecraftBlockRenderer.ItemRenderData? itemRenderData = null;
+							if (compound is not null)
+							{
+								itemRenderData = MinecraftBlockRenderer.ExtractItemRenderDataFromNbt(compound);
+							}
+
+							if (!string.IsNullOrWhiteSpace(itemId))
+							{
+								var diagnosticOptions = itemOptions;
+								if (itemRenderData is not null)
+								{
+									diagnosticOptions = diagnosticOptions with { ItemData = itemRenderData };
+								}
+
+								try
+								{
+									var resourceInfo = renderer.ComputeResourceId(itemId, diagnosticOptions);
+									model = resourceInfo.Model;
+									textures = resourceInfo.Textures.Count > 0 ? resourceInfo.Textures : null;
+									texturePack = resourceInfo.SourcePackId;
+								}
+								catch
+								{
+									// Ignore diagnostic failures; continue rendering.
+								}
+							}
+
 							if (error is null)
 							{
 								try
 								{
-									var itemOptions = NormalizeItemRenderOptions(view.Options);
-									using var tile = renderer.RenderItemFromNbt(compound, itemOptions);
+									var renderCompound = compound ?? throw new InvalidOperationException("SNBT root unexpectedly null.");
+									using var tile = renderer.RenderItemFromNbt(renderCompound, itemOptions);
 									tile.Mutate(ctx => ctx.Resize(tileSize, tileSize));
 									canvas.Mutate(ctx => ctx.DrawImage(tile, new Point(col * tileSize, row * tileSize), 1f));
 								}
@@ -170,7 +207,18 @@ public static class SnbtItemAtlasGenerator
 						}
 					}
 
-					manifestEntries.Add(new MinecraftAtlasGenerator.AtlasManifestEntry(globalIndex, label, col, row, error));
+					var manifestEntry = new MinecraftAtlasGenerator.AtlasManifestEntry(globalIndex, label, col, row, error);
+					if (model is not null || textures is not null || !string.IsNullOrWhiteSpace(texturePack))
+					{
+						manifestEntry = manifestEntry with
+						{
+							Model = model,
+							Textures = textures,
+							TexturePack = texturePack
+						};
+					}
+
+					manifestEntries.Add(manifestEntry);
 				}
 
 				var baseFileName = string.Join("_", new[]

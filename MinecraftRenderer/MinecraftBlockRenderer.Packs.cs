@@ -15,7 +15,11 @@ using MinecraftRenderer.TexturePacks;
 
 public sealed partial class MinecraftBlockRenderer
 {
-	public sealed record ResourceIdResult(string ResourceId, string SourcePackId, string PackStackHash);
+	public sealed record ResourceIdResult(string ResourceId, string SourcePackId, string PackStackHash)
+	{
+		public string? Model { get; init; }
+		public IReadOnlyList<string> Textures { get; init; } = Array.Empty<string>();
+	}
 
 	private const string VanillaPackId = "vanilla";
 	private static readonly string RendererVersion = typeof(MinecraftBlockRenderer).Assembly.GetName().Version?.ToString() ?? "0";
@@ -113,45 +117,107 @@ public sealed partial class MinecraftBlockRenderer
 		EnsureNotDisposed();
 
 		var normalizedTarget = target.Trim();
+		var lookupTarget = normalizedTarget;
+		var namespaceSeparator = lookupTarget.IndexOf(':');
+		if (namespaceSeparator >= 0)
+		{
+			lookupTarget = lookupTarget[(namespaceSeparator + 1)..];
+		}
 		string? modelPath = null;
+		string? primaryModelIdentifier = null;
 		var resolvedTextures = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 		string variantKey;
 
-		if (_blockRegistry.TryGetModel(normalizedTarget, out var blockModelPath) &&
-		    !string.IsNullOrWhiteSpace(blockModelPath))
+		ItemRegistry.ItemInfo? itemInfo = null;
+		var hasItemRegistry = _itemRegistry is not null;
+		var hasItemInfo = hasItemRegistry && _itemRegistry!.TryGetInfo(lookupTarget, out itemInfo);
+		var shouldTreatAsItem = hasItemRegistry && (hasItemInfo || options.ItemData is not null);
+
+		void ProcessItem(ItemRegistry.ItemInfo? info)
 		{
-			modelPath = blockModelPath;
-			var model = _modelResolver.Resolve(blockModelPath);
-			modelPath = model.Name;
-			foreach (var texture in CollectResolvedTextures(model))
+			if (_itemRegistry is null)
 			{
-				resolvedTextures.Add(texture);
+				variantKey = $"literal:{normalizedTarget}";
+				return;
 			}
 
-			variantKey = $"block:{normalizedTarget}:{model.Name}:{JoinTextures(resolvedTextures)}";
-		}
-		else if (_itemRegistry is not null)
-		{
-			_itemRegistry.TryGetInfo(normalizedTarget, out var itemInfo);
 			string? referenceModel = null;
-			if (_itemRegistry.TryGetModel(normalizedTarget, out var itemModel) && !string.IsNullOrWhiteSpace(itemModel))
+			if (_itemRegistry.TryGetModel(lookupTarget, out var itemModel) && !string.IsNullOrWhiteSpace(itemModel))
 			{
-				referenceModel = itemModel;
+				referenceModel = NormalizeModelIdentifier(itemModel);
 			}
 
-			var (model, _) = ResolveItemModel(normalizedTarget, itemInfo, options);
-			if (model is not null)
+			BlockModelInstance? effectiveModel = null;
+			string? effectiveModelIdentifier = null;
+			IReadOnlyList<string>? modelCandidates = null;
+			string? resolvedModelName = null;
+
+			if (info?.Selector is not null)
 			{
-				modelPath = model.Name;
-				referenceModel ??= model.Name;
-				foreach (var texture in CollectResolvedTextures(model))
+				var displayContext = DetermineDisplayContext(options);
+				var selectorContext = new ItemModelContext(options.ItemData, displayContext);
+				var dynamicModel = info.Selector.Resolve(selectorContext);
+				if (!string.IsNullOrWhiteSpace(dynamicModel))
+				{
+					effectiveModel = ResolveModelOrNull(dynamicModel);
+					if (effectiveModel is not null)
+					{
+						effectiveModelIdentifier = dynamicModel;
+					}
+				}
+			}
+
+			if (effectiveModel is null)
+			{
+				(effectiveModel, modelCandidates, resolvedModelName) = ResolveItemModel(lookupTarget, info, options);
+				effectiveModelIdentifier = resolvedModelName ?? effectiveModel?.Name;
+			}
+
+			if (effectiveModel is null && !string.IsNullOrWhiteSpace(resolvedModelName))
+			{
+				effectiveModel = ResolveModelOrNull(resolvedModelName);
+				if (effectiveModel is not null && string.IsNullOrWhiteSpace(effectiveModelIdentifier))
+				{
+					effectiveModelIdentifier = resolvedModelName;
+				}
+			}
+
+			if (effectiveModel is null && modelCandidates is not null)
+			{
+				foreach (var candidate in modelCandidates)
+				{
+					var candidateModel = ResolveModelOrNull(candidate);
+					if (candidateModel is null)
+					{
+						continue;
+					}
+
+					effectiveModel = candidateModel;
+					effectiveModelIdentifier = string.IsNullOrWhiteSpace(candidate) ? candidateModel.Name : candidate;
+					break;
+				}
+			}
+
+			if (effectiveModel is not null)
+			{
+				var identifier = NormalizeModelIdentifier(effectiveModelIdentifier ?? effectiveModel.Name);
+				primaryModelIdentifier = identifier;
+				modelPath = identifier;
+				referenceModel = identifier;
+				foreach (var texture in CollectResolvedTextures(effectiveModel))
 				{
 					resolvedTextures.Add(texture);
 				}
 			}
-			else if (itemInfo?.Texture is not null)
+			else if (info?.Texture is not null)
 			{
-				resolvedTextures.Add(itemInfo.Texture);
+				resolvedTextures.Add(info.Texture);
+			}
+
+			if (options.ItemData?.CustomData is not null &&
+			    TryGetHeadTextureOverride(options.ItemData.CustomData, out var headTexture))
+			{
+				resolvedTextures.Add(headTexture);
 			}
 
 			if (resolvedTextures.Count == 0 && referenceModel is not null)
@@ -163,15 +229,52 @@ public sealed partial class MinecraftBlockRenderer
 			modelPath ??= referenceModel ?? normalizedTarget;
 			variantKey = $"item:{normalizedTarget}:{modelPath}:{JoinTextures(resolvedTextures)}:{itemDataKey}";
 		}
+
+		if (shouldTreatAsItem)
+		{
+			ProcessItem(itemInfo);
+		}
+		else if (_blockRegistry.TryGetModel(lookupTarget, out var blockModelPath) &&
+		         !string.IsNullOrWhiteSpace(blockModelPath))
+		{
+			modelPath = blockModelPath;
+			var model = _modelResolver.Resolve(blockModelPath);
+			modelPath = model.Name;
+			foreach (var texture in CollectResolvedTextures(model))
+			{
+				resolvedTextures.Add(texture);
+			}
+
+			variantKey = $"block:{normalizedTarget}:{model.Name}:{JoinTextures(resolvedTextures)}";
+		}
+		else if (hasItemRegistry)
+		{
+			ProcessItem(itemInfo);
+		}
 		else
 		{
 			variantKey = $"literal:{normalizedTarget}";
 		}
 
 		var sourcePackId = DetermineSourcePackId(modelPath, resolvedTextures);
+		if (string.Equals(sourcePackId, VanillaPackId, StringComparison.OrdinalIgnoreCase) &&
+		    !string.IsNullOrWhiteSpace(primaryModelIdentifier) &&
+		    TryResolvePackFromAsset(primaryModelIdentifier, "models", ".json", out var modelPackId))
+		{
+			sourcePackId = modelPackId;
+		}
+
 		var descriptor = $"{RendererVersion}|{_packContext.PackStackHash}|{variantKey}";
 		var resourceId = ComputeResourceIdHash(descriptor);
-		return new ResourceIdResult(resourceId, sourcePackId, _packContext.PackStackHash);
+		var texturesList = resolvedTextures.Count > 0
+			? resolvedTextures.OrderBy(static t => t, StringComparer.OrdinalIgnoreCase).ToArray()
+			: Array.Empty<string>();
+
+		return new ResourceIdResult(resourceId, sourcePackId, _packContext.PackStackHash)
+		{
+			Model = modelPath,
+			Textures = texturesList
+		};
 	}
 
 	private static string JoinTextures(IReadOnlyCollection<string> textures)
@@ -318,6 +421,19 @@ public sealed partial class MinecraftBlockRenderer
 
 	private string DetermineSourcePackId(string? modelPath, IReadOnlyCollection<string> textureIds)
 	{
+		if (TryResolvePackFromAsset(modelPath, "models", ".json", out var packId))
+		{
+			return packId;
+		}
+
+		foreach (var textureId in textureIds)
+		{
+			if (TryResolvePackFromAsset(textureId, "textures", ".png", out packId))
+			{
+				return packId;
+			}
+		}
+
 		var searchRoots = _packContext.SearchRoots;
 		var normalizedModel = NormalizeModelPath(modelPath);
 		if (!string.IsNullOrWhiteSpace(normalizedModel))
@@ -365,6 +481,58 @@ public sealed partial class MinecraftBlockRenderer
 		return VanillaPackId;
 	}
 
+		private bool TryResolvePackFromAsset(string? assetId, string category, string extension, out string packId)
+		{
+			packId = VanillaPackId;
+			if (string.IsNullOrWhiteSpace(assetId) || _packContext.AssetNamespaces is null)
+			{
+				return false;
+			}
+
+			var (namespaceName, relativePath) = NormalizeAssetPath(assetId);
+			if (string.IsNullOrWhiteSpace(relativePath))
+			{
+				return false;
+			}
+
+			if (relativePath.StartsWith(category + "/", StringComparison.OrdinalIgnoreCase))
+			{
+				relativePath = relativePath[(category.Length + 1)..];
+			}
+
+			if (relativePath.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
+			{
+				relativePath = relativePath[..^extension.Length];
+			}
+
+			relativePath = relativePath.Replace('/', Path.DirectorySeparatorChar);
+
+			var roots = _packContext.AssetNamespaces.ResolveRoots(namespaceName);
+			for (var i = roots.Count - 1; i >= 0; i--)
+			{
+				var root = roots[i];
+				var basePath = root.Path;
+				string candidate;
+
+				if (basePath.EndsWith(category, StringComparison.OrdinalIgnoreCase))
+				{
+					candidate = Path.Combine(basePath, relativePath + extension);
+				}
+				else
+				{
+					candidate = Path.Combine(basePath, category, relativePath + extension);
+				}
+
+				if (File.Exists(candidate))
+				{
+					packId = root.SourceId;
+					return !root.IsVanilla;
+				}
+			}
+
+			return false;
+		}
+
 	private static string NormalizeModelPath(string? modelPath)
 	{
 		if (string.IsNullOrWhiteSpace(modelPath))
@@ -386,6 +554,23 @@ public sealed partial class MinecraftBlockRenderer
 
 		return normalized;
 	}
+
+		private static string NormalizeModelIdentifier(string identifier)
+		{
+			if (string.IsNullOrWhiteSpace(identifier))
+			{
+				return identifier;
+			}
+
+			var trimmed = identifier.Trim();
+			if (trimmed.IndexOf(':') >= 0)
+			{
+				return trimmed;
+			}
+
+			trimmed = trimmed.TrimStart('/');
+			return string.IsNullOrWhiteSpace(trimmed) ? "minecraft:" : $"minecraft:{trimmed}";
+		}
 
 	private static string NormalizeTexturePath(string textureId)
 	{
@@ -413,6 +598,26 @@ public sealed partial class MinecraftBlockRenderer
 
 		return normalized;
 	}
+
+		private static (string NamespaceName, string RelativePath) NormalizeAssetPath(string assetId)
+		{
+			var normalized = assetId.Replace('\\', '/').Trim();
+			if (string.IsNullOrWhiteSpace(normalized))
+			{
+				return ("minecraft", string.Empty);
+			}
+
+			var namespaceName = "minecraft";
+			var colonIndex = normalized.IndexOf(':');
+			if (colonIndex >= 0)
+			{
+				namespaceName = normalized[..colonIndex];
+				normalized = normalized[(colonIndex + 1)..];
+			}
+
+			normalized = normalized.TrimStart('/');
+			return (namespaceName, normalized);
+		}
 
 	private static string ComputeResourceIdHash(string input)
 	{

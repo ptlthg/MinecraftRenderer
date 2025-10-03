@@ -62,6 +62,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 	private readonly ItemRegistry? _itemRegistry;
 	private readonly RenderPackContext _packContext;
 	private readonly string? _assetsDirectory;
+	private readonly string _playerSkinCacheDirectory;
 	private readonly IReadOnlyList<OverlayRoot> _baseOverlayRoots;
 	private readonly TexturePackRegistry? _packRegistry;
 	private readonly ConcurrentDictionary<string, MinecraftBlockRenderer> _packRendererCache =
@@ -83,6 +84,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		_blockRegistry = blockRegistry;
 		_itemRegistry = itemRegistry;
 		_assetsDirectory = assetsDirectory;
+		_playerSkinCacheDirectory = InitializePlayerSkinCacheDirectory(assetsDirectory);
 		_baseOverlayRoots = baseOverlayRoots;
 		_packRegistry = packRegistry;
 		_packContext = packContext;
@@ -193,6 +195,57 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		return overlays;
 	}
 
+	private static string InitializePlayerSkinCacheDirectory(string? assetsDirectory)
+	{
+		var candidates = new List<string>();
+
+		var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+		if (!string.IsNullOrWhiteSpace(localAppData))
+		{
+			candidates.Add(Path.Combine(localAppData, "ptlthg-MinecraftRenderer", "PlayerSkins"));
+		}
+
+		if (!string.IsNullOrWhiteSpace(assetsDirectory))
+		{
+			try
+			{
+				var assetRoot = Path.GetFullPath(assetsDirectory);
+				candidates.Add(Path.Combine(assetRoot, "cached_player_skins"));
+			}
+			catch
+			{
+				// Ignore invalid asset directory paths; fall back to other candidates.
+			}
+		}
+
+		if (!string.IsNullOrWhiteSpace(AppContext.BaseDirectory))
+		{
+			candidates.Add(Path.Combine(AppContext.BaseDirectory, "player_skin_cache"));
+		}
+
+		candidates.Add(Path.Combine(Path.GetTempPath(), "ptlthg-MinecraftRenderer", "PlayerSkins"));
+
+		foreach (var candidate in candidates)
+		{
+			if (string.IsNullOrWhiteSpace(candidate))
+			{
+				continue;
+			}
+
+			try
+			{
+				Directory.CreateDirectory(candidate);
+				return candidate;
+			}
+			catch
+			{
+				// Try the next candidate
+			}
+		}
+
+		throw new InvalidOperationException("Unable to initialize player skin cache directory.");
+	}
+
 	private static bool IsMinecraftAssetsRoot(string path)
 	{
 		if (string.IsNullOrWhiteSpace(path))
@@ -252,6 +305,12 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		return itemData is not null
 			? RenderItem(normalizedItemId, itemData, options)
 			: RenderItem(normalizedItemId, options);
+	}
+
+	public static ItemRenderData? ExtractItemRenderDataFromNbt(NbtCompound compound)
+	{
+		ArgumentNullException.ThrowIfNull(compound);
+		return ExtractItemRenderDataFromComponents(compound);
 	}
 
 	private Image<Rgba32> RenderBlockInternal(string blockName, BlockRenderOptions options)

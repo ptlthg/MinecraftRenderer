@@ -120,6 +120,59 @@ public sealed class ItemModelSelectorTests : IDisposable
 		Assert.NotEqual(customPixel, fallbackPixel);
 	}
 
+	[Fact]
+	public void PlayerHeadProfileAndCustomDataStillUsesTexturePackModel()
+	{
+		var packId = "profilecustomheadpack";
+		var packColor = new Rgba32(0x3C, 0x91, 0xE0, 0xFF);
+		var packRoot = CreateCustomHeadPack(packId, packColor);
+
+		var registry = TexturePackRegistry.Create();
+		registry.RegisterPack(packRoot);
+
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory, registry);
+
+		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with
+		{
+			PackIds = new[] { packId },
+			Size = 64
+		};
+
+		var customData = new NbtCompound(new[]
+		{
+			new KeyValuePair<string, NbtTag>("id", new NbtString("custom_head_test"))
+		});
+
+		var profile = new NbtCompound(new[]
+		{
+			new KeyValuePair<string, NbtTag>("id", new NbtIntArray(new[]
+			{
+				123456789,
+				987654321,
+				-135792468,
+				246813579
+			})),
+			new KeyValuePair<string, NbtTag>("properties", new NbtList(NbtTagType.Compound, new NbtTag[]
+			{
+				new NbtCompound(new[]
+				{
+					new KeyValuePair<string, NbtTag>("name", new NbtString("textures")),
+					new KeyValuePair<string, NbtTag>("value", new NbtString(
+						Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(
+							"{\"textures\":{\"SKIN\":{\"url\":\"https://textures.minecraft.net/texture/placeholder\"}}}"))))
+				})
+			}))
+		});
+
+		var itemData = new MinecraftBlockRenderer.ItemRenderData(CustomData: customData, Profile: profile);
+		using var rendered = renderer.RenderItem("player_head", itemData, options);
+		var pixel = SampleOpaquePixel(rendered);
+		Assert.Equal(packColor.R, pixel.R);
+		Assert.Equal(packColor.G, pixel.G);
+		Assert.Equal(packColor.B, pixel.B);
+	}
+
+
 	private string CreateCustomHeadPack(string id, Rgba32 color, string? itemDefinitionOverride = null,
 		string? modelNameOverride = null)
 	{
