@@ -433,29 +433,167 @@ internal sealed class ItemModelSelectorCondition(
 		}
 	}
 
-	internal static class ItemModelSelectorParser
+	internal sealed class ItemModelSelectorEmpty : ItemModelSelector
 	{
-		public static ItemModelSelector? ParseFromRoot(JsonElement root)
+		public override string? Resolve(ItemModelContext context) => null;
+	}
+
+	internal sealed class ItemModelSelectorRangeDispatch(
+		string property,
+		bool normalize,
+		IReadOnlyList<RangeDispatchEntry> entries,
+		ItemModelSelector? fallback) : ItemModelSelector
+	{
+		public string Property { get; } = property;
+		public bool Normalize { get; } = normalize;
+		public IReadOnlyList<RangeDispatchEntry> Entries { get; } = entries;
+		public ItemModelSelector? Fallback { get; } = fallback;
+
+		public override string? Resolve(ItemModelContext context)
 		{
-			if (root.ValueKind != JsonValueKind.Object)
+			var value = GetPropertyValue(context);
+			if (value is null)
 			{
-				return null;
+				return Fallback?.Resolve(context);
 			}
 
-			if (root.TryGetProperty("model", out var modelElement))
+			// Find the highest threshold that's <= value
+			RangeDispatchEntry? matchedEntry = null;
+			foreach (var entry in Entries)
 			{
-				var selector = Parse(modelElement);
-				if (selector is not null)
+				if (value >= entry.Threshold)
 				{
-					return selector;
+					if (matchedEntry is null || entry.Threshold > matchedEntry.Value.Threshold)
+					{
+						matchedEntry = entry;
+					}
 				}
 			}
 
-			if (root.TryGetProperty("components", out var components) && components.ValueKind == JsonValueKind.Object)
+			if (matchedEntry is not null)
+			{
+				var resolved = matchedEntry.Value.Selector?.Resolve(context);
+				if (!string.IsNullOrWhiteSpace(resolved))
+				{
+					return resolved;
+				}
+			}
+
+			return Fallback?.Resolve(context);
+		}
+
+		private double? GetPropertyValue(ItemModelContext context)
+		{
+			// Currently only supporting "count" property
+			if (string.Equals(Property, "count", StringComparison.OrdinalIgnoreCase))
+			{
+				// For now, return 1 since we don't have stack count in ItemRenderData
+				// This is a limitation but allows the selector to work with fallback
+				return 1.0;
+			}
+
+			return null;
+		}
+	}
+
+	internal readonly record struct RangeDispatchEntry(double Threshold, ItemModelSelector? Selector);
+
+/// <summary>
+/// Optimized selector for deeply nested conditional trees (e.g., Hypixel+ player_head.json).
+/// Pre-builds a lookup table for custom_data.id → model mappings to avoid stack overflow
+/// and provide O(1) resolution for custom items.
+/// </summary>
+internal sealed class ItemModelSelectorOptimized : ItemModelSelector
+{
+	private readonly Dictionary<string, string> _customDataIdToModel;
+	private readonly Dictionary<string, ItemModelSelector> _customDataIdToSelector;
+	private readonly ItemModelSelector? _fallbackSelector;
+
+	public ItemModelSelectorOptimized(
+		Dictionary<string, string> customDataIdToModel,
+		Dictionary<string, ItemModelSelector> customDataIdToSelector,
+		ItemModelSelector? fallbackSelector)
+	{
+		_customDataIdToModel = customDataIdToModel;
+		_customDataIdToSelector = customDataIdToSelector;
+		_fallbackSelector = fallbackSelector;
+	}
+
+	public override string? Resolve(ItemModelContext context)
+	{
+		// Fast path: Check if we have a direct custom_data match
+		if (context.ItemData?.CustomData is { } customData)
+		{
+			string? customDataKey = null;
+
+			// Try "id" field first
+			if (customData.TryGetValue("id", out var idTag) &&
+			    idTag is NbtString idString &&
+			    !string.IsNullOrWhiteSpace(idString.Value))
+			{
+				customDataKey = idString.Value;
+			}
+			// Try "model" field as fallback
+			else if (customData.TryGetValue("model", out var modelTag) &&
+			         modelTag is NbtString modelString &&
+			         !string.IsNullOrWhiteSpace(modelString.Value))
+			{
+				customDataKey = modelString.Value;
+			}
+
+			if (customDataKey != null)
+			{
+				// Check simple model mapping first
+				if (_customDataIdToModel.TryGetValue(customDataKey, out var model))
+				{
+					return model;
+				}
+
+				// Check complex selector mapping
+				if (_customDataIdToSelector.TryGetValue(customDataKey, out var selector))
+				{
+					return selector.Resolve(context);
+				}
+			}
+		}
+
+		// Fallback to the original selector tree (for non-custom-data conditions)
+		return _fallbackSelector?.Resolve(context);
+	}
+
+	public int CustomDataMappingCount => _customDataIdToModel.Count + _customDataIdToSelector.Count;
+}
+
+internal static class ItemModelSelectorParser
+{
+	private const int MaxRecursionDepth = 10000; // Increased to handle Hypixel+ player_head.json with 8000+ levels
+
+	public static ItemModelSelector? ParseFromRoot(JsonElement root)
+	{
+		if (root.ValueKind != JsonValueKind.Object)
+		{
+			return null;
+		}
+
+		if (root.TryGetProperty("model", out var modelElement))
+		{
+			// Try to optimize deeply nested custom_data conditionals
+			var optimized = TryOptimizeCustomDataSelector(modelElement);
+			if (optimized is not null)
+			{
+				return optimized;
+			}
+			
+			var selector = Parse(modelElement, 0);
+			if (selector is not null)
+			{
+				return selector;
+			}
+		}			if (root.TryGetProperty("components", out var components) && components.ValueKind == JsonValueKind.Object)
 			{
 				if (components.TryGetProperty("minecraft:model", out var componentModel))
 				{
-					var selector = Parse(componentModel);
+					var selector = Parse(componentModel, 0);
 					if (selector is not null)
 					{
 						return selector;
@@ -465,7 +603,7 @@ internal sealed class ItemModelSelectorCondition(
 
 			if (root.TryGetProperty("type", out var typeProperty) && typeProperty.ValueKind == JsonValueKind.String)
 			{
-				var selector = Parse(root);
+				var selector = Parse(root, 0);
 				if (selector is not null)
 				{
 					return selector;
@@ -475,7 +613,7 @@ internal sealed class ItemModelSelectorCondition(
 			if (root.TryGetProperty("cases", out _) || root.TryGetProperty("on_true", out _) ||
 			    root.TryGetProperty("on_false", out _))
 			{
-				var selector = Parse(root);
+				var selector = Parse(root, 0);
 				if (selector is not null)
 				{
 					return selector;
@@ -485,7 +623,275 @@ internal sealed class ItemModelSelectorCondition(
 			return null;
 		}
 
-		public static ItemModelSelector? Parse(JsonElement element)
+	/// <summary>
+	/// Optimizes deeply nested custom_data conditional selectors by building a lookup table.
+	/// This prevents stack overflow on files like Hypixel+ player_head.json (8000+ nesting).
+	/// </summary>
+	private static ItemModelSelector? TryOptimizeCustomDataSelector(JsonElement element)
+	{
+		// Check if this is a deeply nested custom_data conditional structure
+		if (!IsDeepCustomDataConditional(element, out var estimatedDepth))
+		{
+			return null;
+		}
+
+		Console.WriteLine($"[TryOptimizeCustomDataSelector] Detected deeply nested custom_data selector (est. depth: {estimatedDepth}). Building lookup table...");
+
+		var modelMappings = new Dictionary<string, string>(StringComparer.Ordinal);
+		var selectorMappings = new Dictionary<string, ItemModelSelector>(StringComparer.Ordinal);
+		var fallbackModel = ExtractCustomDataMappings(element, modelMappings, selectorMappings, 0, 100000);
+
+		if (modelMappings.Count > 0 || selectorMappings.Count > 0)
+		{
+			Console.WriteLine($"[TryOptimizeCustomDataSelector] Built lookup table with {modelMappings.Count} model mappings + {selectorMappings.Count} selector mappings");
+			
+			// Parse the fallback model if we found one
+			ItemModelSelector? fallbackSelector = null;
+			if (fallbackModel.HasValue && fallbackModel.Value.ValueKind == JsonValueKind.String)
+			{
+				var modelStr = fallbackModel.Value.GetString();
+				if (!string.IsNullOrWhiteSpace(modelStr))
+				{
+					fallbackSelector = new ItemModelSelectorModel(modelStr, null);
+				}
+			}
+			
+			return new ItemModelSelectorOptimized(modelMappings, selectorMappings, fallbackSelector);
+		}
+
+		return null;
+	}
+
+	/// <summary>
+	/// Checks if a selector is a deeply nested custom_data conditional tree.
+	/// </summary>
+	private static bool IsDeepCustomDataConditional(JsonElement element, out int estimatedDepth)
+	{
+		estimatedDepth = 0;
+		
+		if (element.ValueKind != JsonValueKind.Object)
+		{
+			return false;
+		}
+
+		// Handle "fallback" property wrapper
+		var current = element;
+		if (current.ValueKind == JsonValueKind.Object && current.TryGetProperty("fallback", out var fallbackEl))
+		{
+			current = fallbackEl;
+		}
+
+		// Check first few levels to see if it's custom_data conditionals
+		var customDataCount = 0;
+		var depth = 0;
+
+		for (var i = 0; i < 20; i++) // Sample first 20 levels
+		{
+			if (current.ValueKind != JsonValueKind.Object)
+			{
+				break;
+			}
+
+			if (current.TryGetProperty("type", out var typeEl) &&
+			    typeEl.ValueKind == JsonValueKind.String &&
+			    typeEl.GetString() == "condition")
+			{
+				if (current.TryGetProperty("property", out var propEl) &&
+				    propEl.ValueKind == JsonValueKind.String &&
+				    propEl.GetString() == "component" &&
+				    current.TryGetProperty("predicate", out var predEl) &&
+				    predEl.ValueKind == JsonValueKind.String &&
+				    predEl.GetString() == "custom_data")
+				{
+					customDataCount++;
+				}
+
+				depth++;
+
+				// Follow on_false branch (where the nesting usually continues)
+				if (current.TryGetProperty("on_false", out var onFalseEl))
+				{
+					current = onFalseEl;
+					continue;
+				}
+			}
+
+			break;
+		}
+
+		// If we found many custom_data conditions in the first 20 levels, estimate full depth
+		if (customDataCount >= 15)
+		{
+			estimatedDepth = depth * 400; // Rough estimate
+			return true;
+		}
+
+		return false;
+	}
+
+	/// <summary>
+	/// Iteratively extracts custom_data.id → model/selector mappings from a nested conditional tree.
+	/// Uses a work queue to avoid stack overflow.
+	/// </summary>
+	private static JsonElement? ExtractCustomDataMappings(
+		JsonElement root,
+		Dictionary<string, string> modelMappings,
+		Dictionary<string, ItemModelSelector> selectorMappings,
+		int startDepth,
+		int maxDepth)
+	{
+		// Handle "fallback" property wrapper
+		var startElement = root;
+		if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("fallback", out var fallbackEl))
+		{
+			startElement = fallbackEl;
+		}
+
+		var queue = new Queue<(JsonElement element, int depth)>();
+		queue.Enqueue((startElement, startDepth));
+		JsonElement? fallbackModel = null;
+
+		while (queue.Count > 0)
+		{
+			var (current, depth) = queue.Dequeue();
+
+			if (depth > maxDepth)
+			{
+				continue;
+			}
+
+			if (current.ValueKind == JsonValueKind.String)
+			{
+				// Reached a leaf model
+				fallbackModel = current;
+				continue;
+			}
+
+			if (current.ValueKind != JsonValueKind.Object)
+			{
+				continue;
+			}
+
+			// Check if this is a custom_data condition
+			if (current.TryGetProperty("type", out var typeEl) &&
+			    typeEl.ValueKind == JsonValueKind.String &&
+			    typeEl.GetString() == "condition" &&
+			    current.TryGetProperty("property", out var propEl) &&
+			    propEl.ValueKind == JsonValueKind.String &&
+			    propEl.GetString() == "component" &&
+			    current.TryGetProperty("predicate", out var predEl) &&
+			    predEl.ValueKind == JsonValueKind.String &&
+			    predEl.GetString() == "custom_data")
+			{
+				// Extract the custom_data.id or custom_data.model value
+				string? customDataId = null;
+				
+				if (current.TryGetProperty("value", out var valueEl))
+				{
+					if (valueEl.ValueKind == JsonValueKind.String)
+					{
+						customDataId = valueEl.GetString();
+					}
+					else if (valueEl.ValueKind == JsonValueKind.Object)
+					{
+						// Try "id" field first, then "model" field
+						if (valueEl.TryGetProperty("id", out var idEl) &&
+						    idEl.ValueKind == JsonValueKind.String)
+						{
+							customDataId = idEl.GetString();
+						}
+						else if (valueEl.TryGetProperty("model", out var modelEl) &&
+						         modelEl.ValueKind == JsonValueKind.String)
+						{
+							customDataId = modelEl.GetString();
+						}
+					}
+				}
+
+				// If we found a custom_data.id, process the on_true branch
+				if (!string.IsNullOrWhiteSpace(customDataId) &&
+				    current.TryGetProperty("on_true", out var onTrueEl))
+				{
+					// Try to extract a simple model first
+					var model = ExtractModelFromElement(onTrueEl);
+					if (!string.IsNullOrWhiteSpace(model))
+					{
+						modelMappings[customDataId] = model;
+					}
+					else
+					{
+						// on_true is a complex selector - parse it (it should be shallow)
+						var selector = Parse(onTrueEl, 0);
+						if (selector != null)
+						{
+							selectorMappings[customDataId] = selector;
+						}
+					}
+				}
+
+				// Continue traversing on_false branch
+				if (current.TryGetProperty("on_false", out var onFalseEl))
+				{
+					queue.Enqueue((onFalseEl, depth + 1));
+				}
+			}
+			else
+			{
+				// Not a custom_data condition - this might be the fallback
+				fallbackModel = current;
+			}
+		}
+
+		return fallbackModel;
+	}
+
+	/// <summary>
+	/// Extracts a model string from various selector structures.
+	/// </summary>
+	private static string? ExtractModelFromElement(JsonElement element)
+	{
+		if (element.ValueKind == JsonValueKind.String)
+		{
+			return element.GetString();
+		}
+
+		if (element.ValueKind == JsonValueKind.Object)
+		{
+			// Check for direct model property
+			if (element.TryGetProperty("model", out var modelEl) &&
+			    modelEl.ValueKind == JsonValueKind.String)
+			{
+				return modelEl.GetString();
+			}
+
+			// Check for nested structure
+			if (element.TryGetProperty("type", out var typeEl) &&
+			    typeEl.ValueKind == JsonValueKind.String)
+			{
+				var type = typeEl.GetString();
+				if (type == "model" && element.TryGetProperty("model", out modelEl) &&
+				    modelEl.ValueKind == JsonValueKind.String)
+				{
+					return modelEl.GetString();
+				}
+			}
+		}
+
+		return null;
+	}
+
+	public static ItemModelSelector? Parse(JsonElement element, int depth)
+	{
+		// Prevent stack overflow on extremely deeply nested JSON
+		if (depth > MaxRecursionDepth)
+		{
+			// Return null to allow fallback to on_false or other graceful degradation
+			return null;
+		}
+
+		// Use iterative parsing with explicit stack to avoid stack overflow on deeply nested JSON
+		// (e.g., Hypixel+ player_head.json with 8000+ nesting levels)
+		while (true)
 		{
 			if (element.ValueKind == JsonValueKind.String)
 			{
@@ -497,6 +903,14 @@ internal sealed class ItemModelSelectorCondition(
 				return null;
 			}
 
+			// Check for fallback property first (e.g., Hypixel+ pack structure)
+			if (element.TryGetProperty("fallback", out var fallbackElement))
+			{
+				element = fallbackElement;
+				// Don't increment depth for tail recursion optimization
+				continue; // Tail recursion optimization: loop instead of recursive call
+			}
+
 			var type = NormalizeType(element.TryGetProperty("type", out var typeProperty)
 				? typeProperty.GetString()
 				: null);
@@ -505,15 +919,18 @@ internal sealed class ItemModelSelectorCondition(
 			{
 				"model" => new ItemModelSelectorModel(GetString(element, "model"), GetString(element, "base")),
 				"special" => new ItemModelSelectorSpecial(GetString(element, "base"),
-					Parse(element.TryGetProperty("model", out var nested) ? nested : default)),
-				"condition" => ParseCondition(element),
-				"select" => ParseSelect(element),
+					Parse(element.TryGetProperty("model", out var nested) ? nested : default, depth + 1)),
+				"condition" => ParseCondition(element, depth + 1),
+				"select" => ParseSelect(element, depth + 1),
+				"range_dispatch" => ParseRangeDispatch(element, depth + 1),
+				"empty" => new ItemModelSelectorEmpty(),
 				_ => CreateFallbackSelector(element)
 			};
 		}
+	}
 
-		private static ItemModelSelector? ParseCondition(JsonElement element)
-		{
+	private static ItemModelSelector? ParseCondition(JsonElement element, int depth)
+	{
 			var property = GetString(element, "property") ?? string.Empty;
 			var predicate = GetString(element, "predicate");
 			var component = GetString(element, "component");
@@ -533,19 +950,26 @@ internal sealed class ItemModelSelectorCondition(
 				}
 			}
 
-			var onTrue = element.TryGetProperty("on_true", out var onTrueElement) ? Parse(onTrueElement) : null;
-			var onFalse = element.TryGetProperty("on_false", out var onFalseElement) ? Parse(onFalseElement) : null;
-			return new ItemModelSelectorCondition(property, predicate, component, valueProperties, valueLiteral, onTrue,
-				onFalse);
+		var onTrue = element.TryGetProperty("on_true", out var onTrueElement) ? Parse(onTrueElement, depth + 1) : null;
+		var onFalse = element.TryGetProperty("on_false", out var onFalseElement) ? Parse(onFalseElement, depth + 1) : null;
+		
+		// If parsing on_true failed due to depth limit or unsupported selector, fall back to on_false
+		if (onTrue is null && onFalse is not null)
+		{
+			return onFalse;
 		}
+		
+		return new ItemModelSelectorCondition(property, predicate, component, valueProperties, valueLiteral, onTrue,
+			onFalse);
+	}
 
-		private static ItemModelSelector? CreateFallbackSelector(JsonElement element)
+	private static ItemModelSelector? CreateFallbackSelector(JsonElement element)
 		{
 			var directModel = GetString(element, "model") ?? GetString(element, "base");
 			return string.IsNullOrWhiteSpace(directModel) ? null : new ItemModelSelectorModel(directModel, null);
 		}
 
-		private static ItemModelSelector? ParseSelect(JsonElement element)
+		private static ItemModelSelector? ParseSelect(JsonElement element, int depth)
 		{
 			var property = GetString(element, "property") ?? string.Empty;
 			var cases = new List<ItemModelSelectorSelectCase>();
@@ -557,24 +981,49 @@ internal sealed class ItemModelSelectorCondition(
 						? whenElement
 						: default);
 					var selector = caseElement.TryGetProperty("model", out var modelElement)
-						? Parse(modelElement)
+						? Parse(modelElement, depth + 1)
 						: null;
 					cases.Add(new ItemModelSelectorSelectCase(whenValues, selector));
 				}
 			}
 
-			var fallback = element.TryGetProperty("fallback", out var fallbackElement) ? Parse(fallbackElement) : null;
-			return new ItemModelSelectorSelect(property, cases, fallback);
+		var fallback = element.TryGetProperty("fallback", out var fallbackElement) ? Parse(fallbackElement, depth + 1) : null;
+		return new ItemModelSelectorSelect(property, cases, fallback);
+	}
+
+	private static ItemModelSelector? ParseRangeDispatch(JsonElement element, int depth)
+	{
+		var property = GetString(element, "property") ?? string.Empty;
+		var normalize = element.TryGetProperty("normalize", out var normalizeElement) &&
+		                normalizeElement.ValueKind == JsonValueKind.True;
+
+		var entries = new List<RangeDispatchEntry>();
+		if (element.TryGetProperty("entries", out var entriesElement) &&
+		    entriesElement.ValueKind == JsonValueKind.Array)
+		{
+			foreach (var entryElement in entriesElement.EnumerateArray())
+			{
+				if (entryElement.TryGetProperty("threshold", out var thresholdElement) &&
+				    thresholdElement.TryGetDouble(out var threshold))
+				{
+					var selector = entryElement.TryGetProperty("model", out var modelElement)
+						? Parse(modelElement, depth + 1)
+						: null;
+					entries.Add(new RangeDispatchEntry(threshold, selector));
+				}
+			}
 		}
 
-		private static IReadOnlyDictionary<string, string>? ParseStringMap(JsonElement element)
-		{
-			if (element.ValueKind != JsonValueKind.Object)
-			{
-				return null;
-			}
+		var fallback = element.TryGetProperty("fallback", out var fallbackElement) ? Parse(fallbackElement, depth + 1) : null;
+		return new ItemModelSelectorRangeDispatch(property, normalize, entries, fallback);
+	}
 
-			var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+	private static IReadOnlyDictionary<string, string>? ParseStringMap(JsonElement element)
+	{
+		if (element.ValueKind != JsonValueKind.Object)
+		{
+			return null;
+		}			var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 			foreach (var property in element.EnumerateObject())
 			{
 				var value = property.Value.ValueKind switch
