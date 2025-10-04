@@ -31,4 +31,13 @@
       <None Include="Data\biome_tint_config.json" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
 
+    <ItemGroup>
+      <Content Include="customdata\**\*">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <Link>customdata\%(RecursiveDir)%(Filename)%(Extension)</Link>
+        <Pack>true</Pack>
+        <PackagePath>contentFiles\any\any\customdata;content\customdata</PackagePath>
+      </Content>
+    </ItemGroup>
+
 </Project>

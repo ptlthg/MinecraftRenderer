@@ -194,11 +194,24 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 			overlays.Add(new OverlayRoot(fullPath, sourceId, OverlayRootKind.CustomData));
 		}
 
+		// Check for customdata next to the assembly (deployed with the library)
+		var assemblyLocation = typeof(MinecraftBlockRenderer).Assembly.Location;
+		if (!string.IsNullOrWhiteSpace(assemblyLocation))
+		{
+			var assemblyDir = Path.GetDirectoryName(assemblyLocation);
+			if (!string.IsNullOrWhiteSpace(assemblyDir))
+			{
+				TryAdd(Path.Combine(assemblyDir, "customdata"));
+			}
+		}
+
+		// Check parent directory of assets for customdata
 		if (parent is not null)
 		{
 			TryAdd(Path.Combine(parent, "customdata"));
 		}
 
+		// Check inside assets directory for customdata
 		TryAdd(Path.Combine(assetRoot, "customdata"));
 
 		return overlays;
