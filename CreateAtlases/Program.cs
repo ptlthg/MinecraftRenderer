@@ -111,7 +111,31 @@ if (!string.IsNullOrWhiteSpace(options.SnbtItemDirectory))
 			snbtEntries);
 		results.AddRange(snbtResults);
 	}
-} else {
+}
+else if (!string.IsNullOrWhiteSpace(options.HypixelInventoryFile))
+{
+	var inventoryFile = Path.GetFullPath(options.HypixelInventoryFile);
+	if (!File.Exists(inventoryFile))
+	{
+		Console.Error.WriteLine($"Hypixel inventory file '{options.HypixelInventoryFile}' was not found.");
+		Environment.ExitCode = 1;
+		return;
+	}
+
+	Console.WriteLine();
+	Console.WriteLine($"Rendering Hypixel inventory from {inventoryFile}...");
+	var hypixelOutputDirectory = Path.Combine(outputDirectory, "hypixel_inventory");
+	CreateAtlases.HypixelInventoryAtlasGenerator.GenerateInventoryAtlas(
+		renderer,
+		inventoryFile,
+		hypixelOutputDirectory,
+		options.TexturePackIds?.LastOrDefault(),
+		options.TileSize,
+		options.Columns
+	);
+} 
+else 
+{
 	results = MinecraftAtlasGenerator.GenerateAtlases(
 		renderer,
 		outputDirectory,
@@ -197,6 +221,9 @@ static CliOptions ParseArguments(string[] arguments)
 				break;
 			case "--snbt-dir":
 				options.SnbtItemDirectory = ReadNext(arguments, ref i, "--snbt-dir");
+				break;
+			case "--hypixel-inventory":
+				options.HypixelInventoryFile = ReadNext(arguments, ref i, "--hypixel-inventory");
 				break;
 			default:
 				Console.Error.WriteLine($"Unknown argument '{arg}'. Use --help for usage information.");
@@ -485,6 +512,7 @@ static void PrintHelp()
 	Console.WriteLine("  --texture-pack-dir <path>  Register an unzipped resource pack directory (can be specified multiple times)");
 	Console.WriteLine("  --texture-pack-id <id>     Apply a registered pack id (last flag has highest priority; specify multiple for stacks)");
 	Console.WriteLine("  --snbt-dir <path>    Render SNBT item stacks from the specified directory (outputs to an 'snbt' subfolder)");
+	Console.WriteLine("  --hypixel-inventory <path> Render items from Hypixel inventory data file (base64 gzipped NBT)");
 	Console.WriteLine("  -h | --help          Show this help message");
 }
 
@@ -514,4 +542,5 @@ sealed class CliOptions
 	public List<string>? TexturePackDirectories { get; set; }
 	public List<string>? TexturePackIds { get; set; }
 	public string? SnbtItemDirectory { get; set; }
+	public string? HypixelInventoryFile { get; set; }
 }

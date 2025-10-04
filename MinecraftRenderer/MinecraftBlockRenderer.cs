@@ -456,7 +456,6 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		    TryExtractColor(dyedTag, out var dyedColor))
 		{
 			layer0Tint = dyedColor;
-			disableDefaultLayer0Tint = true;
 		}
 
 		if (components.TryGetValue("minecraft:custom_data", out var customDataTag) && customDataTag is NbtCompound customCompound &&
@@ -557,6 +556,10 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		return false;
 	}
 
+	/// <summary>
+	/// Checks if the given item ID supports the dyed_color component.
+	/// Only certain items like leather armor, shulker boxes, wolf armor, and banners support custom dyeing.
+	/// </summary>
 	private static bool TryGetByte(NbtCompound compound, string key, out byte value)
 	{
 		if (!compound.TryGetValue(key, out var tag))

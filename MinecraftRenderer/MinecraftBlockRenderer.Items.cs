@@ -100,10 +100,11 @@ public sealed partial class MinecraftBlockRenderer
 		ItemRegistry.ItemInfo? itemInfo = null;
 		if (_itemRegistry is not null)
 		{
-			_itemRegistry.TryGetInfo(itemName, out itemInfo);
+			// Use normalized item key for registry lookup to match how ComputeResourceId works
+			_itemRegistry.TryGetInfo(normalizedItemKey, out itemInfo);
 		}
 
-		var (model, modelCandidates, _) = ResolveItemModel(itemName, itemInfo, options);
+		var (model, modelCandidates, _) = ResolveItemModel(normalizedItemKey, itemInfo, options);
 		if (options.OverrideGuiTransform is null && options.UseGuiTransform && model is not null)
 		{
 			var guiOverride = model.GetDisplayTransform("gui");
@@ -206,10 +207,23 @@ public sealed partial class MinecraftBlockRenderer
 		var candidates = new List<string>();
 		var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-		void AppendCandidates(string? primary)
+		void AppendCandidates(string? primary, bool includeItemNameFallback = true)
 		{
 			if (string.IsNullOrWhiteSpace(primary))
 			{
+				return;
+			}
+
+			// If we're not including item name fallback, just add the primary model directly
+			if (!includeItemNameFallback)
+			{
+				foreach (var candidate in EnumerateCandidateNames(primary))
+				{
+					if (seen.Add(candidate))
+					{
+						candidates.Add(candidate);
+					}
+				}
 				return;
 			}
 
@@ -223,8 +237,8 @@ public sealed partial class MinecraftBlockRenderer
 		}
 
 		// Firmament models take priority
-		AppendCandidates(firmamentModel);
-		AppendCandidates(dynamicModel);
+		AppendCandidates(firmamentModel, includeItemNameFallback: false);
+		AppendCandidates(dynamicModel, includeItemNameFallback: false);
 		AppendCandidates(primaryModel);
 		AppendCandidates(fallbackModel);
 		AppendCandidates(itemName);
@@ -317,11 +331,15 @@ public sealed partial class MinecraftBlockRenderer
 			TryAdd(itemInfo.Texture, allowNonGuiTexture: isBillboardModel);
 		}
 
-		var normalized = NormalizeItemTextureKey(itemName);
-		TryAdd($"minecraft:item/{normalized}");
-		TryAdd($"minecraft:item/{normalized}_overlay");
-		TryAdd($"item/{normalized}");
-		TryAdd($"textures/item/{normalized}");
+		// Only add vanilla fallback textures if we don't already have model layers
+		if (!hasModelLayer)
+		{
+			var normalized = NormalizeItemTextureKey(itemName);
+			TryAdd($"minecraft:item/{normalized}");
+			TryAdd($"minecraft:item/{normalized}_overlay");
+			TryAdd($"item/{normalized}");
+			TryAdd($"textures/item/{normalized}");
+		}
 
 		if (model is not null && model.Elements.Count > 0 && !hasModelLayer)
 		{
@@ -573,13 +591,18 @@ public sealed partial class MinecraftBlockRenderer
 		private static bool HasExplicitFlatHeadOverride(BlockModelInstance? model,
 			IReadOnlyList<string> modelCandidates, BlockRenderOptions options)
 		{
-			// If we have Profile data, prefer 3D head rendering over non-existent Firmament models
-			if (options.ItemData?.Profile is not null)
+			var hasNonDefaultCandidate = HasNonDefaultPlayerHeadModelCandidate(modelCandidates);
+
+			// If we have Profile data and the model is still template_skull (default),
+			// it means no custom model was actually loaded. Prefer 3D profile rendering in this case.
+			if (options.ItemData?.Profile is not null && 
+			    hasNonDefaultCandidate &&
+			    ModelChainContainsTemplateSkull(model))
 			{
+				// Only allow profile rendering if we're still using the default template_skull model
+				// This means the Firmament/custom model candidates didn't actually resolve
 				return false;
 			}
-
-			var hasNonDefaultCandidate = HasNonDefaultPlayerHeadModelCandidate(modelCandidates);
 
 			if (ModelChainContainsTemplateSkull(model))
 			{
@@ -773,7 +796,8 @@ public sealed partial class MinecraftBlockRenderer
 	/// <summary>
 	/// Tries to get a Firmament-style model path from the item's custom_data.
 	/// Firmament uses firmskyblock:item/&lt;skyblock_id&gt; for SkyBlock items.
-	/// The SkyBlock ID is taken from custom_data.id and converted to lowercase.
+	/// The SkyBlock ID is taken from custom_data.id and converted to lowercase,
+	/// with special character encoding as per Firmament spec.
 	/// </summary>
 	private static string? TryGetFirmamentModel(ItemRenderData? itemData)
 	{
@@ -787,10 +811,59 @@ public sealed partial class MinecraftBlockRenderer
 			return null;
 		}
 
-		// Convert SkyBlock ID to lowercase for Firmament model path
+		// Convert SkyBlock ID following Firmament encoding rules:
+		// 1. Convert to lowercase
+		// 2. Replace ':' with '___', ';' with '__'
+		// 3. Replace other invalid chars with '__XXXX' (hex code)
 		// Example: "ABIPHONE_XIII_PRO" -> "firmskyblock:item/abiphone_xiii_pro"
-		var lowercaseId = skyblockId!.ToLowerInvariant();
-		return $"firmskyblock:item/{lowercaseId}";
+		var encodedId = EncodeFirmamentId(skyblockId!);
+		return $"firmskyblock:item/{encodedId}";
+	}
+
+	/// <summary>
+	/// Encodes a SkyBlock ID according to Firmament's encoding rules.
+	/// </summary>
+	private static string EncodeFirmamentId(string skyblockId)
+	{
+		var lowercaseId = skyblockId.ToLowerInvariant();
+		var result = new StringBuilder(lowercaseId.Length);
+
+		foreach (var c in lowercaseId)
+		{
+			if (c == ':')
+			{
+				result.Append("___");
+			}
+			else if (c == ';')
+			{
+				result.Append("__");
+			}
+			else if (IsValidResourceLocationChar(c))
+			{
+				result.Append(c);
+			}
+			else
+			{
+				// Encode as __XXXX where XXXX is 4-digit hex
+				result.Append($"__{(int)c:X4}");
+			}
+		}
+
+		return result.ToString();
+	}
+
+	/// <summary>
+	/// Checks if a character is valid in a Minecraft resource location path.
+	/// Valid chars: a-z, 0-9, _, -, ., /
+	/// </summary>
+	private static bool IsValidResourceLocationChar(char c)
+	{
+		return (c >= 'a' && c <= 'z') ||
+		       (c >= '0' && c <= '9') ||
+		       c == '_' ||
+		       c == '-' ||
+		       c == '.' ||
+		       c == '/';
 	}
 
 	private static bool TryGetHeadTextureOverride(NbtCompound customData, out string textureId)
@@ -911,7 +984,16 @@ public sealed partial class MinecraftBlockRenderer
 		url = string.Empty;
 		try
 		{
-			var payloadBytes = Convert.FromBase64String(encodedPayload);
+			// Add padding if necessary to make the base64 string valid
+			// JavaScript's atob() is lenient, but .NET's Convert.FromBase64String is strict
+			var padded = encodedPayload;
+			var paddingNeeded = (4 - (encodedPayload.Length % 4)) % 4;
+			if (paddingNeeded > 0)
+			{
+				padded = encodedPayload + new string('=', paddingNeeded);
+			}
+
+			var payloadBytes = Convert.FromBase64String(padded);
 			using var document = JsonDocument.Parse(payloadBytes);
 			if (document.RootElement.TryGetProperty("textures", out var texturesElement) &&
 			    texturesElement.TryGetProperty("SKIN", out var skinElement) &&
@@ -1621,7 +1703,8 @@ public sealed partial class MinecraftBlockRenderer
 			=> value.Contains("cross", StringComparison.OrdinalIgnoreCase)
 			   || value.Contains("tinted_cross", StringComparison.OrdinalIgnoreCase)
 			   || value.Contains("seagrass", StringComparison.OrdinalIgnoreCase)
-			   || value.Contains("item/generated", StringComparison.OrdinalIgnoreCase);
+			   || value.Contains("item/generated", StringComparison.OrdinalIgnoreCase)
+			   || value.Contains("builtin/generated", StringComparison.OrdinalIgnoreCase);
 	}
 
 	private static List<string> CollectBillboardTextures(BlockModelInstance model, ItemRegistry.ItemInfo? itemInfo)

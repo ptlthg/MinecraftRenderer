@@ -923,6 +923,7 @@ internal static class ItemModelSelectorParser
 				"condition" => ParseCondition(element, depth + 1),
 				"select" => ParseSelect(element, depth + 1),
 				"range_dispatch" => ParseRangeDispatch(element, depth + 1),
+				"composite" => ParseComposite(element, depth + 1),
 				"empty" => new ItemModelSelectorEmpty(),
 				_ => CreateFallbackSelector(element)
 			};
@@ -968,6 +969,27 @@ internal static class ItemModelSelectorParser
 			var directModel = GetString(element, "model") ?? GetString(element, "base");
 			return string.IsNullOrWhiteSpace(directModel) ? null : new ItemModelSelectorModel(directModel, null);
 		}
+
+	private static ItemModelSelector? ParseComposite(JsonElement element, int depth)
+	{
+		// Composite type has a "models" array - for static rendering, we just use the first model
+		// (keybind/animation effects are ignored in static atlas generation)
+		if (!element.TryGetProperty("models", out var modelsArray) || modelsArray.ValueKind != JsonValueKind.Array)
+		{
+			return null;
+		}
+
+		foreach (var modelElement in modelsArray.EnumerateArray())
+		{
+			var parsed = Parse(modelElement, depth);
+			if (parsed is not null)
+			{
+				return parsed; // Return first valid model
+			}
+		}
+
+		return null;
+	}
 
 		private static ItemModelSelector? ParseSelect(JsonElement element, int depth)
 		{

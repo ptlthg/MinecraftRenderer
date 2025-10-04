@@ -266,7 +266,64 @@ public static class NbtParser
 
             var buffer = new byte[length];
             _stream.ReadExactly(buffer);
-            return Encoding.UTF8.GetString(buffer);
+            return DecodeMutf8(buffer);
+        }
+
+        /// <summary>
+        /// Decode Modified UTF-8 (MUTF-8) as used by NBT format.
+        /// Differences from standard UTF-8:
+        /// - Null character (U+0000) encoded as 0xC0 0x80
+        /// - Characters above U+FFFF use surrogate pairs
+        /// </summary>
+        private static string DecodeMutf8(byte[] bytes)
+        {
+            var chars = new char[bytes.Length]; // Upper bound
+            var charIndex = 0;
+
+            for (var i = 0; i < bytes.Length; i++)
+            {
+                var b1 = bytes[i];
+
+                if ((b1 & 0x80) == 0)
+                {
+                    // Single-byte character (0xxxxxxx)
+                    chars[charIndex++] = (char)b1;
+                }
+                else if ((b1 & 0xE0) == 0xC0)
+                {
+                    // Two-byte character (110xxxxx 10xxxxxx)
+                    if (i + 1 >= bytes.Length)
+                        throw new InvalidDataException("Truncated MUTF-8 sequence");
+
+                    var b2 = bytes[++i];
+                    if ((b2 & 0xC0) != 0x80)
+                        throw new InvalidDataException("Invalid MUTF-8 continuation byte");
+
+                    var codePoint = ((b1 & 0x1F) << 6) | (b2 & 0x3F);
+                    chars[charIndex++] = (char)codePoint;
+                }
+                else if ((b1 & 0xF0) == 0xE0)
+                {
+                    // Three-byte character (1110xxxx 10xxxxxx 10xxxxxx)
+                    if (i + 2 >= bytes.Length)
+                        throw new InvalidDataException("Truncated MUTF-8 sequence");
+
+                    var b2 = bytes[++i];
+                    var b3 = bytes[++i];
+                    if ((b2 & 0xC0) != 0x80 || (b3 & 0xC0) != 0x80)
+                        throw new InvalidDataException("Invalid MUTF-8 continuation byte");
+
+                    var codePoint = ((b1 & 0x0F) << 12) | ((b2 & 0x3F) << 6) | (b3 & 0x3F);
+                    chars[charIndex++] = (char)codePoint;
+                }
+                else
+                {
+                    // Invalid or unsupported sequence
+                    throw new InvalidDataException($"Invalid MUTF-8 byte: 0x{b1:X2}");
+                }
+            }
+
+            return new string(chars, 0, charIndex);
         }
     }
 

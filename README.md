@@ -96,6 +96,51 @@ var results = MinecraftAtlasGenerator.GenerateAtlases(
 
 Each atlas is accompanied by a JSON manifest listing the block/item occupying each grid cell (with render errors captured per entry). Provide `blockFilter`/`itemFilter` sequences to focus on subsets or tweak `tileSize`/`columns`/`rows` to split the output across more pages.
 
+## Hypixel Inventory Parsing
+
+Parse Hypixel Skyblock inventory data (1.8.9 NBT format) from the Hypixel API:
+
+```csharp
+using MinecraftRenderer.Hypixel;
+
+// Parse base64-encoded, gzipped NBT inventory data
+var inventoryData = await hypixelApi.GetInventoryDataAsync(playerUuid);
+var items = InventoryParser.ParseInventory(inventoryData);
+
+foreach (var item in items)
+{
+	Console.WriteLine($"{item.SkyblockId}: {item.DisplayName}");
+	
+	// Get deterministic texture ID for caching/lookup
+	var textureId = TextureResolver.GetTextureId(item);
+	
+	// Access rich metadata
+	if (item.Enchantments != null)
+		Console.WriteLine($"  Enchantments: {item.Enchantments.Count}");
+	if (item.Gems != null)
+		Console.WriteLine($"  Gems: {string.Join(", ", item.Gems.Keys)}");
+	if (item.CustomData != null)
+		Console.WriteLine($"  Custom texture: {TextureResolver.GetCustomTexturePath(item)}");
+}
+```
+
+The `HypixelItemData` record provides convenient access to:
+- **SkyblockId**: Hypixel's internal item ID (e.g., `"JUJU_SHORTBOW"`)
+- **ItemId**: Normalized Minecraft ID (e.g., `"skyblock:juju_shortbow"`)
+- **DisplayName**: Formatted display name with color codes
+- **Enchantments**: NBT compound of enchantments
+- **Gems**: NBT compound of socketed gems
+- **Attributes**: NBT compound of item attributes (Kuudra armor, etc.)
+- **CustomData**: Firmament texture pack overrides
+
+The `TextureResolver` generates deterministic texture IDs that account for gems, attributes, and custom textures:
+- Plain items: `skyblock:juju_shortbow`
+- Items with gems: `skyblock:axe_of_the_shredded?gems=COMBAT_0,JASPER_0`
+- Items with attributes: `skyblock:fervor_helmet?attrs=shard,tier`
+- Custom textures: `custom:firmament/special_texture`
+
+These IDs can be used as cache keys or to look up models in texture packs.
+
 ## Running tests
 
 The solution includes an xUnit test project that renders a stone block and asserts opaque pixels are produced. Run the suite with:
