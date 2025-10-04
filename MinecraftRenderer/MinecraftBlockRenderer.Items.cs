@@ -124,7 +124,7 @@ public sealed partial class MinecraftBlockRenderer
 		if (TryRenderGuiTextureLayers(itemName, itemInfo, model, options, out var flatRender))
 		{
 			var shouldPrefer = ShouldPreferPlayerHeadRenderer(itemName, model, modelCandidates, options);
-			
+
 			if (shouldPrefer && TryRenderPlayerHead(itemName, model, modelCandidates, options, out var preferredHead))
 			{
 				flatRender.Dispose();
@@ -167,7 +167,8 @@ public sealed partial class MinecraftBlockRenderer
 		return FinalizeGuiResult(RenderFallbackTexture(itemName, itemInfo, model, options));
 	}
 
-	private (BlockModelInstance? Model, IReadOnlyList<string> Candidates, string? ResolvedModelName) ResolveItemModel(string itemName,
+	private (BlockModelInstance? Model, IReadOnlyList<string> Candidates, string? ResolvedModelName) ResolveItemModel(
+		string itemName,
 		ItemRegistry.ItemInfo? itemInfo, BlockRenderOptions options)
 	{
 		var displayContext = DetermineDisplayContext(options);
@@ -224,6 +225,7 @@ public sealed partial class MinecraftBlockRenderer
 						candidates.Add(candidate);
 					}
 				}
+
 				return;
 			}
 
@@ -266,6 +268,7 @@ public sealed partial class MinecraftBlockRenderer
 						model.Display,
 						model.Elements);
 				}
+
 				break;
 			}
 			catch (KeyNotFoundException)
@@ -558,70 +561,70 @@ public sealed partial class MinecraftBlockRenderer
 		return RenderFlatItem(new[] { "minecraft:missingno" }, options, itemName);
 	}
 
-		private static bool ShouldPreferPlayerHeadRenderer(string itemName, BlockModelInstance? model,
-			IReadOnlyList<string> modelCandidates, BlockRenderOptions options)
+	private static bool ShouldPreferPlayerHeadRenderer(string itemName, BlockModelInstance? model,
+		IReadOnlyList<string> modelCandidates, BlockRenderOptions options)
+	{
+		var itemData = options.ItemData;
+		if (itemData is null)
 		{
-			var itemData = options.ItemData;
-			if (itemData is null)
-			{
-				return false;
-			}
+			return false;
+		}
 
-			if (!string.Equals(NormalizeItemTextureKey(itemName), "player_head", StringComparison.OrdinalIgnoreCase))
-			{
-				return false;
-			}
+		if (!string.Equals(NormalizeItemTextureKey(itemName), "player_head", StringComparison.OrdinalIgnoreCase))
+		{
+			return false;
+		}
 
-			var hasSkinSource = itemData.Profile is not null
-			                  || (itemData.CustomData is not null &&
-			                      TryGetHeadTextureOverride(itemData.CustomData, out _));
-			if (!hasSkinSource)
-			{
-				return false;
-			}
+		var hasSkinSource = itemData.Profile is not null
+		                    || (itemData.CustomData is not null &&
+		                        TryGetHeadTextureOverride(itemData.CustomData, out _));
+		if (!hasSkinSource)
+		{
+			return false;
+		}
 
-			if (HasExplicitFlatHeadOverride(model, modelCandidates, options))
-			{
-				return false;
-			}
+		if (HasExplicitFlatHeadOverride(model, modelCandidates, options))
+		{
+			return false;
+		}
 
+		return true;
+	}
+
+	private static bool HasExplicitFlatHeadOverride(BlockModelInstance? model,
+		IReadOnlyList<string> modelCandidates, BlockRenderOptions options)
+	{
+		var hasNonDefaultCandidate = HasNonDefaultPlayerHeadModelCandidate(modelCandidates);
+
+		// If we have Profile data and the model is still template_skull (default),
+		// it means no custom model was actually loaded. Prefer 3D profile rendering in this case.
+		if (options.ItemData?.Profile is not null &&
+		    hasNonDefaultCandidate &&
+		    ModelChainContainsTemplateSkull(model))
+		{
+			// Only allow profile rendering if we're still using the default template_skull model
+			// This means the Firmament/custom model candidates didn't actually resolve
+			return false;
+		}
+
+		if (ModelChainContainsTemplateSkull(model))
+		{
+			return hasNonDefaultCandidate;
+		}
+
+		if (!hasNonDefaultCandidate &&
+		    modelCandidates.Any(static candidate => ContainsTemplateSkullToken(candidate)))
+		{
+			return false;
+		}
+
+		if (model is not null)
+		{
 			return true;
 		}
 
-		private static bool HasExplicitFlatHeadOverride(BlockModelInstance? model,
-			IReadOnlyList<string> modelCandidates, BlockRenderOptions options)
-		{
-			var hasNonDefaultCandidate = HasNonDefaultPlayerHeadModelCandidate(modelCandidates);
-
-			// If we have Profile data and the model is still template_skull (default),
-			// it means no custom model was actually loaded. Prefer 3D profile rendering in this case.
-			if (options.ItemData?.Profile is not null && 
-			    hasNonDefaultCandidate &&
-			    ModelChainContainsTemplateSkull(model))
-			{
-				// Only allow profile rendering if we're still using the default template_skull model
-				// This means the Firmament/custom model candidates didn't actually resolve
-				return false;
-			}
-
-			if (ModelChainContainsTemplateSkull(model))
-			{
-				return hasNonDefaultCandidate;
-			}
-
-			if (!hasNonDefaultCandidate &&
-			    modelCandidates.Any(static candidate => ContainsTemplateSkullToken(candidate)))
-			{
-				return false;
-			}
-
-			if (model is not null)
-			{
-				return true;
-			}
-
-			return hasNonDefaultCandidate;
-		}
+		return hasNonDefaultCandidate;
+	}
 
 	private bool TryRenderPlayerHead(string itemName, BlockModelInstance? model,
 		IReadOnlyList<string> modelCandidates, BlockRenderOptions options, out Image<Rgba32> rendered)
@@ -789,7 +792,7 @@ public sealed partial class MinecraftBlockRenderer
 			{
 				customDataId = idValue;
 			}
-			
+
 			var resolvedTexture = options.SkullTextureResolver(customDataId, itemData?.Profile);
 			if (!string.IsNullOrWhiteSpace(resolvedTexture))
 			{
@@ -1074,7 +1077,8 @@ public sealed partial class MinecraftBlockRenderer
 		try
 		{
 			var cached = _playerSkinCache.GetOrAdd(normalized,
-				key => new Lazy<Image<Rgba32>>(() => LoadOrDownloadPlayerSkin(key), LazyThreadSafetyMode.ExecutionAndPublication));
+				key => new Lazy<Image<Rgba32>>(() => LoadOrDownloadPlayerSkin(key),
+					LazyThreadSafetyMode.ExecutionAndPublication));
 
 			skin = cached.Value;
 			return true;

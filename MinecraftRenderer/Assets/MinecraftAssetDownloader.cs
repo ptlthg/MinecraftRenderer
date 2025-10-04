@@ -1,9 +1,8 @@
 using System.IO.Compression;
-using System.Net.Http;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace MinecraftRenderer;
+namespace MinecraftRenderer.Assets;
 
 /// <summary>
 /// Downloads and extracts Minecraft client assets from official Mojang sources.
@@ -57,7 +56,7 @@ public static class MinecraftAssetDownloader
 
         progress?.Report((0, $"Fetching version manifest..."));
 
-        // Step 1: Get version manifest
+        // Get version manifest
         var versionManifestJson = await HttpClient.GetStringAsync(VersionManifestUrl);
         var versionManifest = JsonSerializer.Deserialize<VersionManifest>(versionManifestJson)
             ?? throw new InvalidOperationException("Failed to parse version manifest");
@@ -67,7 +66,7 @@ public static class MinecraftAssetDownloader
 
         progress?.Report((10, $"Found version {version}, fetching version metadata..."));
 
-        // Step 2: Get version-specific metadata
+        // Get version-specific metadata
         var versionMetadataJson = await HttpClient.GetStringAsync(versionInfo.Url);
         var versionMetadata = JsonSerializer.Deserialize<VersionMetadata>(versionMetadataJson)
             ?? throw new InvalidOperationException("Failed to parse version metadata");
@@ -77,7 +76,7 @@ public static class MinecraftAssetDownloader
 
         progress?.Report((20, $"Downloading client.jar ({clientDownload.Size / 1024 / 1024:F1} MB)..."));
 
-        // Step 3: Download client.jar
+        // Download client.jar
         var clientJarPath = Path.Combine(Path.GetTempPath(), $"minecraft-{version}-client.jar");
         using (var clientResponse = await HttpClient.GetAsync(clientDownload.Url, HttpCompletionOption.ResponseHeadersRead))
         {
@@ -102,7 +101,7 @@ public static class MinecraftAssetDownloader
 
         progress?.Report((60, "Verifying download..."));
 
-        // Step 4: Verify SHA1 hash
+        // Verify SHA1 hash
         using (var sha1 = System.Security.Cryptography.SHA1.Create())
         {
             await using var stream = File.OpenRead(clientJarPath);
@@ -118,7 +117,7 @@ public static class MinecraftAssetDownloader
 
         progress?.Report((70, "Extracting assets from client.jar..."));
 
-        // Step 5: Extract assets from JAR
+        // Extract assets from JAR
         Directory.CreateDirectory(outputPath);
         
         using (var archive = ZipFile.OpenRead(clientJarPath))
@@ -153,10 +152,10 @@ public static class MinecraftAssetDownloader
 
         progress?.Report((95, "Cleaning up..."));
 
-        // Step 6: Write version file
+        // Write version file
         await File.WriteAllTextAsync(versionFile, version);
 
-        // Step 7: Clean up temp file
+        // Clean up temp file
         try
         {
             File.Delete(clientJarPath);
@@ -166,7 +165,7 @@ public static class MinecraftAssetDownloader
             // Ignore cleanup errors
         }
 
-        // Step 8: Return path to assets/minecraft directory (where blockstates, models, textures are)
+        // Return path to assets/minecraft directory (where blockstates, models, textures are)
         var minecraftAssetsPath = Path.Combine(outputPath, "assets", "minecraft");
         progress?.Report((100, $"Successfully extracted {version} assets to {minecraftAssetsPath}"));
 

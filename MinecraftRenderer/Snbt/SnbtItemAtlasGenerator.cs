@@ -45,6 +45,12 @@ public static class SnbtItemAtlasGenerator
 {
 	public sealed record SnbtItemEntry(string Name, string SourcePath, NbtDocument? Document, string? Error);
 
+	/// <summary>
+	/// Load SNBT item files from a directory.
+	/// </summary>
+	/// <param name="directory"></param>
+	/// <returns></returns>
+	/// <exception cref="DirectoryNotFoundException"></exception>
 	public static IReadOnlyList<SnbtItemEntry> LoadDirectory(string directory)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(directory);
@@ -194,10 +200,13 @@ public static class SnbtItemAtlasGenerator
 							{
 								try
 								{
-									var renderCompound = compound ?? throw new InvalidOperationException("SNBT root unexpectedly null.");
+									var renderCompound = compound ??
+									                     throw new InvalidOperationException(
+										                     "SNBT root unexpectedly null.");
 									using var tile = renderer.RenderItemFromNbt(renderCompound, itemOptions);
 									tile.Mutate(ctx => ctx.Resize(tileSize, tileSize));
-									canvas.Mutate(ctx => ctx.DrawImage(tile, new Point(col * tileSize, row * tileSize), 1f));
+									canvas.Mutate(ctx =>
+										ctx.DrawImage(tile, new Point(col * tileSize, row * tileSize), 1f));
 								}
 								catch (Exception ex)
 								{
@@ -207,7 +216,8 @@ public static class SnbtItemAtlasGenerator
 						}
 					}
 
-					var manifestEntry = new MinecraftAtlasGenerator.AtlasManifestEntry(globalIndex, label, col, row, error);
+					var manifestEntry =
+						new MinecraftAtlasGenerator.AtlasManifestEntry(globalIndex, label, col, row, error);
 					if (model is not null || textures is not null || !string.IsNullOrWhiteSpace(texturePack))
 					{
 						manifestEntry = manifestEntry with
@@ -234,7 +244,8 @@ public static class SnbtItemAtlasGenerator
 				canvas.SaveAsPng(imagePath);
 				File.WriteAllText(manifestPath, JsonSerializer.Serialize(manifestEntries, serializerOptions));
 
-				results.Add(new MinecraftAtlasGenerator.AtlasResult(category, view.Name, page + 1, imagePath, manifestPath));
+				results.Add(new MinecraftAtlasGenerator.AtlasResult(category, view.Name, page + 1, imagePath,
+					manifestPath));
 			}
 		}
 

@@ -48,7 +48,7 @@ public class MinecraftHeadRenderer
 	private static readonly Vector3 InventoryLightDirection = Vector3.Normalize(new Vector3(0.55f, -1f, 1.8f));
 	private const float InventoryAmbientStrength = 0.2f;
 	private const float InventoryDiffuseStrength = 0.8f;
-	
+
 	// Define cube vertices (unit cube centered at origin)
 	private static readonly Vector3[] Vertices =
 	[

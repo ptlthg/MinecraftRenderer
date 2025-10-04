@@ -74,11 +74,15 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 	private readonly string _playerSkinCacheDirectory;
 	private readonly IReadOnlyList<OverlayRoot> _baseOverlayRoots;
 	private readonly TexturePackRegistry? _packRegistry;
+
 	private readonly ConcurrentDictionary<string, MinecraftBlockRenderer> _packRendererCache =
 		new(StringComparer.OrdinalIgnoreCase);
+
 	private readonly Dictionary<string, Image<Rgba32>> _biomeTintedTextureCache = new(StringComparer.OrdinalIgnoreCase);
+
 	private readonly ConcurrentDictionary<string, Lazy<Image<Rgba32>>> _playerSkinCache =
 		new(StringComparer.OrdinalIgnoreCase);
+
 	private bool _disposed;
 
 	public TextureRepository TextureRepository => _textureRepository;
@@ -146,16 +150,20 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		{
 			defaultPackStack = texturePackRegistry.BuildPackStack(defaultPackIds);
 		}
+
 		var packContext = RenderPackContext.Create(assetsDirectory, overlayRoots, defaultPackStack);
 		var overlayPaths = packContext.OverlayRoots
 			.Select(static root => root.Path)
 			.Distinct(StringComparer.OrdinalIgnoreCase)
 			.ToList();
-		var modelResolver = BlockModelResolver.LoadFromMinecraftAssets(assetsDirectory, overlayPaths, packContext.AssetNamespaces);
+		var modelResolver =
+			BlockModelResolver.LoadFromMinecraftAssets(assetsDirectory, overlayPaths, packContext.AssetNamespaces);
 		var blockRegistry =
-			BlockRegistry.LoadFromMinecraftAssets(assetsDirectory, modelResolver.Definitions, overlayPaths, packContext.AssetNamespaces);
+			BlockRegistry.LoadFromMinecraftAssets(assetsDirectory, modelResolver.Definitions, overlayPaths,
+				packContext.AssetNamespaces);
 		var itemRegistry =
-			ItemRegistry.LoadFromMinecraftAssets(assetsDirectory, modelResolver.Definitions, overlayPaths, packContext.AssetNamespaces);
+			ItemRegistry.LoadFromMinecraftAssets(assetsDirectory, modelResolver.Definitions, overlayPaths,
+				packContext.AssetNamespaces);
 		var texturesRoot = Directory.Exists(Path.Combine(assetsDirectory, "textures"))
 			? Path.Combine(assetsDirectory, "textures")
 			: assetsDirectory;
@@ -312,7 +320,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 	{
 		ArgumentNullException.ThrowIfNull(document);
 		var compound = document.RootCompound
-		                ?? throw new ArgumentException("SNBT document must have a compound root.", nameof(document));
+		               ?? throw new ArgumentException("SNBT document must have a compound root.", nameof(document));
 		return RenderItemFromNbt(compound, options);
 	}
 
@@ -357,6 +365,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		{
 			renderer.Dispose();
 		}
+
 		_packRendererCache.Clear();
 		_textureRepository.Dispose();
 
@@ -480,19 +489,22 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 			layer0Tint = dyedColor;
 		}
 
-		if (components.TryGetValue("minecraft:custom_data", out var customDataTag) && customDataTag is NbtCompound customCompound &&
+		if (components.TryGetValue("minecraft:custom_data", out var customDataTag) &&
+		    customDataTag is NbtCompound customCompound &&
 		    customCompound.Count > 0)
 		{
 			customData = customCompound;
 		}
 
-		if (components.TryGetValue("minecraft:profile", out var profileTag) && profileTag is NbtCompound profileCompound &&
+		if (components.TryGetValue("minecraft:profile", out var profileTag) &&
+		    profileTag is NbtCompound profileCompound &&
 		    profileCompound.Count > 0)
 		{
 			profile = profileCompound;
 		}
 
-		if (layer0Tint.HasValue || additionalLayerTints is { Count: > 0 } || disableDefaultLayer0Tint || customData is not null || profile is not null)
+		if (layer0Tint.HasValue || additionalLayerTints is { Count: > 0 } || disableDefaultLayer0Tint ||
+		    customData is not null || profile is not null)
 		{
 			return new ItemRenderData(layer0Tint, additionalLayerTints, disableDefaultLayer0Tint, customData, profile);
 		}

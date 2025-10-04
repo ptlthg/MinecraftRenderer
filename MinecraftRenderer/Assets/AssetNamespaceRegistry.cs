@@ -12,7 +12,7 @@ using System.IO;
 /// </summary>
 public sealed class AssetNamespaceRegistry
 {
-    private readonly List<AssetNamespaceRoot> _roots = new();
+    private readonly List<AssetNamespaceRoot> _roots = [];
     private readonly Dictionary<string, List<AssetNamespaceRoot>> _rootsByNamespace = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _deduplicationSet = new(StringComparer.OrdinalIgnoreCase);
 
@@ -77,7 +77,7 @@ public sealed class AssetNamespaceRegistry
             return bucket;
         }
 
-        return Array.Empty<AssetNamespaceRoot>();
+        return [];
     }
 
     /// <summary>
@@ -116,12 +116,19 @@ public sealed class AssetNamespaceRegistry
         }
         else
         {
-            for (var i = 0; i < roots.Count; i++)
+            foreach (var t in roots)
             {
-                yield return Path.Combine(roots[i].Path, relativePath);
+                yield return Path.Combine(t.Path, relativePath);
             }
         }
     }
 }
 
+/// <summary>
+/// A single namespace root entry, representing a base path for a specific namespace.
+/// </summary>
+/// <param name="Namespace"></param>
+/// <param name="Path"></param>
+/// <param name="SourceId"></param>
+/// <param name="IsVanilla"></param>
 public sealed record AssetNamespaceRoot(string Namespace, string Path, string SourceId, bool IsVanilla);

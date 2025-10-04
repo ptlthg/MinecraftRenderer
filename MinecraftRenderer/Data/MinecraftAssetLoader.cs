@@ -124,9 +124,11 @@ internal static class MinecraftAssetLoader
 					var relativePath = Path.GetRelativePath(directory, file);
 					var blockName = NormalizeBlockStateName(relativePath);
 
-			using var stream = File.OpenRead(file);
-			using var document =
-				JsonDocument.Parse(stream, new JsonDocumentOptions { AllowTrailingCommas = true, MaxDepth = 8192 });					var modelReference = ResolveDefaultModel(blockName, document.RootElement, models);
+					using var stream = File.OpenRead(file);
+					using var document =
+						JsonDocument.Parse(stream,
+							new JsonDocumentOptions { AllowTrailingCommas = true, MaxDepth = 8192 });
+					var modelReference = ResolveDefaultModel(blockName, document.RootElement, models);
 					var textureReference = ResolveRepresentativeTexture(modelReference, models);
 
 					entries[blockName] = new BlockRegistry.BlockInfo
@@ -197,7 +199,8 @@ internal static class MinecraftAssetLoader
 
 			if (itemName == "player_head")
 			{
-				Console.WriteLine($"[LoadItemInfos] Processing player_head: ModelRef={modelReference}, HasSelector={entry.Selector != null}, SelectorType={entry.Selector?.GetType().Name}");
+				Console.WriteLine(
+					$"[LoadItemInfos] Processing player_head: ModelRef={modelReference}, HasSelector={entry.Selector != null}, SelectorType={entry.Selector?.GetType().Name}");
 			}
 
 			if (!entries.TryGetValue(itemName, out var info))
@@ -432,7 +435,7 @@ internal static class MinecraftAssetLoader
 	private static IEnumerable<ItemDefinitionEntry> EnumerateItemDefinitions(string assetsRoot,
 		IEnumerable<string>? overlayRoots, AssetNamespaceRegistry? assetNamespaces)
 	{
-		var namespaceRoots = BuildNamespaceRootList(assetsRoot, overlayRoots, assetNamespaces, 
+		var namespaceRoots = BuildNamespaceRootList(assetsRoot, overlayRoots, assetNamespaces,
 			includeAllNamespaces: true);
 
 		foreach (var nsRoot in namespaceRoots)
@@ -452,46 +455,29 @@ internal static class MinecraftAssetLoader
 					continue;
 				}
 
-				if (itemName == "player_head")
+				ItemDefinitionEntry? entry = null;
+				try
 				{
-					Console.WriteLine($"[EnumerateItemDefinitions] Found player_head.json at: {file}");
-					Console.WriteLine($"[EnumerateItemDefinitions] About to parse selector...");
+					using var stream = File.OpenRead(file);
+					using var document =
+						JsonDocument.Parse(stream,
+							new JsonDocumentOptions { AllowTrailingCommas = true, MaxDepth = 8192 });
+					var tintMap = new Dictionary<int, ItemRegistry.ItemTintInfo>();
+					ExtractTintInfoFromDefinition(document.RootElement, tintMap);
+					var selector = ItemModelSelectorParser.ParseFromRoot(document.RootElement);
+					var modelReference = ResolveModelReferenceFromItemDefinition(document.RootElement);
+					entry = new ItemDefinitionEntry(itemName, modelReference, tintMap, selector);
+				}
+				catch (JsonException ex)
+				{
+					continue;
+				}
+				catch (Exception ex)
+				{
+					continue;
 				}
 
-			ItemDefinitionEntry? entry = null;
-			try
-			{
-				using var stream = File.OpenRead(file);
-				using var document =
-					JsonDocument.Parse(stream, new JsonDocumentOptions { AllowTrailingCommas = true, MaxDepth = 8192 });
-				var tintMap = new Dictionary<int, ItemRegistry.ItemTintInfo>();
-				ExtractTintInfoFromDefinition(document.RootElement, tintMap);
-				var selector = ItemModelSelectorParser.ParseFromRoot(document.RootElement);
-				var modelReference = ResolveModelReferenceFromItemDefinition(document.RootElement);
-				entry = new ItemDefinitionEntry(itemName, modelReference, tintMap, selector);
-			}
-			catch (JsonException ex)
-			{
-				if (itemName == "player_head")
-				{
-					Console.WriteLine($"[EnumerateItemDefinitions] JsonException parsing player_head: {ex.Message}");
-				}
-				continue;
-			}
-			catch (Exception ex)
-			{
-				if (itemName == "player_head")
-				{
-					Console.WriteLine($"[EnumerateItemDefinitions] Exception parsing player_head: {ex.GetType().Name} - {ex.Message}");
-				}
-				continue;
-			}			if (itemName == "player_head")
-			{
-				Console.WriteLine($"[EnumerateItemDefinitions] Parsed player_head - entry is null: {entry == null}, selector is null: {entry?.Selector == null}, selector type: {entry?.Selector?.GetType().Name}");
-			}				if (entry is not null)
-				{
-					yield return entry;
-				}
+				yield return entry;
 			}
 		}
 	}

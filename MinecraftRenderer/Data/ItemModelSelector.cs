@@ -7,7 +7,9 @@ using System.Linq;
 using System.Text.Json;
 using MinecraftRenderer.Nbt;
 
-internal readonly record struct ItemModelContext(MinecraftBlockRenderer.ItemRenderData? ItemData, string DisplayContext);
+internal readonly record struct ItemModelContext(
+	MinecraftBlockRenderer.ItemRenderData? ItemData,
+	string DisplayContext);
 
 internal abstract class ItemModelSelector
 {
@@ -385,118 +387,117 @@ internal sealed class ItemModelSelectorCondition(
 		value = default;
 		return false;
 	}
-
 }
 
-	internal sealed record ItemModelSelectorSelectCase(IReadOnlyList<string> When, ItemModelSelector? Selector);
+internal sealed record ItemModelSelectorSelectCase(IReadOnlyList<string> When, ItemModelSelector? Selector);
 
-	internal sealed class ItemModelSelectorSelect(
-		string property,
-		IReadOnlyList<ItemModelSelectorSelectCase> cases,
-		ItemModelSelector? fallback) : ItemModelSelector
+internal sealed class ItemModelSelectorSelect(
+	string property,
+	IReadOnlyList<ItemModelSelectorSelectCase> cases,
+	ItemModelSelector? fallback) : ItemModelSelector
+{
+	public string Property { get; } = property;
+	public IReadOnlyList<ItemModelSelectorSelectCase> Cases { get; } = cases;
+	public ItemModelSelector? Fallback { get; } = fallback;
+
+	public override string? Resolve(ItemModelContext context)
 	{
-		public string Property { get; } = property;
-		public IReadOnlyList<ItemModelSelectorSelectCase> Cases { get; } = cases;
-		public ItemModelSelector? Fallback { get; } = fallback;
-
-		public override string? Resolve(ItemModelContext context)
+		foreach (var selectCase in Cases)
 		{
-			foreach (var selectCase in Cases)
+			if (Matches(selectCase.When, context))
 			{
-				if (Matches(selectCase.When, context))
-				{
-					var resolved = selectCase.Selector?.Resolve(context);
-					if (!string.IsNullOrWhiteSpace(resolved))
-					{
-						return resolved;
-					}
-				}
-			}
-
-			return Fallback?.Resolve(context);
-		}
-
-		private bool Matches(IReadOnlyList<string> when, ItemModelContext context)
-		{
-			if (when.Count == 0)
-			{
-				return false;
-			}
-
-			if (string.Equals(Property, "display_context", StringComparison.OrdinalIgnoreCase))
-			{
-				return when.Any(value =>
-					string.Equals(value, context.DisplayContext, StringComparison.OrdinalIgnoreCase));
-			}
-
-			return false;
-		}
-	}
-
-	internal sealed class ItemModelSelectorEmpty : ItemModelSelector
-	{
-		public override string? Resolve(ItemModelContext context) => null;
-	}
-
-	internal sealed class ItemModelSelectorRangeDispatch(
-		string property,
-		bool normalize,
-		IReadOnlyList<RangeDispatchEntry> entries,
-		ItemModelSelector? fallback) : ItemModelSelector
-	{
-		public string Property { get; } = property;
-		public bool Normalize { get; } = normalize;
-		public IReadOnlyList<RangeDispatchEntry> Entries { get; } = entries;
-		public ItemModelSelector? Fallback { get; } = fallback;
-
-		public override string? Resolve(ItemModelContext context)
-		{
-			var value = GetPropertyValue(context);
-			if (value is null)
-			{
-				return Fallback?.Resolve(context);
-			}
-
-			// Find the highest threshold that's <= value
-			RangeDispatchEntry? matchedEntry = null;
-			foreach (var entry in Entries)
-			{
-				if (value >= entry.Threshold)
-				{
-					if (matchedEntry is null || entry.Threshold > matchedEntry.Value.Threshold)
-					{
-						matchedEntry = entry;
-					}
-				}
-			}
-
-			if (matchedEntry is not null)
-			{
-				var resolved = matchedEntry.Value.Selector?.Resolve(context);
+				var resolved = selectCase.Selector?.Resolve(context);
 				if (!string.IsNullOrWhiteSpace(resolved))
 				{
 					return resolved;
 				}
 			}
+		}
 
+		return Fallback?.Resolve(context);
+	}
+
+	private bool Matches(IReadOnlyList<string> when, ItemModelContext context)
+	{
+		if (when.Count == 0)
+		{
+			return false;
+		}
+
+		if (string.Equals(Property, "display_context", StringComparison.OrdinalIgnoreCase))
+		{
+			return when.Any(value =>
+				string.Equals(value, context.DisplayContext, StringComparison.OrdinalIgnoreCase));
+		}
+
+		return false;
+	}
+}
+
+internal sealed class ItemModelSelectorEmpty : ItemModelSelector
+{
+	public override string? Resolve(ItemModelContext context) => null;
+}
+
+internal sealed class ItemModelSelectorRangeDispatch(
+	string property,
+	bool normalize,
+	IReadOnlyList<RangeDispatchEntry> entries,
+	ItemModelSelector? fallback) : ItemModelSelector
+{
+	public string Property { get; } = property;
+	public bool Normalize { get; } = normalize;
+	public IReadOnlyList<RangeDispatchEntry> Entries { get; } = entries;
+	public ItemModelSelector? Fallback { get; } = fallback;
+
+	public override string? Resolve(ItemModelContext context)
+	{
+		var value = GetPropertyValue(context);
+		if (value is null)
+		{
 			return Fallback?.Resolve(context);
 		}
 
-		private double? GetPropertyValue(ItemModelContext context)
+		// Find the highest threshold that's <= value
+		RangeDispatchEntry? matchedEntry = null;
+		foreach (var entry in Entries)
 		{
-			// Currently only supporting "count" property
-			if (string.Equals(Property, "count", StringComparison.OrdinalIgnoreCase))
+			if (value >= entry.Threshold)
 			{
-				// For now, return 1 since we don't have stack count in ItemRenderData
-				// This is a limitation but allows the selector to work with fallback
-				return 1.0;
+				if (matchedEntry is null || entry.Threshold > matchedEntry.Value.Threshold)
+				{
+					matchedEntry = entry;
+				}
 			}
-
-			return null;
 		}
+
+		if (matchedEntry is not null)
+		{
+			var resolved = matchedEntry.Value.Selector?.Resolve(context);
+			if (!string.IsNullOrWhiteSpace(resolved))
+			{
+				return resolved;
+			}
+		}
+
+		return Fallback?.Resolve(context);
 	}
 
-	internal readonly record struct RangeDispatchEntry(double Threshold, ItemModelSelector? Selector);
+	private double? GetPropertyValue(ItemModelContext context)
+	{
+		// Currently only supporting "count" property
+		if (string.Equals(Property, "count", StringComparison.OrdinalIgnoreCase))
+		{
+			// For now, return 1 since we don't have stack count in ItemRenderData
+			// This is a limitation but allows the selector to work with fallback
+			return 1.0;
+		}
+
+		return null;
+	}
+}
+
+internal readonly record struct RangeDispatchEntry(double Threshold, ItemModelSelector? Selector);
 
 /// <summary>
 /// Optimized selector for deeply nested conditional trees (e.g., Hypixel+ player_head.json).
@@ -583,45 +584,47 @@ internal static class ItemModelSelectorParser
 			{
 				return optimized;
 			}
-			
+
 			var selector = Parse(modelElement, 0);
 			if (selector is not null)
 			{
 				return selector;
 			}
-		}			if (root.TryGetProperty("components", out var components) && components.ValueKind == JsonValueKind.Object)
-			{
-				if (components.TryGetProperty("minecraft:model", out var componentModel))
-				{
-					var selector = Parse(componentModel, 0);
-					if (selector is not null)
-					{
-						return selector;
-					}
-				}
-			}
-
-			if (root.TryGetProperty("type", out var typeProperty) && typeProperty.ValueKind == JsonValueKind.String)
-			{
-				var selector = Parse(root, 0);
-				if (selector is not null)
-				{
-					return selector;
-				}
-			}
-
-			if (root.TryGetProperty("cases", out _) || root.TryGetProperty("on_true", out _) ||
-			    root.TryGetProperty("on_false", out _))
-			{
-				var selector = Parse(root, 0);
-				if (selector is not null)
-				{
-					return selector;
-				}
-			}
-
-			return null;
 		}
+
+		if (root.TryGetProperty("components", out var components) && components.ValueKind == JsonValueKind.Object)
+		{
+			if (components.TryGetProperty("minecraft:model", out var componentModel))
+			{
+				var selector = Parse(componentModel, 0);
+				if (selector is not null)
+				{
+					return selector;
+				}
+			}
+		}
+
+		if (root.TryGetProperty("type", out var typeProperty) && typeProperty.ValueKind == JsonValueKind.String)
+		{
+			var selector = Parse(root, 0);
+			if (selector is not null)
+			{
+				return selector;
+			}
+		}
+
+		if (root.TryGetProperty("cases", out _) || root.TryGetProperty("on_true", out _) ||
+		    root.TryGetProperty("on_false", out _))
+		{
+			var selector = Parse(root, 0);
+			if (selector is not null)
+			{
+				return selector;
+			}
+		}
+
+		return null;
+	}
 
 	/// <summary>
 	/// Optimizes deeply nested custom_data conditional selectors by building a lookup table.
@@ -635,7 +638,8 @@ internal static class ItemModelSelectorParser
 			return null;
 		}
 
-		Console.WriteLine($"[TryOptimizeCustomDataSelector] Detected deeply nested custom_data selector (est. depth: {estimatedDepth}). Building lookup table...");
+		Console.WriteLine(
+			$"[TryOptimizeCustomDataSelector] Detected deeply nested custom_data selector (est. depth: {estimatedDepth}). Building lookup table...");
 
 		var modelMappings = new Dictionary<string, string>(StringComparer.Ordinal);
 		var selectorMappings = new Dictionary<string, ItemModelSelector>(StringComparer.Ordinal);
@@ -643,8 +647,9 @@ internal static class ItemModelSelectorParser
 
 		if (modelMappings.Count > 0 || selectorMappings.Count > 0)
 		{
-			Console.WriteLine($"[TryOptimizeCustomDataSelector] Built lookup table with {modelMappings.Count} model mappings + {selectorMappings.Count} selector mappings");
-			
+			Console.WriteLine(
+				$"[TryOptimizeCustomDataSelector] Built lookup table with {modelMappings.Count} model mappings + {selectorMappings.Count} selector mappings");
+
 			// Parse the fallback model if we found one
 			ItemModelSelector? fallbackSelector = null;
 			if (fallbackModel.HasValue && fallbackModel.Value.ValueKind == JsonValueKind.String)
@@ -655,7 +660,7 @@ internal static class ItemModelSelectorParser
 					fallbackSelector = new ItemModelSelectorModel(modelStr, null);
 				}
 			}
-			
+
 			return new ItemModelSelectorOptimized(modelMappings, selectorMappings, fallbackSelector);
 		}
 
@@ -668,7 +673,7 @@ internal static class ItemModelSelectorParser
 	private static bool IsDeepCustomDataConditional(JsonElement element, out int estimatedDepth)
 	{
 		estimatedDepth = 0;
-		
+
 		if (element.ValueKind != JsonValueKind.Object)
 		{
 			return false;
@@ -785,7 +790,7 @@ internal static class ItemModelSelectorParser
 			{
 				// Extract the custom_data.id or custom_data.model value
 				string? customDataId = null;
-				
+
 				if (current.TryGetProperty("value", out var valueEl))
 				{
 					if (valueEl.ValueKind == JsonValueKind.String)
@@ -932,43 +937,45 @@ internal static class ItemModelSelectorParser
 
 	private static ItemModelSelector? ParseCondition(JsonElement element, int depth)
 	{
-			var property = GetString(element, "property") ?? string.Empty;
-			var predicate = GetString(element, "predicate");
-			var component = GetString(element, "component");
+		var property = GetString(element, "property") ?? string.Empty;
+		var predicate = GetString(element, "predicate");
+		var component = GetString(element, "component");
 
-			IReadOnlyDictionary<string, string>? valueProperties = null;
-			string? valueLiteral = null;
-			if (element.TryGetProperty("value", out var valueElement))
+		IReadOnlyDictionary<string, string>? valueProperties = null;
+		string? valueLiteral = null;
+		if (element.TryGetProperty("value", out var valueElement))
+		{
+			valueProperties = ParseStringMap(valueElement);
+			if (valueProperties is null && valueElement.ValueKind == JsonValueKind.String)
 			{
-				valueProperties = ParseStringMap(valueElement);
-				if (valueProperties is null && valueElement.ValueKind == JsonValueKind.String)
-				{
-					valueLiteral = valueElement.GetString();
-				}
-				else if (valueProperties is null)
-				{
-					valueLiteral = valueElement.GetRawText();
-				}
+				valueLiteral = valueElement.GetString();
 			}
+			else if (valueProperties is null)
+			{
+				valueLiteral = valueElement.GetRawText();
+			}
+		}
 
 		var onTrue = element.TryGetProperty("on_true", out var onTrueElement) ? Parse(onTrueElement, depth + 1) : null;
-		var onFalse = element.TryGetProperty("on_false", out var onFalseElement) ? Parse(onFalseElement, depth + 1) : null;
-		
+		var onFalse = element.TryGetProperty("on_false", out var onFalseElement)
+			? Parse(onFalseElement, depth + 1)
+			: null;
+
 		// If parsing on_true failed due to depth limit or unsupported selector, fall back to on_false
 		if (onTrue is null && onFalse is not null)
 		{
 			return onFalse;
 		}
-		
+
 		return new ItemModelSelectorCondition(property, predicate, component, valueProperties, valueLiteral, onTrue,
 			onFalse);
 	}
 
 	private static ItemModelSelector? CreateFallbackSelector(JsonElement element)
-		{
-			var directModel = GetString(element, "model") ?? GetString(element, "base");
-			return string.IsNullOrWhiteSpace(directModel) ? null : new ItemModelSelectorModel(directModel, null);
-		}
+	{
+		var directModel = GetString(element, "model") ?? GetString(element, "base");
+		return string.IsNullOrWhiteSpace(directModel) ? null : new ItemModelSelectorModel(directModel, null);
+	}
 
 	private static ItemModelSelector? ParseComposite(JsonElement element, int depth)
 	{
@@ -991,25 +998,27 @@ internal static class ItemModelSelectorParser
 		return null;
 	}
 
-		private static ItemModelSelector? ParseSelect(JsonElement element, int depth)
+	private static ItemModelSelector? ParseSelect(JsonElement element, int depth)
+	{
+		var property = GetString(element, "property") ?? string.Empty;
+		var cases = new List<ItemModelSelectorSelectCase>();
+		if (element.TryGetProperty("cases", out var casesElement) && casesElement.ValueKind == JsonValueKind.Array)
 		{
-			var property = GetString(element, "property") ?? string.Empty;
-			var cases = new List<ItemModelSelectorSelectCase>();
-			if (element.TryGetProperty("cases", out var casesElement) && casesElement.ValueKind == JsonValueKind.Array)
+			foreach (var caseElement in casesElement.EnumerateArray())
 			{
-				foreach (var caseElement in casesElement.EnumerateArray())
-				{
-					var whenValues = ParseWhen(caseElement.TryGetProperty("when", out var whenElement)
-						? whenElement
-						: default);
-					var selector = caseElement.TryGetProperty("model", out var modelElement)
-						? Parse(modelElement, depth + 1)
-						: null;
-					cases.Add(new ItemModelSelectorSelectCase(whenValues, selector));
-				}
+				var whenValues = ParseWhen(caseElement.TryGetProperty("when", out var whenElement)
+					? whenElement
+					: default);
+				var selector = caseElement.TryGetProperty("model", out var modelElement)
+					? Parse(modelElement, depth + 1)
+					: null;
+				cases.Add(new ItemModelSelectorSelectCase(whenValues, selector));
 			}
+		}
 
-		var fallback = element.TryGetProperty("fallback", out var fallbackElement) ? Parse(fallbackElement, depth + 1) : null;
+		var fallback = element.TryGetProperty("fallback", out var fallbackElement)
+			? Parse(fallbackElement, depth + 1)
+			: null;
 		return new ItemModelSelectorSelect(property, cases, fallback);
 	}
 
@@ -1036,7 +1045,9 @@ internal static class ItemModelSelectorParser
 			}
 		}
 
-		var fallback = element.TryGetProperty("fallback", out var fallbackElement) ? Parse(fallbackElement, depth + 1) : null;
+		var fallback = element.TryGetProperty("fallback", out var fallbackElement)
+			? Parse(fallbackElement, depth + 1)
+			: null;
 		return new ItemModelSelectorRangeDispatch(property, normalize, entries, fallback);
 	}
 
@@ -1045,79 +1056,81 @@ internal static class ItemModelSelectorParser
 		if (element.ValueKind != JsonValueKind.Object)
 		{
 			return null;
-		}			var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-			foreach (var property in element.EnumerateObject())
-			{
-				var value = property.Value.ValueKind switch
-				{
-					JsonValueKind.String => property.Value.GetString() ?? string.Empty,
-					JsonValueKind.Number => property.Value.TryGetInt64(out var longValue)
-						? longValue.ToString(CultureInfo.InvariantCulture)
-						: property.Value.GetDouble().ToString(CultureInfo.InvariantCulture),
-					JsonValueKind.True => "true",
-					JsonValueKind.False => "false",
-					JsonValueKind.Null => "null",
-					_ => property.Value.GetRawText()
-				};
-
-				if (!string.IsNullOrWhiteSpace(property.Name) && !string.IsNullOrWhiteSpace(value))
-				{
-					map[property.Name] = value;
-				}
-			}
-
-			return map.Count > 0 ? map : null;
 		}
 
-		private static IReadOnlyList<string> ParseWhen(JsonElement element)
+		var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+		foreach (var property in element.EnumerateObject())
 		{
-			if (element.ValueKind == JsonValueKind.String)
+			var value = property.Value.ValueKind switch
 			{
-				var value = element.GetString();
-				return string.IsNullOrWhiteSpace(value)
-					? Array.Empty<string>()
-					: new[] { value };
-			}
+				JsonValueKind.String => property.Value.GetString() ?? string.Empty,
+				JsonValueKind.Number => property.Value.TryGetInt64(out var longValue)
+					? longValue.ToString(CultureInfo.InvariantCulture)
+					: property.Value.GetDouble().ToString(CultureInfo.InvariantCulture),
+				JsonValueKind.True => "true",
+				JsonValueKind.False => "false",
+				JsonValueKind.Null => "null",
+				_ => property.Value.GetRawText()
+			};
 
-			if (element.ValueKind == JsonValueKind.Array)
+			if (!string.IsNullOrWhiteSpace(property.Name) && !string.IsNullOrWhiteSpace(value))
 			{
-				var values = new List<string>();
-				foreach (var entry in element.EnumerateArray())
+				map[property.Name] = value;
+			}
+		}
+
+		return map.Count > 0 ? map : null;
+	}
+
+	private static IReadOnlyList<string> ParseWhen(JsonElement element)
+	{
+		if (element.ValueKind == JsonValueKind.String)
+		{
+			var value = element.GetString();
+			return string.IsNullOrWhiteSpace(value)
+				? Array.Empty<string>()
+				: new[] { value };
+		}
+
+		if (element.ValueKind == JsonValueKind.Array)
+		{
+			var values = new List<string>();
+			foreach (var entry in element.EnumerateArray())
+			{
+				if (entry.ValueKind == JsonValueKind.String)
 				{
-					if (entry.ValueKind == JsonValueKind.String)
+					var value = entry.GetString();
+					if (!string.IsNullOrWhiteSpace(value))
 					{
-						var value = entry.GetString();
-						if (!string.IsNullOrWhiteSpace(value))
-						{
-							values.Add(value);
-						}
+						values.Add(value);
 					}
 				}
-
-				return values;
 			}
 
-			return Array.Empty<string>();
+			return values;
 		}
 
-		private static string? GetString(JsonElement element, string propertyName)
-			=> element.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String
-				? property.GetString()
-				: null;
-
-		private static string NormalizeType(string? value)
-		{
-			if (string.IsNullOrWhiteSpace(value))
-			{
-				return "model";
-			}
-
-			var type = value.Trim();
-			if (type.StartsWith("minecraft:", StringComparison.OrdinalIgnoreCase))
-			{
-				type = type[10..];
-			}
-
-			return type.ToLowerInvariant();
-		}
+		return Array.Empty<string>();
 	}
+
+	private static string? GetString(JsonElement element, string propertyName)
+		=> element.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String
+			? property.GetString()
+			: null;
+
+	private static string NormalizeType(string? value)
+	{
+		if (string.IsNullOrWhiteSpace(value))
+		{
+			return "model";
+		}
+
+		var type = value.Trim();
+		if (type.StartsWith("minecraft:", StringComparison.OrdinalIgnoreCase))
+		{
+			type = type[10..];
+		}
+
+		return type.ToLowerInvariant();
+	}
+}

@@ -5,6 +5,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System;
 
+/// <summary>
+/// NBT tag types as per the NBT specification.
+/// </summary>
 public enum NbtTagType : byte
 {
     End = 0,

@@ -24,14 +24,11 @@ public static class MinecraftAtlasGenerator
 
 	public sealed record AtlasManifestEntry(int SequentialIndex, string Name, int Column, int Row, string? Error)
 	{
-		[JsonPropertyName("model")]
-		public string? Model { get; init; }
+		[JsonPropertyName("model")] public string? Model { get; init; }
 
-		[JsonPropertyName("textures")]
-		public IReadOnlyList<string>? Textures { get; init; }
+		[JsonPropertyName("textures")] public IReadOnlyList<string>? Textures { get; init; }
 
-		[JsonPropertyName("texturePack")]
-		public string? TexturePack { get; init; }
+		[JsonPropertyName("texturePack")] public string? TexturePack { get; init; }
 	}
 
 	public static readonly IReadOnlyList<AtlasView> DefaultViews =
