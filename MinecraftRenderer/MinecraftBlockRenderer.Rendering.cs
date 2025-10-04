@@ -9,6 +9,9 @@ using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Advanced;
 using SixLabors.ImageSharp.PixelFormats;
 
+/// <summary>
+/// Main class for rendering Minecraft block models to 2D images.
+/// </summary>
 public sealed partial class MinecraftBlockRenderer
 {
 	private static readonly TransformDefinition DefaultGuiTransform = new()

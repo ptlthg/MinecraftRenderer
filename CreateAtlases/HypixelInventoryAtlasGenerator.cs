@@ -124,7 +124,7 @@ public static class HypixelInventoryAtlasGenerator
                     ItemData: itemRenderData
                 );
 
-                Console.WriteLine($"  RenderOptions: UseGuiTransform={renderOptions.UseGuiTransform}, PackIds={string.Join(",", renderOptions.PackIds ?? Array.Empty<string>())}");
+                Console.WriteLine($"  RenderOptions: UseGuiTransform={renderOptions.UseGuiTransform}, PackIds={string.Join(",", renderOptions.PackIds ?? [])}");
 
                 // Debug: Check what model is being resolved
                 try

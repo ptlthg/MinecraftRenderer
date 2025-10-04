@@ -980,6 +980,7 @@ internal static class ItemModelSelectorParser
 	private static ItemModelSelector? ParseComposite(JsonElement element, int depth)
 	{
 		// Composite type has a "models" array - for static rendering, we just use the first model
+		// Hopefully the first model is consistently a good one to use
 		// (keybind/animation effects are ignored in static atlas generation)
 		if (!element.TryGetProperty("models", out var modelsArray) || modelsArray.ValueKind != JsonValueKind.Array)
 		{
@@ -1110,7 +1111,7 @@ internal static class ItemModelSelectorParser
 			return values;
 		}
 
-		return Array.Empty<string>();
+		return [];
 	}
 
 	private static string? GetString(JsonElement element, string propertyName)

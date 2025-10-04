@@ -755,7 +755,7 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 
 		var model = new BlockModelInstance(
 			"unit_test:cross_north",
-			Array.Empty<string>(),
+			[],
 			new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 			{
 				["cross"] = "minecraft:block/birch_sapling"

@@ -197,12 +197,6 @@ internal static class MinecraftAssetLoader
 				continue;
 			}
 
-			if (itemName == "player_head")
-			{
-				Console.WriteLine(
-					$"[LoadItemInfos] Processing player_head: ModelRef={modelReference}, HasSelector={entry.Selector != null}, SelectorType={entry.Selector?.GetType().Name}");
-			}
-
 			if (!entries.TryGetValue(itemName, out var info))
 			{
 				info = new ItemRegistry.ItemInfo { Name = itemName };

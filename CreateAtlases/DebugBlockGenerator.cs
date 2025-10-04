@@ -34,7 +34,7 @@ internal static class DebugBlockGenerator
 
 		if (views.Count == 0)
 		{
-			return Array.Empty<MinecraftAtlasGenerator.AtlasResult>();
+			return [];
 		}
 
 		Directory.CreateDirectory(outputDirectory);
@@ -89,7 +89,7 @@ internal static class DebugBlockGenerator
 
 		var debugModel = new BlockModelInstance(
 			"debug:cube",
-			Array.Empty<string>(),
+			[],
 			textures,
 			new Dictionary<string, TransformDefinition>(StringComparer.OrdinalIgnoreCase),
 			new List<ModelElement> { element });

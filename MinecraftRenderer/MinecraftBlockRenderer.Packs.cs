@@ -1,24 +1,19 @@
-namespace MinecraftRenderer;
-
-using System;
-using System.Collections.Generic;
 using System.Globalization;
-using System.IO;
-using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 using MinecraftRenderer.Assets;
 using MinecraftRenderer.Nbt;
 using MinecraftRenderer.TexturePacks;
+using SixLabors.ImageSharp.PixelFormats;
+
+namespace MinecraftRenderer;
 
 public sealed partial class MinecraftBlockRenderer
 {
 	public sealed record ResourceIdResult(string ResourceId, string SourcePackId, string PackStackHash)
 	{
 		public string? Model { get; init; }
-		public IReadOnlyList<string> Textures { get; init; } = Array.Empty<string>();
+		public IReadOnlyList<string> Textures { get; init; } = [];
 	}
 
 	private const string VanillaPackId = "vanilla";
@@ -170,7 +165,7 @@ public sealed partial class MinecraftBlockRenderer
 				}
 			}
 
-			if (effectiveModel is null && modelCandidates is not null)
+			if (effectiveModel is null)
 			{
 				foreach (var candidate in modelCandidates)
 				{
@@ -263,7 +258,7 @@ public sealed partial class MinecraftBlockRenderer
 		var resourceId = ComputeResourceIdHash(descriptor);
 		var texturesList = resolvedTextures.Count > 0
 			? resolvedTextures.OrderBy(static t => t, StringComparer.OrdinalIgnoreCase).ToArray()
-			: Array.Empty<string>();
+			: [];
 
 		return new ResourceIdResult(resourceId, sourcePackId, _packContext.PackStackHash)
 		{
@@ -485,7 +480,7 @@ public sealed partial class MinecraftBlockRenderer
 	private bool TryResolvePackFromAsset(string? assetId, string category, string extension, out string packId)
 	{
 		packId = VanillaPackId;
-		if (string.IsNullOrWhiteSpace(assetId) || _packContext.AssetNamespaces is null)
+		if (string.IsNullOrWhiteSpace(assetId))
 		{
 			return false;
 		}
@@ -771,9 +766,9 @@ public sealed partial class MinecraftBlockRenderer
 			}
 
 			var assetsRoot = assetsDirectory is null ? string.Empty : Path.GetFullPath(assetsDirectory);
-			var packIds = packStack?.Packs.Select(static pack => pack.Id).ToArray() ?? Array.Empty<string>();
+			var packIds = packStack?.Packs.Select(static pack => pack.Id).ToArray() ?? [];
 			var packStackHash = packStack?.Fingerprint ?? VanillaPackId;
-			var packs = packStack?.Packs ?? Array.Empty<RegisteredResourcePack>();
+			var packs = packStack?.Packs ?? [];
 
 			return new RenderPackContext(assetsRoot, overlays, packIds, packStackHash, packs);
 		}

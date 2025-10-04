@@ -20,45 +20,43 @@ public static class TextureResolver
 		// 2. Skyblock ID + attributes (for Kuudra armor, etc.)
 		// 3. Skyblock ID alone
 		// 4. Minecraft ID + damage value
+		var id = RawString();
+		
+		// Base64 encode to shorten length and ensure filesystem safety
+		var bytes = System.Text.Encoding.UTF8.GetBytes(id);
+		return Convert.ToBase64String(bytes)
+			.Replace('/', '_') // URL and filesystem safe
+			.Replace('+', '-') // URL and filesystem safe
+			.TrimEnd('=');     // Remove padding for brevity
 
-		if (item.CustomData != null)
+		string RawString()
 		{
-			// Check for Firmament's texture override
-			var customTexture = item.CustomData.GetString("texture");
-			if (!string.IsNullOrEmpty(customTexture))
+			if (item.CustomData != null)
 			{
-				return $"custom:{customTexture}";
+				// Check for Firmament's texture override
+				var customTexture = item.CustomData.GetString("texture");
+				if (!string.IsNullOrEmpty(customTexture))
+				{
+					return $"custom:{customTexture}";
+				}
 			}
-		}
 
-		if (item.SkyblockId != null)
-		{
-			// For items with attributes (Kuudra armor, etc.), include them in the ID
-			if (item.Attributes != null && item.Attributes.Count > 0)
+			if (item.SkyblockId != null)
 			{
+				// For items with attributes (Kuudra armor, etc.), include them in the ID
+				if (item.Attributes == null || item.Attributes.Count <= 0)
+				{
+					return $"skyblock:{item.SkyblockId.ToLowerInvariant()}";
+				}
+
 				// Build a deterministic string from attributes
 				var attrs = string.Join(",", item.Attributes.Keys.OrderBy(k => k));
 				return $"skyblock:{item.SkyblockId.ToLowerInvariant()}?attrs={attrs}";
 			}
 
-			// For items with gems, include gem types
-			if (item.Gems != null && item.Gems.Count > 0)
-			{
-				var gems = string.Join(",", item.Gems.Keys.OrderBy(k => k));
-				return $"skyblock:{item.SkyblockId.ToLowerInvariant()}?gems={gems}";
-			}
-
-			// Plain Skyblock ID
-			return $"skyblock:{item.SkyblockId.ToLowerInvariant()}";
+			// Fallback to Minecraft ID with damage for 1.8.9 items
+			return item.Damage != 0 ? $"{item.ItemId}:{item.Damage}" : item.ItemId;
 		}
-
-		// Fallback to Minecraft ID with damage for 1.8.9 items
-		if (item.Damage != 0)
-		{
-			return $"{item.ItemId}:{item.Damage}";
-		}
-
-		return item.ItemId;
 	}
 
 	// TODO: Move this to a separate integration class to avoid circular dependencies

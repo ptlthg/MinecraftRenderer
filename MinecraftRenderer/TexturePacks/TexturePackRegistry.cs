@@ -68,7 +68,7 @@ public sealed class TexturePackRegistry
 			metaDescriptor.Name ?? metaDescriptor.Id!,
 			metaDescriptor.Version ?? "0.0.0",
 			metaDescriptor.Description ?? string.Empty,
-			metaDescriptor.Authors ?? Array.Empty<string>(),
+			metaDescriptor.Authors ?? [],
 			metaDescriptor.DownloadUrl)
 		{
 			SupportsCit = supportsCit,
