@@ -4,6 +4,23 @@
         <TargetFramework>net9.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <LangVersion>latest</LangVersion>
+        <AssemblyName>MinecraftRenderer</AssemblyName>
+        <RootNamespace>MinecraftRenderer</RootNamespace>
+        
+        <!-- Package metadata for local references and future NuGet publishing -->
+        <PackageId>MinecraftRenderer</PackageId>
+        <Version>1.0.0</Version>
+        <Authors>ptlthg</Authors>
+        <Description>A .NET library for rendering Minecraft blocks and items with support for custom texture packs, block models, and Hypixel Skyblock items.</Description>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <RepositoryUrl>https://github.com/ptlthg/MinecraftRenderer</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        
+        <!-- Ensure proper restore for project references -->
+        <IsPackable>true</IsPackable>
+        <ProduceReferenceAssembly>true</ProduceReferenceAssembly>
     </PropertyGroup>
 
     <ItemGroup>

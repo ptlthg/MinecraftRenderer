@@ -12,24 +12,56 @@
 
 ## Getting started
 
-1. Restore the solution and run the tests:
+### Option 1: Automatic Asset Download (Recommended)
 
-	```powershell
-	dotnet test
-	```
+The easiest way to get started is to download Minecraft assets automatically:
 
-2. Render a block from your own code:
+```csharp
+using MinecraftRenderer;
 
-	```csharp
-	using MinecraftRenderer;
+// Download and extract assets (requires accepting Minecraft's EULA)
+var assetsPath = await MinecraftAssetDownloader.DownloadAndExtractAssets(
+    version: "1.21.9",
+    acceptEula: true,
+    progress: new Progress<(int Percentage, string Status)>(p => 
+        Console.WriteLine($"[{p.Percentage}%] {p.Status}"))
+);
 
-	var dataPath = Path.Combine(Environment.CurrentDirectory, "minecraft");
+// Create renderer from downloaded assets
+using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(assetsPath);
+using var image = renderer.RenderBlock("stone", new MinecraftBlockRenderer.BlockRenderOptions(Size: 256));
+image.Save("stone.png");
+```
 
-	using var renderer = MinecraftBlockRenderer.CreateFromDataDirectory(dataPath);
-	using var image = renderer.RenderBlock("stone", new MinecraftBlockRenderer.BlockRenderOptions(Size: 256));
+**Note:** Minecraft assets are © Mojang Studios and subject to [Minecraft's EULA](https://www.minecraft.net/en-us/eula) and [Usage Guidelines](https://www.minecraft.net/en-us/usage-guidelines).
 
-	image.Save("stone.png");
-	```
+### Option 2: Manual Asset Setup
+
+1. Extract `client.jar` from Minecraft (unzip the jar file)
+2. Copy the `assets/minecraft/` directory to your project
+
+Then use the renderer:
+
+```csharp
+using MinecraftRenderer;
+
+var dataPath = Path.Combine(Environment.CurrentDirectory, "minecraft");
+using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(dataPath);
+using var image = renderer.RenderBlock("stone", new MinecraftBlockRenderer.BlockRenderOptions(Size: 256));
+image.Save("stone.png");
+```
+
+### Rendering Heads
+
+```csharp
+using MinecraftRenderer;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
+
+using var skin = Image.Load<Rgba32>("steve.png");
+var head = MinecraftHeadRenderer.RenderHead(new MinecraftHeadRenderer.RenderOptions(256, -35, 25, 0), skin);
+head.Save("head.png");
+```
 
 3. Render a head with the existing head renderer:
 
@@ -42,6 +74,39 @@
 	var head = MinecraftHeadRenderer.RenderHead(new MinecraftHeadRenderer.RenderOptions(256, -35, 25, 0), skin);
 	head.Save("head.png");
 	```
+
+## Minecraft Asset Management
+
+### Downloading Assets
+
+The `MinecraftAssetDownloader` class provides helper methods for working with Minecraft assets:
+
+```csharp
+// Get available versions
+var versions = await MinecraftAssetDownloader.GetAvailableVersions(includeSnapshots: false);
+Console.WriteLine($"Available versions: {string.Join(", ", versions.Take(5))}");
+
+// Get latest version
+var latestRelease = await MinecraftAssetDownloader.GetLatestVersion(snapshot: false);
+Console.WriteLine($"Latest release: {latestRelease}");
+
+// Download specific version
+var assetsPath = await MinecraftAssetDownloader.DownloadAndExtractAssets(
+    version: "1.21.9",
+    outputPath: "./minecraft",
+    acceptEula: true,
+    forceRedownload: false,
+    progress: new Progress<(int Percentage, string Status)>(p => 
+        Console.WriteLine($"[{p.Percentage}%] {p.Status}"))
+);
+```
+
+**Important Legal Notice:**
+- Minecraft assets are © Mojang Studios
+- You must accept [Minecraft's EULA](https://www.minecraft.net/en-us/eula) to download assets
+- Review [Minecraft's Usage Guidelines](https://www.minecraft.net/en-us/usage-guidelines) before use
+- This library does not redistribute Minecraft assets - it downloads them from official Mojang servers at runtime
+- The MinecraftRenderer library itself is licensed under MIT, but Minecraft assets remain the property of Mojang Studios
 
 ## Data files
 
@@ -140,6 +205,40 @@ The `TextureResolver` generates deterministic texture IDs that account for gems,
 - Custom textures: `custom:firmament/special_texture`
 
 These IDs can be used as cache keys or to look up models in texture packs.
+
+## Custom Skull Textures
+
+For player heads (particularly Hypixel Skyblock custom items), you can provide a custom texture resolver when the item NBT doesn't include profile data:
+
+```csharp
+var options = BlockRenderOptions.Default with
+{
+    Size = 256,
+    ItemData = new ItemRenderData(CustomData: customDataCompound),
+    SkullTextureResolver = (customDataId, profile) =>
+    {
+        // Look up texture by custom_data.id (e.g., from NEU ItemRepo)
+        if (customDataId == "JERRY_STAFF")
+        {
+            return "ewogICJ0aW1lc3RhbXAiIDogMTYzMzQ..."; // Base64 texture payload
+        }
+        return null; // Fall back to profile or default skin
+    }
+};
+
+using var image = renderer.RenderGuiItem("minecraft:player_head", options);
+```
+
+The resolver receives:
+- `customDataId`: The `custom_data.id` value (Skyblock item ID), if present
+- `profile`: The profile NBT compound, if present
+
+Return either:
+- Base64-encoded texture payload (standard Minecraft format)
+- Direct URL to `textures.minecraft.net`
+- `null` to fall back to profile data or default skin
+
+See [docs/skull-texture-resolver.md](docs/skull-texture-resolver.md) for integration examples with NEU ItemRepo and caching strategies.
 
 ## Running tests
 

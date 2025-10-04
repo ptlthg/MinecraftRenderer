@@ -781,6 +781,26 @@ public sealed partial class MinecraftBlockRenderer
 			return true;
 		}
 
+		// Try custom resolver first (for Skyblock items without profile data)
+		if (options.SkullTextureResolver is not null)
+		{
+			string? customDataId = null;
+			if (itemData?.CustomData is not null && TryGetString(itemData.CustomData, "id", out var idValue))
+			{
+				customDataId = idValue;
+			}
+			
+			var resolvedTexture = options.SkullTextureResolver(customDataId, itemData?.Profile);
+			if (!string.IsNullOrWhiteSpace(resolvedTexture))
+			{
+				if (TryLoadSkinFromTextureValue(resolvedTexture, out var resolvedSkin))
+				{
+					skin = resolvedSkin;
+					return true;
+				}
+			}
+		}
+
 		if (itemData?.Profile is not null)
 		{
 			if (TryGetProfileSkin(itemData.Profile, out var profileSkin))
@@ -941,6 +961,29 @@ public sealed partial class MinecraftBlockRenderer
 		}
 
 		return TryLoadSkinFromUrl(url, out skin);
+	}
+
+	/// <summary>
+	/// Loads a skin texture from a resolver-provided value.
+	/// The value can be either a base64-encoded texture payload or a direct URL.
+	/// </summary>
+	private bool TryLoadSkinFromTextureValue(string textureValue, out Image<Rgba32> skin)
+	{
+		skin = null!;
+
+		// Try to decode as base64 first (typical format from Skyblock repos)
+		if (TryDecodeSkinPayload(textureValue, out var decodedUrl))
+		{
+			return TryLoadSkinFromUrl(decodedUrl, out skin);
+		}
+
+		// Try as direct URL
+		if (Uri.TryCreate(textureValue, UriKind.Absolute, out _))
+		{
+			return TryLoadSkinFromUrl(textureValue, out skin);
+		}
+
+		return false;
 	}
 
 	private static bool TryExtractSkinUrl(NbtCompound profile, out string url)

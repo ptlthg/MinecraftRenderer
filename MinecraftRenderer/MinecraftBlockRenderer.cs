@@ -14,6 +14,14 @@ using MinecraftRenderer.TexturePacks;
 
 public sealed partial class MinecraftBlockRenderer : IDisposable
 {
+	/// <summary>
+	/// Resolves skull textures for player heads and custom skulls.
+	/// </summary>
+	/// <param name="customDataId">The custom_data.id value (e.g., Skyblock item ID), if present.</param>
+	/// <param name="profile">The profile NBT compound containing skin data, if present.</param>
+	/// <returns>A texture value string (base64 or URL), or null if no texture is available.</returns>
+	public delegate string? SkullTextureResolver(string? customDataId, NbtCompound? profile);
+
 	public record BlockRenderOptions(
 		int Size = 512,
 		float YawInDegrees = 0f,
@@ -26,7 +34,8 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		Vector3 AdditionalTranslation = default,
 		TransformDefinition? OverrideGuiTransform = null,
 		IReadOnlyList<string>? PackIds = null,
-		ItemRenderData? ItemData = null)
+		ItemRenderData? ItemData = null,
+		SkullTextureResolver? SkullTextureResolver = null)
 	{
 		public static BlockRenderOptions Default { get; } = new();
 	}
