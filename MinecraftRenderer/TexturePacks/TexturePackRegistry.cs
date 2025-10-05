@@ -98,6 +98,56 @@ public sealed class TexturePackRegistry
 		return registered;
 	}
 
+	/// <summary>
+	/// Registers every texture pack located under the specified root directory.
+	/// Directories without a <c>meta.json</c> file are ignored.
+	/// </summary>
+	/// <param name="rootDirectory">Root directory containing one or more texture pack folders.</param>
+	/// <param name="searchRecursively">When true, searches all subdirectories; otherwise only immediate children.</param>
+	/// <returns>A list of packs that were successfully registered.</returns>
+	public IReadOnlyList<RegisteredResourcePack> RegisterAllPacks(string rootDirectory,
+		bool searchRecursively = false)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(rootDirectory);
+		var fullRoot = Path.GetFullPath(rootDirectory);
+		if (!Directory.Exists(fullRoot))
+		{
+			throw new DirectoryNotFoundException(
+				$"Texture pack root directory not found: '{rootDirectory}'.");
+		}
+
+		var results = new List<RegisteredResourcePack>();
+		var searchOption = searchRecursively ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+
+		if (File.Exists(Path.Combine(fullRoot, "meta.json")))
+		{
+			results.Add(RegisterPack(fullRoot));
+		}
+
+		foreach (var candidate in Directory.EnumerateDirectories(fullRoot, "*", searchOption))
+		{
+			if (!File.Exists(Path.Combine(candidate, "meta.json")))
+			{
+				continue;
+			}
+
+			var registered = RegisterPack(candidate);
+			if (!results.Contains(registered))
+			{
+				results.Add(registered);
+			}
+		}
+
+		return results;
+	}
+
+	/// <summary>
+	/// Gets all texture packs that have been registered with this registry.
+	/// </summary>
+	/// <returns>An immutable snapshot of the registered texture packs.</returns>
+	public IReadOnlyCollection<RegisteredResourcePack> GetRegisteredPacks()
+		=> _packs.Values.ToArray();
+
 	public bool TryGetPack(string id, out RegisteredResourcePack pack)
 		=> _packs.TryGetValue(id, out pack!);
 

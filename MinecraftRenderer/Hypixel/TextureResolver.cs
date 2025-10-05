@@ -1,3 +1,8 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Text;
 using MinecraftRenderer.Nbt;
 using SixLabors.ImageSharp;
 
@@ -43,19 +48,119 @@ public static class TextureResolver
 
 			if (item.SkyblockId != null)
 			{
-				// For items with attributes (Kuudra armor, etc.), include them in the ID
-				if (item.Attributes == null || item.Attributes.Count <= 0)
-				{
-					return $"skyblock:{item.SkyblockId.ToLowerInvariant()}";
-				}
-
-				// Build a deterministic string from attributes
-				var attrs = string.Join(",", item.Attributes.Keys.OrderBy(k => k));
-				return $"skyblock:{item.SkyblockId.ToLowerInvariant()}?attrs={attrs}";
+				var descriptor = $"{HypixelPrefixes.Skyblock}{item.SkyblockId.ToLowerInvariant()}";
+				var query = BuildSkyblockQuery(item);
+				return string.IsNullOrEmpty(query) ? descriptor : $"{descriptor}?{query}";
 			}
 
 			// Fallback to Minecraft ID with damage for 1.8.9 items
 			return item.Damage != 0 ? $"{item.ItemId}:{item.Damage}" : item.ItemId;
+		}
+	}
+
+	private static string BuildSkyblockQuery(HypixelItemData item)
+	{
+		var parameters = new List<string>();
+		if (item.Attributes is { Count: > 0 })
+		{
+			var attrs = string.Join(",", item.Attributes.Keys.OrderBy(static key => key));
+			if (!string.IsNullOrEmpty(attrs))
+			{
+				parameters.Add($"attrs={attrs}");
+			}
+		}
+
+		var fallbackBase = DetermineSkyblockFallbackBase(item);
+		if (!string.IsNullOrWhiteSpace(fallbackBase))
+		{
+			parameters.Add($"base={fallbackBase}");
+		}
+
+		if (item.NumericId.HasValue)
+		{
+			parameters.Add($"numeric={item.NumericId.Value.ToString(CultureInfo.InvariantCulture)}");
+		}
+
+		return string.Join("&", parameters);
+	}
+
+	private static string? DetermineSkyblockFallbackBase(HypixelItemData item)
+	{
+		if (item.NumericId.HasValue && LegacyItemMappings.TryMapNumericId(item.NumericId.Value, out var mapped) &&
+		    !string.IsNullOrWhiteSpace(mapped))
+		{
+			return mapped;
+		}
+
+		if (!string.IsNullOrWhiteSpace(item.ItemId))
+		{
+			if (item.ItemId.StartsWith(HypixelPrefixes.Numeric, StringComparison.OrdinalIgnoreCase))
+			{
+				var numericSpan = item.ItemId.AsSpan(HypixelPrefixes.Numeric.Length);
+				if (short.TryParse(numericSpan, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numericBase) &&
+				    LegacyItemMappings.TryMapNumericId(numericBase, out var mapped1) &&
+				    !string.IsNullOrWhiteSpace(mapped1))
+				{
+					return mapped1;
+				}
+			}
+			
+			return item.ItemId;
+		}
+
+		return null;
+	}
+
+	/// <summary>
+	/// Decode a texture identifier produced by <see cref="GetTextureId"/> back to its raw descriptor string.
+	/// </summary>
+	/// <param name="textureId">The encoded texture identifier.</param>
+	/// <returns>The decoded descriptor string.</returns>
+	/// <exception cref="FormatException">Thrown when the texture id is not a valid Base64 string.</exception>
+	public static string DecodeTextureId(string textureId)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(textureId);
+		if (!TryDecodeTextureId(textureId, out var decoded))
+		{
+			throw new FormatException($"Texture id '{textureId}' is not a valid encoded identifier.");
+		}
+
+		return decoded;
+	}
+
+	/// <summary>
+	/// Try to decode an encoded texture identifier.
+	/// </summary>
+	/// <param name="textureId">The encoded texture identifier.</param>
+	/// <param name="decoded">Outputs the decoded descriptor when the method returns true.</param>
+	/// <returns>True when the identifier could be decoded successfully; otherwise false.</returns>
+	public static bool TryDecodeTextureId(string textureId, out string decoded)
+	{
+		decoded = string.Empty;
+		if (string.IsNullOrWhiteSpace(textureId))
+		{
+			return false;
+		}
+
+		var base64 = textureId
+			.Replace('-', '+')
+			.Replace('_', '/');
+
+		var padding = (4 - base64.Length % 4) % 4;
+		if (padding > 0)
+		{
+			base64 = base64.PadRight(base64.Length + padding, '=');
+		}
+
+		try
+		{
+			var bytes = Convert.FromBase64String(base64);
+			decoded = Encoding.UTF8.GetString(bytes);
+			return true;
+		}
+		catch (FormatException)
+		{
+			return false;
 		}
 	}
 

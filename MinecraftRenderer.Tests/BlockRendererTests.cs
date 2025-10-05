@@ -1,7 +1,8 @@
 using System.Collections;
-using System.Linq;
 using System.Numerics;
 using System.Reflection;
+using MinecraftRenderer.Hypixel;
+using MinecraftRenderer.Nbt;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Advanced;
 using SixLabors.ImageSharp.PixelFormats;
@@ -119,6 +120,31 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 		var horizontalSpan = maxX - minX;
 		Assert.True(horizontalSpan > bed.Width / 2,
 			$"White bed render should span more than half the image width, but spanned {horizontalSpan} pixels out of {bed.Width}.");
+	}
+
+	[Fact]
+	public void RenderSkyblockTextureIdFallsBackWhenNoTexturePack()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+
+		var extraAttributes = new NbtCompound(new[]
+		{
+			new KeyValuePair<string, NbtTag>("id", new NbtString("FUNGI_CUTTER"))
+		});
+		var tag = new NbtCompound(new[]
+		{
+			new KeyValuePair<string, NbtTag>("ExtraAttributes", extraAttributes)
+		});
+
+		var hypixelItem = new HypixelItemData($"{HypixelPrefixes.Numeric}294", Tag: tag);
+		var textureId = TextureResolver.GetTextureId(hypixelItem);
+
+		using var expected = renderer.RenderGuiItem("minecraft:golden_hoe");
+		using var actual = renderer.RenderGuiItemFromTextureId(textureId);
+
+		Assert.True(HasOpaquePixels(actual), "Skyblock fallback render should produce visible pixels.");
+		Assert.True(ImagesAreIdentical(expected, actual),
+			"Skyblock fallback render should match the base item when no texture pack is applied.");
 	}
 
 	[Fact]

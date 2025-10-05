@@ -2,6 +2,7 @@ namespace MinecraftRenderer;
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -14,16 +15,81 @@ using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
+using MinecraftRenderer.Hypixel;
 using MinecraftRenderer.Nbt;
 
 public sealed partial class MinecraftBlockRenderer
 {
+
+	/// <summary>
+	/// Renders a GUI item image for the specified item name.
+	/// </summary>
+	/// <param name="itemName"></param>
+	/// <param name="options"></param>
+	/// <returns></returns>
 	public Image<Rgba32> RenderGuiItem(string itemName, BlockRenderOptions? options = null)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(itemName);
 		var effectiveOptions = options ?? BlockRenderOptions.Default;
 		var renderer = ResolveRendererForOptions(effectiveOptions, out var forwardedOptions);
 		return renderer.RenderGuiItemInternal(itemName, forwardedOptions);
+	}
+
+	private Image<Rgba32> RenderGuiItemFromTextureIdInternal(string textureId, BlockRenderOptions options)
+	{
+		EnsureNotDisposed();
+		var trimmed = textureId.Trim();
+		var descriptor = TextureResolver.TryDecodeTextureId(trimmed, out var decoded)
+			? decoded.Trim()
+			: trimmed;
+
+		if (string.IsNullOrWhiteSpace(descriptor))
+		{
+			return RenderGuiItemInternal(trimmed, options);
+		}
+
+		if (descriptor.StartsWith("custom:", StringComparison.OrdinalIgnoreCase))
+		{
+			var payload = descriptor[7..];
+			if (TryRenderEmbeddedTexture(payload, options, payload, out var customRendered))
+			{
+				return customRendered;
+			}
+
+			return RenderGuiItemInternal(payload, options);
+		}
+
+		if (descriptor.StartsWith(HypixelPrefixes.Skyblock, StringComparison.OrdinalIgnoreCase))
+		{
+			return RenderSkyblockDescriptor(descriptor[HypixelPrefixes.Skyblock.Length..], options);
+		}
+
+		if (descriptor.StartsWith(HypixelPrefixes.LegacySkyblock, StringComparison.OrdinalIgnoreCase))
+		{
+			return RenderSkyblockDescriptor(descriptor[HypixelPrefixes.LegacySkyblock.Length..], options);
+		}
+
+		if (descriptor.StartsWith(HypixelPrefixes.Numeric, StringComparison.OrdinalIgnoreCase))
+		{
+			var numericPayload = descriptor[HypixelPrefixes.Numeric.Length..];
+			if (short.TryParse(numericPayload, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numericId) &&
+			    LegacyItemMappings.TryMapNumericId(numericId, out var mappedId))
+			{
+				return RenderGuiItemInternal(mappedId, options);
+			}
+		}
+
+		if (descriptor.StartsWith(HypixelPrefixes.LegacyNumeric, StringComparison.OrdinalIgnoreCase))
+		{
+			var numericPayload = descriptor[HypixelPrefixes.LegacyNumeric.Length..];
+			if (short.TryParse(numericPayload, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numericId) &&
+			    LegacyItemMappings.TryMapNumericId(numericId, out var mappedId))
+			{
+				return RenderGuiItemInternal(mappedId, options);
+			}
+		}
+
+		return RenderGuiItemInternal(descriptor, options);
 	}
 
 	private static readonly (string Suffix, string Replacement)[] InventoryModelSuffixes =
@@ -121,16 +187,17 @@ public sealed partial class MinecraftBlockRenderer
 
 		postScale = GetPostRenderScale(normalizedItemKey);
 
+		var shouldPreferHead = ShouldPreferPlayerHeadRenderer(itemName, model, modelCandidates, options,
+			out var preparedOptions);
+		options = preparedOptions;
+		if (shouldPreferHead &&
+		    TryRenderPlayerHead(itemName, model, modelCandidates, options, out var preferredHeadEarly))
+		{
+			return FinalizeGuiResult(preferredHeadEarly);
+		}
+
 		if (TryRenderGuiTextureLayers(itemName, itemInfo, model, options, out var flatRender))
 		{
-			var shouldPrefer = ShouldPreferPlayerHeadRenderer(itemName, model, modelCandidates, options);
-
-			if (shouldPrefer && TryRenderPlayerHead(itemName, model, modelCandidates, options, out var preferredHead))
-			{
-				flatRender.Dispose();
-				return FinalizeGuiResult(preferredHead);
-			}
-
 			return FinalizeGuiResult(flatRender);
 		}
 
@@ -165,6 +232,190 @@ public sealed partial class MinecraftBlockRenderer
 		}
 
 		return FinalizeGuiResult(RenderFallbackTexture(itemName, itemInfo, model, options));
+	}
+
+	private Image<Rgba32> RenderSkyblockDescriptor(string descriptorPayload, BlockRenderOptions options)
+	{
+		var (skyblockId, parameters) = ParseDescriptorPayload(descriptorPayload);
+		if (string.IsNullOrWhiteSpace(skyblockId))
+		{
+			return RenderGuiItemInternal("minecraft:player_head", options);
+		}
+
+		var mergedOptions = ApplySkyblockOverrides(options, skyblockId, parameters);
+		var firmamentModel = $"firmskyblock:item/{EncodeFirmamentId(skyblockId)}";
+		var hasTexturePack = mergedOptions.PackIds is { Count: > 0 };
+
+		if (hasTexturePack)
+		{
+			try
+			{
+				return RenderGuiItemInternal(firmamentModel, mergedOptions);
+			}
+			catch
+			{
+				// Fall through to fallback handling below
+			}
+		}
+
+		if (TryRenderSkyblockFallback(parameters, mergedOptions, out var fallback))
+		{
+			return fallback;
+		}
+
+		return RenderGuiItemInternal("minecraft:player_head", mergedOptions);
+	}
+
+	private static (string Identifier, Dictionary<string, string> Parameters) ParseDescriptorPayload(string payload)
+	{
+		var parameters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+		if (string.IsNullOrWhiteSpace(payload))
+		{
+			return (string.Empty, parameters);
+		}
+
+		var questionMarkIndex = payload.IndexOf('?');
+		if (questionMarkIndex < 0)
+		{
+			return (payload, parameters);
+		}
+
+		var identifier = payload[..questionMarkIndex];
+		var query = payload[(questionMarkIndex + 1)..];
+		foreach (var segment in query.Split('&', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+		{
+			var equalsIndex = segment.IndexOf('=');
+			if (equalsIndex < 0)
+			{
+				parameters[segment] = string.Empty;
+				continue;
+			}
+
+			var name = segment[..equalsIndex];
+			var value = segment[(equalsIndex + 1)..];
+			parameters[name] = value;
+		}
+
+		return (identifier, parameters);
+	}
+
+	private static BlockRenderOptions ApplySkyblockOverrides(BlockRenderOptions options, string skyblockId,
+		Dictionary<string, string> parameters)
+	{
+		var customEntries = new List<KeyValuePair<string, NbtTag>>
+		{
+			new("id", new NbtString(skyblockId.ToUpperInvariant()))
+		};
+
+		if (parameters.TryGetValue("attrs", out var attributeList) && !string.IsNullOrWhiteSpace(attributeList))
+		{
+			var attributePairs = attributeList
+				.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+				.Select(static name => new KeyValuePair<string, NbtTag>(name, new NbtString("1")));
+			var attributesCompound = new NbtCompound(attributePairs);
+			customEntries.Add(new KeyValuePair<string, NbtTag>("attributes", attributesCompound));
+		}
+
+		var customCompound = new NbtCompound(customEntries);
+		var mergedItemData = MergeItemRenderData(options.ItemData, customCompound);
+		return options with { ItemData = mergedItemData };
+	}
+
+	private bool TryRenderSkyblockFallback(Dictionary<string, string> parameters, BlockRenderOptions options,
+		out Image<Rgba32> fallback)
+	{
+		fallback = default!;
+
+		if (parameters.TryGetValue("base", out var baseItem) && !string.IsNullOrWhiteSpace(baseItem))
+		{
+			var normalizedBase = NormalizeSkyblockFallbackIdentifier(baseItem);
+			try
+			{
+				fallback = RenderGuiItemInternal(normalizedBase, options);
+				return true;
+			}
+			catch
+			{
+				// Ignore and attempt numeric fallback
+			}
+		}
+
+		if (parameters.TryGetValue("numeric", out var numericValue) &&
+		    short.TryParse(numericValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numericId) &&
+		    LegacyItemMappings.TryMapNumericId(numericId, out var mappedId) &&
+		    !string.IsNullOrWhiteSpace(mappedId))
+		{
+			try
+			{
+				fallback = RenderGuiItemInternal(mappedId, options);
+				return true;
+			}
+			catch
+			{
+				// Ignore and fall back to player head below
+			}
+		}
+
+		return false;
+	}
+
+	private static string NormalizeSkyblockFallbackIdentifier(string identifier)
+	{
+		if (identifier.StartsWith(HypixelPrefixes.Numeric, StringComparison.OrdinalIgnoreCase))
+		{
+			var numericSpan = identifier.AsSpan(HypixelPrefixes.Numeric.Length);
+			if (short.TryParse(numericSpan, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numericId) &&
+			    LegacyItemMappings.TryMapNumericId(numericId, out var mapped) &&
+			    !string.IsNullOrWhiteSpace(mapped))
+			{
+				return mapped;
+			}
+		}
+
+		if (identifier.StartsWith(HypixelPrefixes.LegacyNumeric, StringComparison.OrdinalIgnoreCase))
+		{
+			var numericSpan = identifier.AsSpan(HypixelPrefixes.LegacyNumeric.Length);
+			if (short.TryParse(numericSpan, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numericId) &&
+			    LegacyItemMappings.TryMapNumericId(numericId, out var mapped) &&
+			    !string.IsNullOrWhiteSpace(mapped))
+			{
+				return mapped;
+			}
+		}
+
+		return identifier;
+	}
+
+	private static ItemRenderData MergeItemRenderData(ItemRenderData? existing, NbtCompound customData)
+	{
+		if (existing is null)
+		{
+			return new ItemRenderData(CustomData: customData);
+		}
+
+		var mergedCustom = MergeCustomDataCompounds(existing.CustomData, customData);
+		return existing with { CustomData = mergedCustom };
+	}
+
+	private static NbtCompound MergeCustomDataCompounds(NbtCompound? existing, NbtCompound overrides)
+	{
+		if (existing is null)
+		{
+			return overrides;
+		}
+
+		var map = new Dictionary<string, NbtTag>(StringComparer.OrdinalIgnoreCase);
+		foreach (var kvp in existing)
+		{
+			map[kvp.Key] = kvp.Value;
+		}
+
+		foreach (var kvp in overrides)
+		{
+			map[kvp.Key] = kvp.Value;
+		}
+
+		return new NbtCompound(map.Select(static kvp => new KeyValuePair<string, NbtTag>(kvp.Key, kvp.Value)));
 	}
 
 	private (BlockModelInstance? Model, IReadOnlyList<string> Candidates, string? ResolvedModelName) ResolveItemModel(
@@ -562,12 +813,36 @@ public sealed partial class MinecraftBlockRenderer
 	}
 
 	private static bool ShouldPreferPlayerHeadRenderer(string itemName, BlockModelInstance? model,
-		IReadOnlyList<string> modelCandidates, BlockRenderOptions options)
+		IReadOnlyList<string> modelCandidates, BlockRenderOptions options, out BlockRenderOptions adjustedOptions)
 	{
+		adjustedOptions = options;
 		var itemData = options.ItemData;
-		if (itemData is null)
+		var resolver = options.SkullTextureResolver;
+		var hasResolver = resolver is not null;
+
+		if (hasResolver && (itemData?.CustomData is null ||
+		                   !TryGetHeadTextureOverride(itemData.CustomData, out _)))
 		{
-			return false;
+			string? customDataId = null;
+			if (itemData?.CustomData is not null && TryGetString(itemData.CustomData, "id", out var idValue))
+			{
+				customDataId = idValue;
+			}
+
+			var resolvedTextureValue = resolver!(customDataId, itemData?.Profile);
+			if (!string.IsNullOrWhiteSpace(resolvedTextureValue))
+			{
+				var resolverCompound = new NbtCompound([
+					new KeyValuePair<string, NbtTag>("texture", new NbtString(resolvedTextureValue!))
+				]);
+				var mergedCustom = MergeCustomDataCompounds(itemData?.CustomData, resolverCompound);
+				var updatedItemData = itemData is null
+					? new ItemRenderData(CustomData: mergedCustom)
+					: itemData with { CustomData = mergedCustom };
+
+				adjustedOptions = options with { ItemData = updatedItemData };
+				itemData = updatedItemData;
+			}
 		}
 
 		if (!string.Equals(NormalizeItemTextureKey(itemName), "player_head", StringComparison.OrdinalIgnoreCase))
@@ -575,15 +850,17 @@ public sealed partial class MinecraftBlockRenderer
 			return false;
 		}
 
-		var hasSkinSource = itemData.Profile is not null
-		                    || (itemData.CustomData is not null &&
-		                        TryGetHeadTextureOverride(itemData.CustomData, out _));
+		itemData = adjustedOptions.ItemData;
+		var hasSkinSource = (itemData?.Profile is not null)
+		                    || (itemData?.CustomData is not null &&
+		                        TryGetHeadTextureOverride(itemData.CustomData, out _))
+		                    || hasResolver;
 		if (!hasSkinSource)
 		{
 			return false;
 		}
 
-		if (HasExplicitFlatHeadOverride(model, modelCandidates, options))
+		if (HasExplicitFlatHeadOverride(model, modelCandidates, adjustedOptions))
 		{
 			return false;
 		}
@@ -595,10 +872,13 @@ public sealed partial class MinecraftBlockRenderer
 		IReadOnlyList<string> modelCandidates, BlockRenderOptions options)
 	{
 		var hasNonDefaultCandidate = HasNonDefaultPlayerHeadModelCandidate(modelCandidates);
+		var itemData = options.ItemData;
+		var hasProfileData = itemData?.Profile is not null;
+		var hasCustomTexture = itemData?.CustomData is { } customData && TryGetHeadTextureOverride(customData, out _);
 
-		// If we have Profile data and the model is still template_skull (default),
-		// it means no custom model was actually loaded. Prefer 3D profile rendering in this case.
-		if (options.ItemData?.Profile is not null &&
+		// If we have skin data (profile or explicit texture) and the resolved model is still template_skull (default),
+		// it means no custom model was actually loaded. Prefer 3D skin rendering in this case.
+		if ((hasProfileData || hasCustomTexture) &&
 		    hasNonDefaultCandidate &&
 		    ModelChainContainsTemplateSkull(model))
 		{

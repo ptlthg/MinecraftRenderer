@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using MinecraftRenderer.TexturePacks;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Advanced;
@@ -53,9 +55,13 @@ public sealed class TexturePackTests : IDisposable
 		Assert.Equal("testpack", packId.SourcePackId);
 	}
 
-	private string CreateTestPack(string id, Rgba32 color, IReadOnlyDictionary<string, Rgba32>? namespaceColors = null)
+	private string CreateTestPack(string id, Rgba32 color,
+		IReadOnlyDictionary<string, Rgba32>? namespaceColors = null,
+		string? rootOverride = null)
 	{
-		var packRoot = Path.Combine(_tempRoot, id);
+		var baseRoot = rootOverride ?? _tempRoot;
+		Directory.CreateDirectory(baseRoot);
+		var packRoot = Path.Combine(baseRoot, id);
 		Directory.CreateDirectory(packRoot);
 
 		File.WriteAllText(Path.Combine(packRoot, "meta.json"),
@@ -86,6 +92,31 @@ public sealed class TexturePackTests : IDisposable
 		}
 
 		return packRoot;
+	}
+
+	[Fact]
+	public void RegisterAllPacksRegistersPacksUnderRoot()
+	{
+		var packsRoot = Path.Combine(_tempRoot, "packs-root");
+		Directory.CreateDirectory(packsRoot);
+		var nestedRoot = Path.Combine(packsRoot, "nested");
+		Directory.CreateDirectory(nestedRoot);
+
+		CreateTestPack("top-pack", new Rgba32(10, 200, 240, 255), rootOverride: packsRoot);
+		CreateTestPack("nested-pack", new Rgba32(140, 50, 200, 255), rootOverride: nestedRoot);
+		Directory.CreateDirectory(Path.Combine(packsRoot, "ignore-me"));
+
+		var registry = TexturePackRegistry.Create();
+		var topLevel = registry.RegisterAllPacks(packsRoot);
+		Assert.Single(topLevel);
+		Assert.True(registry.TryGetPack("top-pack", out _));
+		Assert.False(registry.TryGetPack("nested-pack", out _));
+
+		var recursiveRegistry = TexturePackRegistry.Create();
+		var recursive = recursiveRegistry.RegisterAllPacks(packsRoot, searchRecursively: true);
+		Assert.Equal(2, recursive.Count);
+		Assert.True(recursiveRegistry.TryGetPack("top-pack", out _));
+		Assert.True(recursiveRegistry.TryGetPack("nested-pack", out _));
 	}
 
 	[Fact]
@@ -130,6 +161,27 @@ public sealed class TexturePackTests : IDisposable
 			$"Expected firmskyblock namespace to have lower priority than cittofirmgenerated (indexes {firmskyblockIndex} vs {cittoFirmGeneratedIndex}).");
 		Assert.True(cittoFirmGeneratedIndex < citIndex,
 			$"Expected cittofirmgenerated namespace to have lower priority than cit (indexes {cittoFirmGeneratedIndex} vs {citIndex}).");
+	}
+
+	[Fact]
+	public void PreloadRegisteredPacksCachesPackRenderers()
+	{
+		var packRoot = CreateTestPack("warmup-pack", new Rgba32(200, 120, 40, 255));
+		var registry = TexturePackRegistry.Create();
+		registry.RegisterPack(packRoot);
+
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory, registry);
+
+		var cacheField = typeof(MinecraftBlockRenderer).GetField("_packRendererCache",
+			BindingFlags.Instance | BindingFlags.NonPublic);
+		Assert.NotNull(cacheField);
+		var cache = (ConcurrentDictionary<string, MinecraftBlockRenderer>)cacheField!.GetValue(renderer)!;
+		Assert.Empty(cache);
+
+		renderer.PreloadRegisteredPacks();
+
+		var stack = registry.BuildPackStack(new[] { "warmup-pack" });
+		Assert.True(cache.ContainsKey(stack.Fingerprint));
 	}
 
 	private static void AssertFalseImageEqual(Image<Rgba32> baseline, Image<Rgba32> candidate)

@@ -118,4 +118,44 @@ public class HypixelInventoryParserTests
             Console.WriteLine($"  {id}");
         }
     }
+
+    [Fact]
+    public void SkyblockTextureIdIncludesFallbackMetadata()
+    {
+        var extraAttributes = new NbtCompound(new[]
+        {
+            new KeyValuePair<string, NbtTag>("id", new NbtString("FUNGI_CUTTER"))
+        });
+        var tag = new NbtCompound(new[]
+        {
+            new KeyValuePair<string, NbtTag>("ExtraAttributes", extraAttributes)
+        });
+
+        var item = new HypixelItemData("minecraft:golden_hoe", NumericId: 294, Tag: tag);
+        var textureId = TextureResolver.GetTextureId(item);
+
+        Assert.True(TextureResolver.TryDecodeTextureId(textureId, out var descriptor));
+    Assert.StartsWith($"{HypixelPrefixes.Skyblock}fungi_cutter", descriptor, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("base=minecraft:golden_hoe", descriptor, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("numeric=294", descriptor, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SkyblockTextureIdNormalizesNumericItemId()
+    {
+        var extraAttributes = new NbtCompound(new[]
+        {
+            new KeyValuePair<string, NbtTag>("id", new NbtString("FUNGI_CUTTER"))
+        });
+        var tag = new NbtCompound(new[]
+        {
+            new KeyValuePair<string, NbtTag>("ExtraAttributes", extraAttributes)
+        });
+
+    var item = new HypixelItemData($"{HypixelPrefixes.Numeric}293", Tag: tag);
+        var textureId = TextureResolver.GetTextureId(item);
+
+        Assert.True(TextureResolver.TryDecodeTextureId(textureId, out var descriptor));
+        Assert.Contains("base=minecraft:diamond_hoe", descriptor, StringComparison.OrdinalIgnoreCase);
+    }
 }

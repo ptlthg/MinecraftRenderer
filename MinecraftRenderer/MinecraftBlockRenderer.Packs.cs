@@ -74,7 +74,81 @@ public sealed partial class MinecraftBlockRenderer
 		}
 
 		var packStack = _packRegistry.BuildPackStack(packIds);
-		return _packRendererCache.GetOrAdd(packStack.Fingerprint, _ => CreatePackRenderer(packStack));
+		return GetRendererForPackStack(packStack);
+	}
+
+	private MinecraftBlockRenderer GetRendererForPackStack(TexturePackStack packStack)
+		=> _packRendererCache.GetOrAdd(packStack.Fingerprint, _ => CreatePackRenderer(packStack));
+
+	/// <summary>
+	/// Preloads renderers for the specified texture pack stacks, ensuring their assets are parsed before serving requests.
+	/// </summary>
+	/// <param name="packStacks">Sequences of pack identifiers representing each stack to preload.</param>
+	/// <exception cref="InvalidOperationException">
+	/// Thrown when this renderer doesn't have an associated texture pack registry and a non-empty pack stack is provided.
+	/// </exception>
+	public void PreloadTexturePackStacks(IEnumerable<IReadOnlyList<string>> packStacks)
+	{
+		EnsureNotDisposed();
+		ArgumentNullException.ThrowIfNull(packStacks);
+
+		if (_packRegistry is null)
+		{
+			foreach (var stack in packStacks)
+			{
+				if (stack is { Count: > 0 })
+				{
+					throw new InvalidOperationException(
+						"This renderer was created without a texture pack registry and cannot preload pack combinations.");
+				}
+			}
+
+			return;
+		}
+
+		var seenStacks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		foreach (var packIds in packStacks)
+		{
+			if (packIds is null || packIds.Count == 0)
+			{
+				continue;
+			}
+
+			var stack = _packRegistry.BuildPackStack(packIds);
+			if (!seenStacks.Add(stack.Fingerprint))
+			{
+				continue;
+			}
+
+			GetRendererForPackStack(stack);
+		}
+	}
+
+	/// <summary>
+	/// Preloads renderers for all registered texture packs, optionally including the renderer's default pack stack.
+	/// </summary>
+	/// <param name="includeDefaultPackStack">When true, also preloads the renderer for the default pack stack.</param>
+	public void PreloadRegisteredPacks(bool includeDefaultPackStack = true)
+	{
+		EnsureNotDisposed();
+
+		var stacksToPreload = new List<IReadOnlyList<string>>();
+		if (includeDefaultPackStack && _packContext.PackIds.Count > 0)
+		{
+			stacksToPreload.Add(_packContext.PackIds.ToArray());
+		}
+
+		if (_packRegistry is null)
+		{
+			return;
+		}
+
+		foreach (var pack in _packRegistry.GetRegisteredPacks())
+		{
+			stacksToPreload.Add(new[] { pack.Id });
+		}
+
+		PreloadTexturePackStacks(stacksToPreload);
 	}
 
 	private MinecraftBlockRenderer CreatePackRenderer(TexturePackStack packStack)

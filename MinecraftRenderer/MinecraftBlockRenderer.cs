@@ -316,6 +316,14 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		return renderer.RenderGuiItemInternal(itemName, forwardedOptions);
 	}
 
+	public Image<Rgba32> RenderGuiItemFromTextureId(string textureId, BlockRenderOptions? options = null)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(textureId);
+		var effectiveOptions = options ?? BlockRenderOptions.Default;
+		var renderer = ResolveRendererForOptions(effectiveOptions, out var forwardedOptions);
+		return renderer.RenderGuiItemFromTextureIdInternal(textureId, forwardedOptions);
+	}
+
 	public Image<Rgba32> RenderItemFromNbt(NbtDocument document, BlockRenderOptions? options = null)
 	{
 		ArgumentNullException.ThrowIfNull(document);

@@ -141,11 +141,11 @@ public static class InventoryParser
 			if (!string.IsNullOrEmpty(skyblockId))
 			{
 				// Return the Skyblock ID prefixed for later resolution
-				return $"skyblock:{skyblockId.ToLowerInvariant()}";
+				return $"{HypixelPrefixes.Skyblock}{skyblockId.ToLowerInvariant()}";
 			}
 
 			// Fallback: return numeric ID with prefix for later mapping
-			return $"minecraft.numeric:{numericId}";
+			return $"{HypixelPrefixes.Numeric}{numericId}";
 		}
 
 		// Unknown format, return as-is with minecraft namespace
