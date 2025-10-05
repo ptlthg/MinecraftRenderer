@@ -35,6 +35,22 @@ public sealed partial class MinecraftBlockRenderer
 		return renderer.RenderGuiItemInternal(itemName, forwardedOptions);
 	}
 
+	public RenderedResource RenderGuiItemWithResourceId(string itemName,
+		BlockRenderOptions? options = null)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(itemName);
+		var effectiveOptions = options ?? BlockRenderOptions.Default;
+		var renderer = ResolveRendererForOptions(effectiveOptions, out var forwardedOptions);
+		var capture = new ItemRenderCapture();
+		var image = renderer.RenderGuiItemInternal(itemName, forwardedOptions, capture);
+		var resourceTarget = string.IsNullOrWhiteSpace(capture.OriginalTarget)
+			? itemName.Trim()
+			: capture.OriginalTarget;
+		var idOptions = capture.FinalOptions ?? forwardedOptions;
+		var resourceId = renderer.ComputeResourceIdInternal(resourceTarget, idOptions, capture.ToResolution());
+		return new RenderedResource(image, resourceId);
+	}
+
 	private Image<Rgba32> RenderGuiItemFromTextureIdInternal(string textureId, BlockRenderOptions options)
 	{
 		EnsureNotDisposed();
@@ -139,17 +155,28 @@ public sealed partial class MinecraftBlockRenderer
 			["wolf_armor_dyed"] = new[] { 1 }
 		};
 
-	private Image<Rgba32> RenderGuiItemInternal(string itemName, BlockRenderOptions options)
+	private Image<Rgba32> RenderGuiItemInternal(string itemName, BlockRenderOptions options,
+		ItemRenderCapture? capture = null)
 	{
 		options = options with { Padding = 0f };
 		EnsureNotDisposed();
 
 		var normalizedItemKey = NormalizeItemTextureKey(itemName);
+		if (capture is not null)
+		{
+			capture.OriginalTarget = itemName.Trim();
+			capture.NormalizedItemKey = normalizedItemKey;
+		}
 		var alignToBottom = ShouldAlignGuiItemToBottom(normalizedItemKey);
 		float? postScale = null;
 
 		Image<Rgba32> FinalizeGuiResult(Image<Rgba32> image)
 		{
+			if (capture is not null)
+			{
+				capture.FinalOptions = options;
+			}
+
 			if (postScale.HasValue)
 			{
 				ApplyCenteredScale(image, postScale.Value);
@@ -168,9 +195,19 @@ public sealed partial class MinecraftBlockRenderer
 		{
 			// Use normalized item key for registry lookup to match how ComputeResourceId works
 			_itemRegistry.TryGetInfo(normalizedItemKey, out itemInfo);
+			if (capture is not null)
+			{
+				capture.ItemInfo = itemInfo;
+			}
 		}
 
-		var (model, modelCandidates, _) = ResolveItemModel(normalizedItemKey, itemInfo, options);
+		var (model, modelCandidates, resolvedModelName) = ResolveItemModel(normalizedItemKey, itemInfo, options);
+		if (capture is not null)
+		{
+			capture.Model = model;
+			capture.ModelCandidates = modelCandidates;
+			capture.ResolvedModelName = resolvedModelName;
+		}
 		if (options.OverrideGuiTransform is null && options.UseGuiTransform && model is not null)
 		{
 			var guiOverride = model.GetDisplayTransform("gui");

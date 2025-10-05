@@ -184,6 +184,89 @@ public sealed class TexturePackTests : IDisposable
 		Assert.True(cache.ContainsKey(stack.Fingerprint));
 	}
 
+	[Fact]
+	public void ComputeResourceIdRemainsStableAcrossRepeatedCalls()
+	{
+		var packRoot = CreateTestPack("stable-pack", new Rgba32(180, 80, 200, 255));
+		var registry = TexturePackRegistry.Create();
+		registry.RegisterPack(packRoot);
+
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory, registry);
+
+		var vanillaFirst = renderer.ComputeResourceId("stone");
+		var vanillaSecond = renderer.ComputeResourceId("stone");
+		Assert.Equal(vanillaFirst.ResourceId, vanillaSecond.ResourceId);
+		Assert.Equal(vanillaFirst.PackStackHash, vanillaSecond.PackStackHash);
+		Assert.Equal(vanillaFirst.SourcePackId, vanillaSecond.SourcePackId);
+
+		var packOptions = MinecraftBlockRenderer.BlockRenderOptions.Default with
+		{
+			PackIds = new[] { "stable-pack" }
+		};
+
+		var packFirst = renderer.ComputeResourceId("stone", packOptions);
+		var packSecond = renderer.ComputeResourceId("stone", packOptions);
+		Assert.Equal(packFirst.ResourceId, packSecond.ResourceId);
+		Assert.Equal(packFirst.PackStackHash, packSecond.PackStackHash);
+		Assert.Equal(packFirst.SourcePackId, packSecond.SourcePackId);
+
+		var itemFirst = renderer.ComputeResourceId("minecraft:diamond_sword");
+		var itemSecond = renderer.ComputeResourceId("minecraft:diamond_sword");
+		Assert.Equal(itemFirst.ResourceId, itemSecond.ResourceId);
+
+		Assert.NotEqual(vanillaFirst.ResourceId, packFirst.ResourceId);
+		Assert.NotEqual(vanillaFirst.PackStackHash, packFirst.PackStackHash);
+		Assert.NotEqual(vanillaFirst.SourcePackId, packFirst.SourcePackId);
+	}
+
+	[Fact]
+	public void RenderGuiItemWithResourceIdMatchesSeparateOperations()
+	{
+		var packRoot = CreateTestPack("combined-id-pack", new Rgba32(90, 140, 200, 255));
+		var registry = TexturePackRegistry.Create();
+		registry.RegisterPack(packRoot);
+
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory, registry);
+
+		var baselineOptions = MinecraftBlockRenderer.BlockRenderOptions.Default with
+		{
+			Size = 128
+		};
+
+		var packOptions = baselineOptions with
+		{
+			PackIds = new[] { "combined-id-pack" }
+		};
+
+		var tintedOptions = baselineOptions with
+		{
+			ItemData = new MinecraftBlockRenderer.ItemRenderData(
+				Layer0Tint: new Color(new Rgba32(80, 25, 180, 255)))
+		};
+
+		var testCases = new[]
+		{
+			("minecraft:diamond_sword", baselineOptions),
+			("minecraft:diamond_sword", packOptions),
+			("minecraft:leather_boots", tintedOptions)
+		};
+
+		foreach (var (target, testOptions) in testCases)
+		{
+			using var combined = renderer.RenderGuiItemWithResourceId(target, testOptions);
+			using var separateImage = renderer.RenderGuiItem(target, testOptions);
+			var resourceId = renderer.ComputeResourceId(target, testOptions);
+
+			AssertImagesEqual(separateImage, combined.Image);
+
+			Assert.Equal(resourceId.ResourceId, combined.ResourceId.ResourceId);
+			Assert.Equal(resourceId.PackStackHash, combined.ResourceId.PackStackHash);
+			Assert.Equal(resourceId.SourcePackId, combined.ResourceId.SourcePackId);
+			Assert.Equal(resourceId.Model, combined.ResourceId.Model);
+			Assert.Equal(resourceId.Textures, combined.ResourceId.Textures);
+		}
+	}
+
 	private static void AssertFalseImageEqual(Image<Rgba32> baseline, Image<Rgba32> candidate)
 	{
 		bool PixelsEqual(Image<Rgba32> a, Image<Rgba32> b)
@@ -207,6 +290,19 @@ public sealed class TexturePackTests : IDisposable
 		}
 
 		Assert.False(PixelsEqual(baseline, candidate), "Expected images rendered with texture pack to differ from vanilla render.");
+	}
+
+	private static void AssertImagesEqual(Image<Rgba32> expected, Image<Rgba32> actual)
+	{
+		Assert.Equal(expected.Width, actual.Width);
+		Assert.Equal(expected.Height, actual.Height);
+
+		for (var y = 0; y < expected.Height; y++)
+		{
+			var expectedRow = expected.DangerousGetPixelRowMemory(y).Span;
+			var actualRow = actual.DangerousGetPixelRowMemory(y).Span;
+			Assert.True(expectedRow.SequenceEqual(actualRow), $"Pixel mismatch at row {y}");
+		}
 	}
 
 	public void Dispose()

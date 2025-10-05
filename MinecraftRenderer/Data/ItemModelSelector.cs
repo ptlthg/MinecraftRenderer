@@ -86,7 +86,7 @@ internal sealed class ItemModelSelectorCondition(
 
 		if (string.Equals(Property, "selected", StringComparison.OrdinalIgnoreCase))
 		{
-			return ValueLiteral is not null && string.Equals(ValueLiteral, "true", StringComparison.OrdinalIgnoreCase);
+			return false; //ValueLiteral is not null && string.Equals(ValueLiteral, "true", StringComparison.OrdinalIgnoreCase);
 		}
 
 		return false;

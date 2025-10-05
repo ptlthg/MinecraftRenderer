@@ -4,6 +4,7 @@ using System.Text;
 using MinecraftRenderer.Assets;
 using MinecraftRenderer.Nbt;
 using MinecraftRenderer.TexturePacks;
+using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
 namespace MinecraftRenderer;
@@ -14,6 +15,23 @@ public sealed partial class MinecraftBlockRenderer
 	{
 		public string? Model { get; init; }
 		public IReadOnlyList<string> Textures { get; init; } = [];
+	}
+
+	public sealed class RenderedResource : IDisposable
+	{
+		public RenderedResource(Image<Rgba32> image, ResourceIdResult resourceId)
+		{
+			Image = image ?? throw new ArgumentNullException(nameof(image));
+			ResourceId = resourceId ?? throw new ArgumentNullException(nameof(resourceId));
+		}
+
+		public Image<Rgba32> Image { get; }
+		public ResourceIdResult ResourceId { get; }
+
+		public void Dispose()
+		{
+			Image.Dispose();
+		}
 	}
 
 	private const string VanillaPackId = "vanilla";
@@ -184,7 +202,8 @@ public sealed partial class MinecraftBlockRenderer
 		return renderer.ComputeResourceIdInternal(target, forwardedOptions);
 	}
 
-	private ResourceIdResult ComputeResourceIdInternal(string target, BlockRenderOptions options)
+	private ResourceIdResult ComputeResourceIdInternal(string target, BlockRenderOptions options,
+		ItemModelResolution? preResolvedItem = null)
 	{
 		EnsureNotDisposed();
 
@@ -204,6 +223,15 @@ public sealed partial class MinecraftBlockRenderer
 		ItemRegistry.ItemInfo? itemInfo = null;
 		var hasItemRegistry = _itemRegistry is not null;
 		var hasItemInfo = hasItemRegistry && _itemRegistry!.TryGetInfo(lookupTarget, out itemInfo);
+		if (preResolvedItem is not null &&
+		    string.Equals(preResolvedItem.LookupTarget, lookupTarget, StringComparison.OrdinalIgnoreCase))
+		{
+			if (preResolvedItem.ItemInfo is not null)
+			{
+				itemInfo = preResolvedItem.ItemInfo;
+				hasItemInfo = true;
+			}
+		}
 		var shouldTreatAsItem = hasItemRegistry && (hasItemInfo || options.ItemData is not null);
 
 		void ProcessItem(ItemRegistry.ItemInfo? info)
@@ -225,9 +253,23 @@ public sealed partial class MinecraftBlockRenderer
 			IReadOnlyList<string>? modelCandidates = null;
 			string? resolvedModelName = null;
 
-			// Always use ResolveItemModel for consistent resolution logic
-			// (it handles selectors, Firmament models, and all other item model types)
-			(effectiveModel, modelCandidates, resolvedModelName) = ResolveItemModel(lookupTarget, info, options);
+			if (preResolvedItem is not null &&
+			    string.Equals(preResolvedItem.LookupTarget, lookupTarget, StringComparison.OrdinalIgnoreCase))
+			{
+				effectiveModel = preResolvedItem.Model;
+				modelCandidates = preResolvedItem.ModelCandidates;
+				resolvedModelName = preResolvedItem.ResolvedModelName;
+				if (preResolvedItem.ItemInfo is not null)
+				{
+					info = preResolvedItem.ItemInfo;
+				}
+			}
+			else
+			{
+				// Always use ResolveItemModel for consistent resolution logic
+				// (it handles selectors, Firmament models, and all other item model types)
+				(effectiveModel, modelCandidates, resolvedModelName) = ResolveItemModel(lookupTarget, info, options);
+			}
 			effectiveModelIdentifier = resolvedModelName ?? effectiveModel?.Name;
 
 			if (effectiveModel is null && !string.IsNullOrWhiteSpace(resolvedModelName))
@@ -349,6 +391,30 @@ public sealed partial class MinecraftBlockRenderer
 		}
 
 		return string.Join(',', textures.OrderBy(static t => t, StringComparer.OrdinalIgnoreCase));
+	}
+
+	private sealed record ItemModelResolution(string LookupTarget, ItemRegistry.ItemInfo? ItemInfo,
+		BlockModelInstance? Model, IReadOnlyList<string>? ModelCandidates, string? ResolvedModelName);
+
+	private sealed class ItemRenderCapture
+	{
+		public string OriginalTarget { get; set; } = string.Empty;
+		public string NormalizedItemKey { get; set; } = string.Empty;
+		public ItemRegistry.ItemInfo? ItemInfo { get; set; }
+		public BlockModelInstance? Model { get; set; }
+		public IReadOnlyList<string>? ModelCandidates { get; set; }
+		public string? ResolvedModelName { get; set; }
+		public BlockRenderOptions FinalOptions { get; set; }
+
+		public ItemModelResolution? ToResolution()
+		{
+			if (string.IsNullOrWhiteSpace(NormalizedItemKey))
+			{
+				return null;
+			}
+
+			return new ItemModelResolution(NormalizedItemKey, ItemInfo, Model, ModelCandidates, ResolvedModelName);
+		}
 	}
 
 	private static IReadOnlyCollection<string> CollectResolvedTextures(BlockModelInstance model)
