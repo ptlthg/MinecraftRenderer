@@ -494,11 +494,11 @@ public sealed class TextureRepository : IDisposable
 				return null;
 			}
 
-			var defaultFrameTime = 1;
+			var defaultFrameTime = 1f;
 			if (animationElement.TryGetProperty("frametime", out var frametimeProperty) &&
 			    frametimeProperty.ValueKind == JsonValueKind.Number)
 			{
-				defaultFrameTime = Math.Max(frametimeProperty.GetInt32(), 1);
+				defaultFrameTime = Math.Max(frametimeProperty.GetSingle(), 1f);
 			}
 
 			var explicitFrames = ExtractFrameSequence(animationElement, defaultFrameTime);
@@ -537,7 +537,7 @@ public sealed class TextureRepository : IDisposable
 				}
 
 				var frameImage = spriteSheet.Clone(ctx => ctx.Crop(new Rectangle(x, y, frameWidth, frameHeightValue)));
-				var durationMs = Math.Max(50, descriptor.FrameTime * 50);
+				var durationMs = Math.Max(50, (int)(descriptor.FrameTime * 50));
 				frames.Add(new TextureAnimationFrame(normalizedIndex, frameImage, durationMs));
 			}
 
@@ -562,7 +562,7 @@ public sealed class TextureRepository : IDisposable
 	}
 
 	private static IReadOnlyList<AnimationFrameDescriptor> ExtractFrameSequence(JsonElement animationElement,
-		int defaultFrameTime)
+		float defaultFrameTime)
 	{
 		if (!animationElement.TryGetProperty("frames", out var framesElement) ||
 		    framesElement.ValueKind != JsonValueKind.Array)
@@ -603,7 +603,7 @@ public sealed class TextureRepository : IDisposable
 		return frames;
 	}
 
-	private static IReadOnlyList<AnimationFrameDescriptor> BuildSequentialFrames(int frameCount, int defaultFrameTime)
+	private static IReadOnlyList<AnimationFrameDescriptor> BuildSequentialFrames(int frameCount, float defaultFrameTime)
 	{
 		if (frameCount <= 0)
 		{
@@ -811,7 +811,7 @@ public sealed class TextureRepository : IDisposable
 			.Select(static kvp => $"{kvp.Key}:{kvp.Value.FrameIndex}"));
 	}
 
-	private sealed record AnimationFrameDescriptor(int Index, int FrameTime);
+	private sealed record AnimationFrameDescriptor(int Index, float FrameTime);
 
 	internal sealed class TextureAnimation
 	{
