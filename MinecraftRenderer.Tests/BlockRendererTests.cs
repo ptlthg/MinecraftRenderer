@@ -148,6 +148,26 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 	}
 
 	[Fact]
+	public void RenderItemFromReconstructedNbtMatchesDirectRender()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 64 };
+
+		using var expected = renderer.RenderItem("minecraft:diamond_sword", options);
+
+		var nbt = new NbtCompound(new[]
+		{
+			new KeyValuePair<string, NbtTag>("id", new NbtString("minecraft:diamond_sword")),
+			new KeyValuePair<string, NbtTag>("Count", new NbtByte((sbyte)1))
+		});
+
+		using var actual = renderer.RenderItemFromNbt(nbt, options);
+
+		Assert.True(ImagesAreIdentical(expected, actual),
+			"Rendering from a reconstructed NBT payload should match the direct item render.");
+	}
+
+	[Fact]
 	public void DefaultInventoryOrientationShowsFrontOnRight()
 	{
 		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);

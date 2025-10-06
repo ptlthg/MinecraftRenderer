@@ -61,6 +61,15 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 
 			return null;
 		}
+
+		public bool IsDefault()
+		{
+			return Layer0Tint is null
+			       && (AdditionalLayerTints is null || AdditionalLayerTints.Count == 0)
+			       && !DisableDefaultLayer0Tint
+			       && CustomData is null
+			       && Profile is null;
+		}
 	}
 
 	public static bool DebugDisableCulling = false;

@@ -5,6 +5,10 @@ using MinecraftRenderer.Assets;
 using MinecraftRenderer.Nbt;
 using MinecraftRenderer.TexturePacks;
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Gif;
+using SixLabors.ImageSharp.Formats.Png;
+using SixLabors.ImageSharp.Formats.Webp;
+using SixLabors.ImageSharp.Metadata;
 using SixLabors.ImageSharp.PixelFormats;
 
 namespace MinecraftRenderer;
@@ -31,6 +35,120 @@ public sealed partial class MinecraftBlockRenderer
 		public void Dispose()
 		{
 			Image.Dispose();
+		}
+	}
+
+	public sealed class AnimatedRenderedResource : IDisposable
+	{
+		public sealed class AnimationFrame : IDisposable
+		{
+			internal AnimationFrame(Image<Rgba32> image, int durationMs)
+			{
+				Image = image ?? throw new ArgumentNullException(nameof(image));
+				DurationMs = durationMs;
+			}
+
+			public Image<Rgba32> Image { get; }
+			public int DurationMs { get; }
+
+			public void Dispose()
+			{
+				Image.Dispose();
+			}
+		}
+
+		public AnimatedRenderedResource(ResourceIdResult resourceId, IReadOnlyList<AnimationFrame> frames)
+		{
+			ResourceId = resourceId ?? throw new ArgumentNullException(nameof(resourceId));
+			Frames = frames ?? throw new ArgumentNullException(nameof(frames));
+			if (Frames.Count == 0)
+			{
+				throw new ArgumentException("At least one animation frame is required.", nameof(frames));
+			}
+		}
+
+		public ResourceIdResult ResourceId { get; }
+		public IReadOnlyList<AnimationFrame> Frames { get; }
+
+		public void SaveAsGif(string path)
+		{
+			ArgumentException.ThrowIfNullOrWhiteSpace(path);
+			using var image = BuildAnimatedImage(ApplyGifMetadata);
+			var metadata = image.Metadata.GetGifMetadata();
+			metadata.RepeatCount = 0;
+			image.Save(path, new GifEncoder());
+		}
+
+		public void SaveAsAnimatedPng(string path)
+		{
+			ArgumentException.ThrowIfNullOrWhiteSpace(path);
+			using var image = BuildAnimatedImage(ApplyPngMetadata);
+			var metadata = image.Metadata.GetPngMetadata();
+			metadata.AnimateRootFrame = true;
+			metadata.RepeatCount = 0;
+			image.Save(path, new PngEncoder());
+		}
+
+		public void SaveAsWebp(string path)
+		{
+			ArgumentException.ThrowIfNullOrWhiteSpace(path);
+			using var image = BuildAnimatedImage(ApplyWebpMetadata);
+			var metadata = image.Metadata.GetWebpMetadata();
+			metadata.RepeatCount = 0;
+			var encoder = new WebpEncoder
+			{
+				FileFormat = WebpFileFormatType.Lossless,
+				Quality = 100,
+				Method = WebpEncodingMethod.BestQuality,
+				TransparentColorMode = WebpTransparentColorMode.Preserve
+			};
+			image.Save(path, encoder);
+		}
+
+		private Image<Rgba32> BuildAnimatedImage(Action<ImageFrame<Rgba32>, AnimationFrame> applyFrameMetadata)
+		{
+			var baseImage = Frames[0].Image.Clone();
+			applyFrameMetadata(baseImage.Frames.RootFrame, Frames[0]);
+
+			for (var i = 1; i < Frames.Count; i++)
+			{
+				var clone = Frames[i].Image.Clone();
+				baseImage.Frames.AddFrame(clone.Frames.RootFrame);
+				clone.Dispose();
+				var targetFrame = baseImage.Frames[^1];
+				applyFrameMetadata(targetFrame, Frames[i]);
+			}
+
+			return baseImage;
+		}
+
+		private static void ApplyGifMetadata(ImageFrame<Rgba32> frame, AnimationFrame source)
+		{
+			var gifMetadata = frame.Metadata.GetGifMetadata();
+			gifMetadata.DisposalMethod = GifDisposalMethod.RestoreToBackground;
+			gifMetadata.FrameDelay = Math.Max(1, (int)Math.Round(source.DurationMs / 10f));
+		}
+
+		private static void ApplyPngMetadata(ImageFrame<Rgba32> frame, AnimationFrame source)
+		{
+			var pngMetadata = frame.Metadata.GetPngMetadata();
+			pngMetadata.DisposalMethod = PngDisposalMethod.RestoreToBackground;
+			pngMetadata.FrameDelay = Rational.FromDouble(Math.Max(1, (int)Math.Round(source.DurationMs / 10f)));
+		}
+
+		private static void ApplyWebpMetadata(ImageFrame<Rgba32> frame, AnimationFrame source)
+		{
+			var webpMetadata = frame.Metadata.GetWebpMetadata();
+			webpMetadata.DisposalMethod = WebpDisposalMethod.RestoreToBackground;
+			webpMetadata.FrameDelay = (uint) Math.Max(1, source.DurationMs);
+		}
+
+		public void Dispose()
+		{
+			foreach (var frame in Frames)
+			{
+				frame.Dispose();
+			}
 		}
 	}
 

@@ -204,7 +204,12 @@ public static class SnbtItemAtlasGenerator
 									                     throw new InvalidOperationException(
 										                     "SNBT root unexpectedly null.");
 									using var tile = renderer.RenderItemFromNbt(renderCompound, itemOptions);
-									tile.Mutate(ctx => ctx.Resize(tileSize, tileSize));
+									tile.Mutate(ctx => ctx.Resize(new ResizeOptions
+									{
+										Size = new Size(tileSize, tileSize),
+										Sampler = KnownResamplers.NearestNeighbor,
+										Mode = ResizeMode.Stretch
+									}));
 									canvas.Mutate(ctx =>
 										ctx.DrawImage(tile, new Point(col * tileSize, row * tileSize), 1f));
 								}

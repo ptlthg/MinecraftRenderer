@@ -77,6 +77,12 @@ dotnet run --project CreateAtlases/CreateAtlases.csproj -- --snbt-dir snbt-test-
 
 SNBT atlases are written to an `atlases/snbt/` subfolder alongside the standard block/item output, and their manifests include any per-item parsing or render errors.
 
+Need to export animated GUI items? Add `--animated-formats` with any combination of `gif`, `apng`, or `webp` to mirror the per-item animation frames from `.mcmeta` files. Outputs land under an `animated/` subdirectory (or a custom path via `--animated-output`), grouped by view and texture pack, and a manifest listing frame timings is generated automatically.
+
+```powershell
+dotnet run --project CreateAtlases/CreateAtlases.csproj -- --views front --animated-formats gif,webp
+```
+
 Prefer to drive it from code? Use the generator API directly:
 
 ```csharp

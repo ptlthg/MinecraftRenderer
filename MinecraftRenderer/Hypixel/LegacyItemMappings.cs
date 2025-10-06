@@ -16,53 +16,180 @@ public static class LegacyItemMappings
 	/// <returns><see langword="true"/> when the mapping exists; otherwise <see langword="false"/>.</returns>
 	public static bool TryMapNumericId(short numericId, out string itemId)
 	{
+		return TryMapNumericId(numericId, 0, out itemId);
+	}
+
+	/// <summary>
+	/// Try to map a legacy (1.8.9-style) numeric item identifier to a modern namespaced item id considering the item "damage" value.
+	/// </summary>
+	/// <param name="numericId">The numeric identifier.</param>
+	/// <param name="damage">The item "damage" value</param>
+	/// <param name="itemId">The resulting item id when found.</param>
+	/// <returns><see langword="true"/> when the mapping exists; otherwise <see langword="false"/>.</returns>
+	public static bool TryMapNumericId(short numericId, short damage, out string itemId)
+	{
 		itemId = numericId switch
 		{
 			0 => "minecraft:air",
-			1 => "minecraft:stone",
+			1 => damage switch
+			{
+				1 => "minecraft:granite",
+				2 => "minecraft:polished_granite",
+				3 => "minecraft:diorite",
+				4 => "minecraft:polished_diorite",
+				5 => "minecraft:andesite",
+				6 => "minecraft:polished_andesite",
+				_ => "minecraft:stone"
+			},
 			2 => "minecraft:grass",
-			3 => "minecraft:dirt",
+			3 => damage switch
+			{
+				1 => "minecraft:coarse_dirt",
+				2 => "minecraft:podzol",
+				_ => "minecraft:dirt"
+			},
 			4 => "minecraft:cobblestone",
-			5 => "minecraft:planks",
-			6 => "minecraft:sapling",
+			5 => damage switch
+			{
+				1 => "minecraft:spruce_planks",
+				2 => "minecraft:birch_planks",
+				3 => "minecraft:jungle_planks",
+				4 => "minecraft:acacia_planks",
+				5 => "minecraft:dark_oak_planks",
+				_ => "minecraft:oak_planks"
+			},
+			6 => damage switch
+			{
+				1 => "minecraft:spruce_sapling",
+				2 => "minecraft:birch_sapling",
+				3 => "minecraft:jungle_sapling",
+				4 => "minecraft:acacia_sapling",
+				5 => "minecraft:dark_oak_sapling",
+				_ => "minecraft:oak_sapling"
+			},
 			7 => "minecraft:bedrock",
 			8 => "minecraft:flowing_water",
 			9 => "minecraft:water",
 			10 => "minecraft:flowing_lava",
 			11 => "minecraft:lava",
-			12 => "minecraft:sand",
+			12 => damage switch
+			{
+				1 => "minecraft:red_sand",
+				_ => "minecraft:sand",
+			},
 			13 => "minecraft:gravel",
 			14 => "minecraft:gold_ore",
 			15 => "minecraft:iron_ore",
 			16 => "minecraft:coal_ore",
-			17 => "minecraft:log",
-			18 => "minecraft:leaves",
-			19 => "minecraft:sponge",
+			17 => damage switch
+			{
+				1 or 5 or 9 => "minecraft:spruce_log",
+				2 or 6 or 10 => "minecraft:birch_log",
+				3 or 7 or 11 => "minecraft:jungle_log",
+				13 => "minecraft:spruce_wood",
+				14 => "minecraft:birch_wood",
+				15 => "minecraft:jungle_wood",
+				_ => "minecraft:oak_log"
+			},
+			18 => damage switch
+			{ 
+				1 => "minecraft:spruce_leaves",
+				2 => "minecraft:birch_leaves",
+				3 => "minecraft:jungle_leaves",
+				_ => "minecraft:oak_leaves",
+			},
+			19 => damage switch
+			{ 
+				1 => "minecraft:wet_sponge",
+				_ => "minecraft:sponge",
+			},
 			20 => "minecraft:glass",
 			21 => "minecraft:lapis_ore",
 			22 => "minecraft:lapis_block",
 			23 => "minecraft:dispenser",
-			24 => "minecraft:sandstone",
-			25 => "minecraft:noteblock",
+			24 => damage switch
+			{ 
+				1 => "minecraft:cut_sandstone",
+				2 => "minecraft:chiseled_sandstone",
+				3 => "minecraft:smooth_sandstone",
+				_ => "minecraft:sandstone",
+			},
+			25 => "minecraft:note_block",
 			26 => "minecraft:red_bed",
 			27 => "minecraft:golden_rail",
 			28 => "minecraft:detector_rail",
 			29 => "minecraft:sticky_piston",
-			30 => "minecraft:web",
-			31 => "minecraft:tallgrass",
-			32 => "minecraft:deadbush",
+			30 => "minecraft:cobweb",
+			31 => damage switch
+			{ 
+				1 => "minecraft:tall_grass",
+				2 => "minecraft:fern",
+				_ => "minecraft:dead_bush",
+			},
+			32 => "minecraft:dead_bush",
 			33 => "minecraft:piston",
 			34 => "minecraft:piston_head",
-			35 => "minecraft:wool",
-			36 => "minecraft:piston_extension",
-			37 => "minecraft:yellow_flower",
-			38 => "minecraft:red_flower",
+			35 => damage switch
+			{ 
+				1 => "minecraft:orange_wool",
+				2 => "minecraft:magenta_wool",
+				3 => "minecraft:light_blue_wool",
+				4 => "minecraft:yellow_wool",
+				5 => "minecraft:lime_wool",
+				6 => "minecraft:pink_wool",
+				7 => "minecraft:gray_wool",
+				8 => "minecraft:light_gray_wool",
+				9 => "minecraft:cyan_wool",
+				10 => "minecraft:purple_wool",
+				11 => "minecraft:blue_wool",
+				12 => "minecraft:brown_wool",
+				13 => "minecraft:green_wool",
+				14 => "minecraft:red_wool",
+				15 => "minecraft:black_wool",
+				_ => "minecraft:white_wool",
+			},
+			36 => "minecraft:moving_piston",
+			37 => "minecraft:dandelion",
+			38 => damage switch
+			{ 
+				1 => "minecraft:blue_orchid",
+				2 => "minecraft:allium",
+				3 => "minecraft:azure_bluet",
+				4 => "minecraft:red_tulip",
+				5 => "minecraft:orange_tulip",
+				6 => "minecraft:white_tulip",
+				7 => "minecraft:pink_tulip",
+				8 => "minecraft:oxeye_daisy",
+				9 => "minecraft:cornflower",
+				10 => "minecraft:lily_of_the_valley",
+				_ => "minecraft:poppy",
+			},
 			39 => "minecraft:brown_mushroom",
 			40 => "minecraft:red_mushroom",
 			41 => "minecraft:gold_block",
 			42 => "minecraft:iron_block",
-			43 => "minecraft:double_stone_slab",
-			44 => "minecraft:stone_slab",
+			43 => damage switch
+			{
+				1 => "minecraft:double_sandstone_slab",
+				2 => "minecraft:double_oak_slab",
+				3 => "minecraft:double_cobblestone_slab",
+				4 => "minecraft:double_brick_slab",
+				5 => "minecraft:double_stone_brick_slab",
+				6 => "minecraft:double_nether_brick_slab",
+				7 => "minecraft:double_quartz_slab",
+				_ => "minecraft:double_stone_slab",
+			},
+			44 => damage switch
+			{ 
+				1 => "minecraft:sandstone_slab",
+				2 => "minecraft:oak_slab",
+				3 => "minecraft:cobblestone_slab",
+				4 => "minecraft:brick_slab",
+				5 => "minecraft:stone_brick_slab",
+				6 => "minecraft:nether_brick_slab",
+				7 => "minecraft:quartz_slab",
+				_ => "minecraft:stone_slab",
+			},
 			45 => "minecraft:brick_block",
 			46 => "minecraft:tnt",
 			47 => "minecraft:bookshelf",
@@ -113,10 +240,42 @@ public static class LegacyItemMappings
 			92 => "minecraft:cake_block",
 			93 => "minecraft:unpowered_repeater",
 			94 => "minecraft:powered_repeater",
-			95 => "minecraft:stained_glass",
+			95 => damage switch
+			{ 
+				1 => "minecraft:orange_stained_glass",
+				2 => "minecraft:magenta_stained_glass",
+				3 => "minecraft:light_blue_stained_glass",
+				4 => "minecraft:yellow_stained_glass",
+				5 => "minecraft:lime_stained_glass",
+				6 => "minecraft:pink_stained_glass",
+				7 => "minecraft:gray_stained_glass",
+				8 => "minecraft:light_gray_stained_glass",
+				9 => "minecraft:cyan_stained_glass",
+				10 => "minecraft:purple_stained_glass",
+				11 => "minecraft:blue_stained_glass",
+				12 => "minecraft:brown_stained_glass",
+				13 => "minecraft:green_stained_glass",
+				14 => "minecraft:red_stained_glass",
+				15 => "minecraft:black_stained_glass",
+				_ => "minecraft:white_stained_glass",
+			},
 			96 => "minecraft:trapdoor",
-			97 => "minecraft:monster_egg",
-			98 => "minecraft:stonebrick",
+			97 => damage switch
+			{
+				1 => "minecraft:infested_cobblestone",
+				2 => "minecraft:infested_stone_bricks",
+				3 => "minecraft:infested_mossy_stone_bricks",
+				4 => "minecraft:infested_cracked_stone_bricks",
+				5 => "minecraft:infested_chiseled_stone_bricks",
+				_ => "minecraft:infested_stone",
+			},
+			98 => damage switch
+			{
+				1 => "minecraft:mossy_stone_bricks",
+				2 => "minecraft:cracked_stone_bricks",
+				3 => "minecraft:chiseled_stone_bricks",
+				_ => "minecraft:stone_bricks",
+			},
 			99 => "minecraft:brown_mushroom_block",
 			100 => "minecraft:red_mushroom_block",
 			101 => "minecraft:iron_bars",
@@ -143,8 +302,24 @@ public static class LegacyItemMappings
 			122 => "minecraft:dragon_egg",
 			123 => "minecraft:redstone_lamp",
 			124 => "minecraft:lit_redstone_lamp",
-			125 => "minecraft:double_wooden_slab",
-			126 => "minecraft:wooden_slab",
+			125 => damage switch
+			{
+				1 => "minecraft:double_spruce_slab",
+				2 => "minecraft:double_birch_slab",
+				3 => "minecraft:double_jungle_slab",
+				4 => "minecraft:double_acacia_slab",
+				5 => "minecraft:double_dark_oak_slab",
+				_ => "minecraft:double_oak_slab",
+			},
+			126 => damage switch
+			{ 
+				1 => "minecraft:spruce_slab",
+				2 => "minecraft:birch_slab",
+				3 => "minecraft:jungle_slab",
+				4 => "minecraft:acacia_slab",
+				5 => "minecraft:dark_oak_slab",
+				_ => "minecraft:oak_slab",
+			},
 			127 => "minecraft:cocoa",
 			128 => "minecraft:sandstone_stairs",
 			129 => "minecraft:emerald_ore",
@@ -157,12 +332,16 @@ public static class LegacyItemMappings
 			136 => "minecraft:jungle_stairs",
 			137 => "minecraft:command_block",
 			138 => "minecraft:beacon",
-			139 => "minecraft:cobblestone_wall",
+			139 => damage switch
+			{ 
+				1 => "minecraft:mossy_cobblestone_wall",
+				_ => "minecraft:cobblestone_wall",
+			},
 			140 => "minecraft:flower_pot",
 			141 => "minecraft:carrots",
 			142 => "minecraft:potatoes",
 			143 => "minecraft:wooden_button",
-			144 => "minecraft:skull",
+			144 => "minecraft:player_head",
 			145 => "minecraft:anvil",
 			146 => "minecraft:trapped_chest",
 			147 => "minecraft:light_weighted_pressure_plate",
@@ -173,14 +352,63 @@ public static class LegacyItemMappings
 			152 => "minecraft:redstone_block",
 			153 => "minecraft:quartz_ore",
 			154 => "minecraft:hopper",
-			155 => "minecraft:quartz_block",
+			155 => damage switch
+			{ 
+				1 => "minecraft:chiseled_quartz_block",
+				2 => "minecraft:quartz_pillar",
+				_ => "minecraft:quartz_block",
+			},
 			156 => "minecraft:quartz_stairs",
 			157 => "minecraft:activator_rail",
 			158 => "minecraft:dropper",
-			159 => "minecraft:stained_hardened_clay",
-			160 => "minecraft:stained_glass_pane",
-			161 => "minecraft:leaves2",
-			162 => "minecraft:log2",
+			159 => damage switch
+			{
+				1 => "minecraft:orange_terracotta",
+				2 => "minecraft:magenta_terracotta",
+				3 => "minecraft:light_blue_terracotta",
+				4 => "minecraft:yellow_terracotta",
+				5 => "minecraft:lime_terracotta",
+				6 => "minecraft:pink_terracotta",
+				7 => "minecraft:gray_terracotta",
+				8 => "minecraft:light_gray_terracotta",
+				9 => "minecraft:cyan_terracotta",
+				10 => "minecraft:purple_terracotta",
+				11 => "minecraft:blue_terracotta",
+				12 => "minecraft:brown_terracotta",
+				13 => "minecraft:green_terracotta",
+				14 => "minecraft:red_terracotta",
+				15 => "minecraft:black_terracotta",
+				_ => "minecraft:white_terracotta",
+			},
+			160 => damage switch
+			{
+				1 => "minecraft:orange_stained_glass_pane",
+				2 => "minecraft:magenta_stained_glass_pane",
+				3 => "minecraft:light_blue_stained_glass_pane",
+				4 => "minecraft:yellow_stained_glass_pane",
+				5 => "minecraft:lime_stained_glass_pane",
+				6 => "minecraft:pink_stained_glass_pane",
+				7 => "minecraft:gray_stained_glass_pane",
+				8 => "minecraft:light_gray_stained_glass_pane",
+				9 => "minecraft:cyan_stained_glass_pane",
+				10 => "minecraft:purple_stained_glass_pane",
+				11 => "minecraft:blue_stained_glass_pane",
+				12 => "minecraft:brown_stained_glass_pane",
+				13 => "minecraft:green_stained_glass_pane",
+				14 => "minecraft:red_stained_glass_pane",
+				15 => "minecraft:black_stained_glass_pane",
+				_ => "minecraft:white_stained_glass_pane",
+			},
+			161 => damage switch
+			{ 
+				1 => "minecraft:dark_oak_leaves",
+				_ => "minecraft:acacia_leaves",
+			},
+			162 => damage switch
+			{
+				1 => "minecraft:dark_oak_log",
+				_ => "minecraft:acacia_log",
+			},
 			163 => "minecraft:acacia_stairs",
 			164 => "minecraft:dark_oak_stairs",
 			165 => "minecraft:slime_block",
@@ -189,15 +417,46 @@ public static class LegacyItemMappings
 			168 => "minecraft:prismarine",
 			169 => "minecraft:sea_lantern",
 			170 => "minecraft:hay_block",
-			171 => "minecraft:carpet",
-			172 => "minecraft:hardened_clay",
+			171 => damage switch
+			{ 
+				1 => "minecraft:orange_carpet",
+				2 => "minecraft:magenta_carpet",
+				3 => "minecraft:light_blue_carpet",
+				4 => "minecraft:yellow_carpet",
+				5 => "minecraft:lime_carpet",
+				6 => "minecraft:pink_carpet",
+				7 => "minecraft:gray_carpet",
+				8 => "minecraft:light_gray_carpet",
+				9 => "minecraft:cyan_carpet",
+				10 => "minecraft:purple_carpet",
+				11 => "minecraft:blue_carpet",
+				12 => "minecraft:brown_carpet",
+				13 => "minecraft:green_carpet",
+				14 => "minecraft:red_carpet",
+				15 => "minecraft:black_carpet",
+				_ => "minecraft:white_carpet",
+			},
+			172 => "minecraft:terracotta",
 			173 => "minecraft:coal_block",
 			174 => "minecraft:packed_ice",
-			175 => "minecraft:double_plant",
+			175 => damage switch
+			{ 
+				1 => "minecraft:lilac",
+				2 => "minecraft:tall_grass",
+				3 => "minecraft:large_fern",
+				4 => "minecraft:rose_bush",
+				5 => "minecraft:peony",
+				_ => "minecraft:sunflower",
+			},
 			176 => "minecraft:standing_banner",
 			177 => "minecraft:wall_banner",
 			178 => "minecraft:daylight_detector_inverted",
-			179 => "minecraft:red_sandstone",
+			179 => damage switch
+			{ 
+				1 => "minecraft:chiseled_red_sandstone",
+				2 => "minecraft:smooth_red_sandstone",
+				_ => "minecraft:red_sandstone"
+			},
 			180 => "minecraft:red_sandstone_stairs",
 			181 => "minecraft:double_stone_slab2",
 			182 => "minecraft:stone_slab2",
@@ -269,8 +528,44 @@ public static class LegacyItemMappings
 			248 => "minecraft:green_glazed_terracotta",
 			249 => "minecraft:red_glazed_terracotta",
 			250 => "minecraft:black_glazed_terracotta",
-			251 => "minecraft:concrete",
-			252 => "minecraft:concrete_powder",
+			251 => damage switch
+			{ 
+				1 => "minecraft:orange_concrete",
+				2 => "minecraft:magenta_concrete",
+				3 => "minecraft:light_blue_concrete",
+				4 => "minecraft:yellow_concrete",
+				5 => "minecraft:lime_concrete",
+				6 => "minecraft:pink_concrete",
+				7 => "minecraft:gray_concrete",
+				8 => "minecraft:light_gray_concrete",
+				9 => "minecraft:cyan_concrete",
+				10 => "minecraft:purple_concrete",
+				11 => "minecraft:blue_concrete",
+				12 => "minecraft:brown_concrete",
+				13 => "minecraft:green_concrete",
+				14 => "minecraft:red_concrete",
+				15 => "minecraft:black_concrete",
+				_ => "minecraft:white_concrete",
+			},
+			252 => damage switch
+			{ 
+				1 => "minecraft:orange_concrete_powder",
+				2 => "minecraft:magenta_concrete_powder",
+				3 => "minecraft:light_blue_concrete_powder",
+				4 => "minecraft:yellow_concrete_powder",
+				5 => "minecraft:lime_concrete_powder",
+				6 => "minecraft:pink_concrete_powder",
+				7 => "minecraft:gray_concrete_powder",
+				8 => "minecraft:light_gray_concrete_powder",
+				9 => "minecraft:cyan_concrete_powder",
+				10 => "minecraft:purple_concrete_powder",
+				11 => "minecraft:blue_concrete_powder",
+				12 => "minecraft:brown_concrete_powder",
+				13 => "minecraft:green_concrete_powder",
+				14 => "minecraft:red_concrete_powder",
+				15 => "minecraft:black_concrete_powder",
+				_ => "minecraft:white_concrete_powder",
+			},
 			253 => "minecraft:air", // Reserved
 			254 => "minecraft:air", // Reserved
 			255 => "minecraft:structure_block",
@@ -340,7 +635,11 @@ public static class LegacyItemMappings
 			319 => "minecraft:porkchop",
 			320 => "minecraft:cooked_porkchop",
 			321 => "minecraft:painting",
-			322 => "minecraft:golden_apple",
+			322 => damage switch
+			{ 
+				1 => "minecraft:enchanted_golden_apple",
+				_ => "minecraft:golden_apple",
+			},
 			323 => "minecraft:sign",
 			324 => "minecraft:wooden_door",
 			325 => "minecraft:bucket",
@@ -367,9 +666,37 @@ public static class LegacyItemMappings
 			346 => "minecraft:fishing_rod",
 			347 => "minecraft:clock",
 			348 => "minecraft:glowstone_dust",
-			349 => "minecraft:fish",
-			350 => "minecraft:cooked_fish",
-			351 => "minecraft:dye",
+			349 => damage switch
+			{
+				1 => "minecraft:raw_salmon",
+				2 => "minecraft:clownfish",
+				3 => "minecraft:pufferfish",
+				_ => "minecraft:raw_cod",
+			},
+			350 => damage switch
+			{
+				1 => "minecraft:cooked_salmon",
+				_ => "minecraft:cooked_cod",
+			},
+			351 => damage switch
+			{
+				1 => "minecraft:red_dye",
+				2 => "minecraft:cyan_dye",
+				3 => "minecraft:cocoa_beans",
+				4 => "minecraft:lapis_lazuli",
+				5 => "minecraft:purple_dye",
+				6 => "minecraft:cyan_dye",
+				7 => "minecraft:light_gray_dye",
+				8 => "minecraft:gray_dye",
+				9 => "minecraft:pink_dye",
+				10 => "minecraft:lime_dye",
+				11 => "minecraft:yellow_dye",
+				12 => "minecraft:light_blue_dye",
+				13 => "minecraft:magenta_dye",
+				14 => "minecraft:orange_dye",
+				15 => "minecraft:bone_meal",
+				_ => "minecraft:ink_sac",
+			},
 			352 => "minecraft:bone",
 			353 => "minecraft:sugar",
 			354 => "minecraft:cake",
@@ -378,7 +705,7 @@ public static class LegacyItemMappings
 			357 => "minecraft:cookie",
 			358 => "minecraft:filled_map",
 			359 => "minecraft:shears",
-			360 => "minecraft:melonslice",
+			360 => "minecraft:melon_slice",
 			361 => "minecraft:pumpkin_seeds",
 			362 => "minecraft:melon_seeds",
 			363 => "minecraft:raw_beef",
@@ -400,7 +727,7 @@ public static class LegacyItemMappings
 			379 => "minecraft:brewingstand",
 			380 => "minecraft:cauldron",
 			381 => "minecraft:ender_eye",
-			382 => "minecraft:speckled_melon",
+			382 => "minecraft:glistering_melon_slice",
 			383 => "minecraft:spawn_egg",
 			384 => "minecraft:experience_bottle",
 			385 => "minecraft:fire_charge",
@@ -415,7 +742,15 @@ public static class LegacyItemMappings
 			394 => "minecraft:poisonous_potato",
 			395 => "minecraft:map",
 			396 => "minecraft:golden_carrot",
-			397 => "minecraft:player_head",
+			397 => damage switch
+			{
+				0 => "minecraft:skeleton_skull",
+				1 => "minecraft:wither_skeleton_skull",
+				2 => "minecraft:zombie_head",
+				4 => "minecraft:creeper_head",
+				5 => "minecraft:dragon_head",
+				_ => "minecraft:player_head",
+			},
 			398 => "minecraft:carrot_on_a_stick",
 			399 => "minecraft:nether_star",
 			400 => "minecraft:pumpkin_pie",
@@ -483,5 +818,29 @@ public static class LegacyItemMappings
 		};
 
 		return !string.IsNullOrEmpty(itemId);
+	}
+
+
+	/// <summary>
+	/// Try to map a legacy (1.8.9-style) numeric item identifier to a modern namespaced item id or return a default value.
+	/// </summary>
+	/// <param name="numericId">The numeric identifier.</param>
+	/// <param name="defaultValue">The default value to return when the mapping does not exist. Defaults to <c>"minecraft:missingno"</c>.</param>
+	/// <returns>The resulting item id when found; otherwise the default value.</returns>
+	public static string MapNumericIdOrDefault(short numericId, string defaultValue = "minecraft:missingno")
+	{
+		return TryMapNumericId(numericId, out var itemId) ? itemId : defaultValue;
+	}
+
+	/// <summary>
+	/// Try to map a legacy (1.8.9-style) numeric item identifier to a modern namespaced item id or return a default value.
+	/// </summary>
+	/// <param name="numericId">The numeric identifier.</param>
+	/// <param name="damage">The item "damage" value</param>
+	/// <param name="defaultValue">The default value to return when the mapping does not exist. Defaults to <c>"minecraft:missingno"</c>.</param>
+	/// <returns>The resulting item id when found; otherwise the default value.</returns>
+	public static string MapNumericIdOrDefault(short numericId, short damage, string defaultValue = "minecraft:missingno")
+	{
+		return TryMapNumericId(numericId, out var itemId) ? itemId : defaultValue;
 	}
 }

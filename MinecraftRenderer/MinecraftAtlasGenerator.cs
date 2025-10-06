@@ -61,15 +61,8 @@ public static class MinecraftAtlasGenerator
 
 		Directory.CreateDirectory(outputDirectory);
 
-		var blockNames = includeBlocks
-			? (blockFilter?.ToList() ?? renderer.GetKnownBlockNames().ToList())
-			: [];
-		var itemNames = includeItems
-			? (itemFilter?.ToList() ?? renderer.GetKnownItemNames().ToList())
-			: [];
-
-		blockNames.Sort(StringComparer.OrdinalIgnoreCase);
-		itemNames.Sort(StringComparer.OrdinalIgnoreCase);
+		var blockNames = GetCandidateBlockNames(renderer, blockFilter, includeBlocks);
+		var itemNames = GetCandidateItemNames(renderer, itemFilter, includeItems);
 
 		var results = new List<AtlasResult>();
 		var serializerOptions = new JsonSerializerOptions
@@ -133,7 +126,19 @@ public static class MinecraftAtlasGenerator
 								: view.Options;
 
 							using var tile = renderFunc(name, effectiveOptions);
-							tile.Mutate(ctx => ctx.Resize(tileSize, tileSize));
+							if (category.Equals("items", StringComparison.OrdinalIgnoreCase))
+							{
+								tile.Mutate(ctx => ctx.Resize(new ResizeOptions
+								{
+									Size = new Size(tileSize, tileSize),
+									Sampler = KnownResamplers.NearestNeighbor,
+									Mode = ResizeMode.Stretch
+								}));
+							}
+							else
+							{
+								tile.Mutate(ctx => ctx.Resize(tileSize, tileSize));
+							}
 							// ReSharper disable once AccessToDisposedClosure
 							canvas.Mutate(ctx => ctx.DrawImage(tile, new Point(col * tileSize, row * tileSize), 1f));
 						}
@@ -147,8 +152,8 @@ public static class MinecraftAtlasGenerator
 
 					var baseFileName = string.Join("_", new[]
 					{
-						Sanitize(category),
-						Sanitize(view.Name),
+						SanitizeFileName(category),
+						SanitizeFileName(view.Name),
 						$"page{(page + 1).ToString("D2", CultureInfo.InvariantCulture)}"
 					}.Where(static s => !string.IsNullOrWhiteSpace(s)));
 
@@ -164,26 +169,57 @@ public static class MinecraftAtlasGenerator
 		}
 
 		return results;
+	}
 
-		static string Sanitize(string input)
+	public static List<string> GetCandidateBlockNames(MinecraftBlockRenderer renderer,
+		IEnumerable<string>? blockFilter,
+		bool includeBlocks)
+	{
+		ArgumentNullException.ThrowIfNull(renderer);
+		if (!includeBlocks)
 		{
-			var invalidChars = Path.GetInvalidFileNameChars();
-			var sanitized = new string(input
-				.Select(ch => invalidChars.Contains(ch) ? '_' : ch)
-				.ToArray());
-			return sanitized.Replace(' ', '_').ToLowerInvariant();
+			return [];
 		}
 
-		static MinecraftBlockRenderer.BlockRenderOptions NormalizeItemRenderOptions(
-			MinecraftBlockRenderer.BlockRenderOptions options)
-		{
-			if (MathF.Abs(options.YawInDegrees) < 0.01f && MathF.Abs(options.PitchInDegrees) < 0.01f &&
-			    MathF.Abs(options.RollInDegrees) < 0.01f)
-			{
-				return options;
-			}
+		var names = blockFilter?.ToList() ?? renderer.GetKnownBlockNames().ToList();
+		names.Sort(StringComparer.OrdinalIgnoreCase);
+		return names;
+	}
 
-			return options with { YawInDegrees = 0f, PitchInDegrees = 0f, RollInDegrees = 0f };
+	public static List<string> GetCandidateItemNames(MinecraftBlockRenderer renderer,
+		IEnumerable<string>? itemFilter,
+		bool includeItems)
+	{
+		ArgumentNullException.ThrowIfNull(renderer);
+		if (!includeItems)
+		{
+			return [];
 		}
+
+		var names = itemFilter?.ToList() ?? renderer.GetKnownItemNames().ToList();
+		names.Sort(StringComparer.OrdinalIgnoreCase);
+		return names;
+	}
+
+	public static string SanitizeFileName(string input)
+	{
+		ArgumentNullException.ThrowIfNull(input);
+		var invalidChars = Path.GetInvalidFileNameChars();
+		var sanitized = new string(input
+			.Select(ch => invalidChars.Contains(ch) ? '_' : ch)
+			.ToArray());
+		return sanitized.Replace(' ', '_').ToLowerInvariant();
+	}
+
+	public static MinecraftBlockRenderer.BlockRenderOptions NormalizeItemRenderOptions(
+		MinecraftBlockRenderer.BlockRenderOptions options)
+	{
+		if (MathF.Abs(options.YawInDegrees) < 0.01f && MathF.Abs(options.PitchInDegrees) < 0.01f &&
+		    MathF.Abs(options.RollInDegrees) < 0.01f)
+		{
+			return options;
+		}
+
+		return options with { YawInDegrees = 0f, PitchInDegrees = 0f, RollInDegrees = 0f };
 	}
 }

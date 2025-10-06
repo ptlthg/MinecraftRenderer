@@ -86,7 +86,7 @@ public static class TextureResolver
 
 	private static string? DetermineSkyblockFallbackBase(HypixelItemData item)
 	{
-		if (item.NumericId.HasValue && LegacyItemMappings.TryMapNumericId(item.NumericId.Value, out var mapped) &&
+		if (item.NumericId.HasValue && LegacyItemMappings.TryMapNumericId(item.NumericId.Value, item.Damage, out var mapped) &&
 		    !string.IsNullOrWhiteSpace(mapped))
 		{
 			return mapped;
@@ -98,7 +98,7 @@ public static class TextureResolver
 			{
 				var numericSpan = item.ItemId.AsSpan(HypixelPrefixes.Numeric.Length);
 				if (short.TryParse(numericSpan, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numericBase) &&
-				    LegacyItemMappings.TryMapNumericId(numericBase, out var mapped1) &&
+				    LegacyItemMappings.TryMapNumericId(numericBase, item.Damage, out var mapped1) &&
 				    !string.IsNullOrWhiteSpace(mapped1))
 				{
 					return mapped1;

@@ -51,6 +51,93 @@ public sealed partial class MinecraftBlockRenderer
 		return new RenderedResource(image, resourceId);
 	}
 
+	public AnimatedRenderedResource RenderAnimatedGuiItemWithResourceId(string itemName,
+		BlockRenderOptions? options = null)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(itemName);
+		var effectiveOptions = options ?? BlockRenderOptions.Default;
+		var renderer = ResolveRendererForOptions(effectiveOptions, out var forwardedOptions);
+		var capture = new ItemRenderCapture();
+		var firstFrame = renderer.RenderGuiItemInternal(itemName, forwardedOptions, capture);
+		var frames = new List<AnimatedRenderedResource.AnimationFrame>();
+		var firstFrameTransferred = false;
+
+		try
+		{
+			var resourceTarget = string.IsNullOrWhiteSpace(capture.OriginalTarget)
+				? itemName.Trim()
+				: capture.OriginalTarget;
+			var idOptions = capture.FinalOptions ?? forwardedOptions;
+			var resourceId = renderer.ComputeResourceIdInternal(resourceTarget, idOptions, capture.ToResolution());
+
+			var animatedTextures = renderer.CollectAnimatedTextureBindings(resourceId.Textures);
+			if (animatedTextures.Count == 0)
+			{
+				frames.Add(new AnimatedRenderedResource.AnimationFrame(firstFrame, 1000));
+				firstFrameTransferred = true;
+				return new AnimatedRenderedResource(resourceId, frames.ToArray());
+			}
+
+			var gcd = ComputeAnimationStep(animatedTextures);
+			var loopLength = ComputeAnimationLoopLength(animatedTextures, gcd);
+			var normalizedStep = Math.Max(1L, gcd);
+			var stepDuration = (int)Math.Clamp(normalizedStep, 1L, (long)int.MaxValue);
+			var targetLoop = Math.Max(loopLength, normalizedStep);
+			var multiples = Math.Max(1L, (long)Math.Ceiling(targetLoop / (double)normalizedStep));
+			var adjustedLoop = Math.Clamp(Math.Min(multiples * normalizedStep, MaxAnimationDurationMs), normalizedStep, MaxAnimationDurationMs);
+
+			frames.Add(new AnimatedRenderedResource.AnimationFrame(firstFrame, stepDuration));
+			firstFrameTransferred = true;
+
+			var finalOptions = capture.FinalOptions ?? forwardedOptions;
+			for (long time = normalizedStep; time < adjustedLoop; time += normalizedStep)
+			{
+				var overrides = new Dictionary<string, TextureRepository.TextureAnimationFrame>(StringComparer.OrdinalIgnoreCase);
+				var temporaryFrames = new List<TextureRepository.TextureAnimationFrame>();
+				try
+				{
+					foreach (var binding in animatedTextures)
+					{
+						var frameInfo = binding.Animation.GetFrameAtTime(time, out var requiresDisposal);
+						overrides[binding.NormalizedTextureId] = frameInfo;
+						if (requiresDisposal)
+						{
+							temporaryFrames.Add(frameInfo);
+						}
+					}
+
+					using var scope = renderer._textureRepository.BeginAnimationOverride(overrides);
+					var renderedFrame = renderer.RenderGuiItemInternal(itemName, finalOptions);
+					frames.Add(new AnimatedRenderedResource.AnimationFrame(renderedFrame, stepDuration));
+				}
+				finally
+				{
+					foreach (var frameInfo in temporaryFrames)
+					{
+						frameInfo.Image.Dispose();
+					}
+				}
+			}
+
+			return new AnimatedRenderedResource(resourceId, frames.ToArray());
+		}
+		catch
+		{
+			foreach (var frame in frames)
+			{
+				frame.Dispose();
+			}
+			throw;
+		}
+		finally
+		{
+			if (!firstFrameTransferred)
+			{
+				firstFrame.Dispose();
+			}
+		}
+	}
+
 	private Image<Rgba32> RenderGuiItemFromTextureIdInternal(string textureId, BlockRenderOptions options)
 	{
 		EnsureNotDisposed();
@@ -136,6 +223,11 @@ public sealed partial class MinecraftBlockRenderer
 		"recovery_compass",
 		"clock"
 	};
+
+	private const long MaxAnimationDurationMs = 120_000;
+
+	private sealed record AnimatedTextureBinding(string NormalizedTextureId,
+		TextureRepository.TextureAnimation Animation);
 
 	private static readonly Color DefaultLeatherArmorColor = new(new Rgba32(0xA0, 0x65, 0x40));
 
@@ -270,6 +362,137 @@ public sealed partial class MinecraftBlockRenderer
 
 		return FinalizeGuiResult(RenderFallbackTexture(itemName, itemInfo, model, options));
 	}
+
+	private List<AnimatedTextureBinding> CollectAnimatedTextureBindings(IReadOnlyList<string> textureIds)
+	{
+		var bindings = new List<AnimatedTextureBinding>();
+		if (_textureRepository is null || textureIds is null)
+		{
+			return bindings;
+			}
+
+			foreach (var textureId in textureIds)
+			{
+				if (_textureRepository.TryGetAnimation(textureId, out var animation) &&
+				    animation.Frames.Count > 0)
+				{
+					var normalized = TextureRepository.NormalizeTextureId(textureId);
+					bindings.Add(new AnimatedTextureBinding(normalized, animation));
+				}
+			}
+
+			return bindings;
+		}
+
+		private static long ComputeAnimationStep(IReadOnlyCollection<AnimatedTextureBinding> bindings)
+		{
+			var durations = new List<long>();
+			foreach (var binding in bindings)
+			{
+				foreach (var frame in binding.Animation.Frames)
+				{
+					if (frame.DurationMs > 0)
+					{
+						durations.Add(frame.DurationMs);
+					}
+				}
+			}
+
+			if (durations.Count == 0)
+			{
+				return 50;
+			}
+
+			var gcd = durations.Aggregate(GreatestCommonDivisor);
+			if (gcd <= 0)
+			{
+				gcd = 50;
+			}
+
+			return Math.Min(gcd, MaxAnimationDurationMs);
+		}
+
+		private static long ComputeAnimationLoopLength(IReadOnlyCollection<AnimatedTextureBinding> bindings, long step)
+		{
+			var normalizedStep = Math.Max(1L, Math.Min(step, MaxAnimationDurationMs));
+			var totals = new List<long>();
+			foreach (var binding in bindings)
+			{
+				var total = (long)binding.Animation.TotalDurationMs;
+				if (total <= 0)
+				{
+					total = normalizedStep;
+				}
+
+				totals.Add(Math.Min(total, MaxAnimationDurationMs));
+			}
+
+			if (totals.Count == 0)
+			{
+				return normalizedStep;
+			}
+
+			var loop = totals.Aggregate(LeastCommonMultiple);
+			if (loop <= 0)
+			{
+				loop = normalizedStep;
+			}
+
+			return Math.Min(Math.Max(loop, normalizedStep), MaxAnimationDurationMs);
+		}
+
+		private static long GreatestCommonDivisor(long a, long b)
+		{
+			a = Math.Abs(a);
+			b = Math.Abs(b);
+			if (a == 0)
+			{
+				return b;
+			}
+
+			if (b == 0)
+			{
+				return a;
+			}
+
+			while (b != 0)
+			{
+				var remainder = a % b;
+				a = b;
+				b = remainder;
+			}
+
+			return a;
+		}
+
+		private static long LeastCommonMultiple(long a, long b)
+		{
+			if (a == 0 || b == 0)
+			{
+				return 0;
+			}
+
+			var gcd = GreatestCommonDivisor(a, b);
+			if (gcd == 0)
+			{
+				return 0;
+			}
+
+			var scaledA = Math.Abs(a / gcd);
+			var scaledB = Math.Abs(b);
+			if (scaledA == 0 || scaledB == 0)
+			{
+				return 0;
+			}
+
+			if (scaledA > MaxAnimationDurationMs / Math.Max(1, scaledB))
+			{
+				return MaxAnimationDurationMs;
+			}
+
+			var lcm = scaledA * scaledB;
+			return Math.Min(lcm, MaxAnimationDurationMs);
+		}
 
 	private Image<Rgba32> RenderSkyblockDescriptor(string descriptorPayload, BlockRenderOptions options)
 	{

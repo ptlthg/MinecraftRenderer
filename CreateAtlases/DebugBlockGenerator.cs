@@ -110,12 +110,7 @@ internal static class DebugBlockGenerator
 			var view = views[index];
 			var renderOptions = view.Options with { Size = tileSize };
 			using var tile = renderer.RenderModel(debugModel, renderOptions);
-			tile.Mutate(ctx => ctx.Resize(new ResizeOptions
-			{
-				Size = new Size(tileSize, tileSize),
-				Sampler = KnownResamplers.NearestNeighbor,
-				Mode = ResizeMode.Stretch
-			}));
+			tile.Mutate(ctx => ctx.Resize(tileSize, tileSize));
 
 			var destination = new Point(index * tileSize, 0);
 			atlas.Mutate(ctx => ctx.DrawImage(tile, destination, 1f));

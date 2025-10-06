@@ -102,7 +102,7 @@ public static class HypixelInventoryAtlasGenerator
                 if (item.NumericId.HasValue)
                 {
                     // Map 1.8.9 numeric ID to modern item name
-                    if (LegacyItemMappings.TryMapNumericId(item.NumericId.Value, out var mappedId))
+                    if (LegacyItemMappings.TryMapNumericId(item.NumericId.Value, item.Damage, out var mappedId))
                     {
                         itemKey = mappedId;
                     }

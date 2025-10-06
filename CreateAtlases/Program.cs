@@ -1,8 +1,13 @@
 using System.Globalization;
 using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using CreateAtlases;
 using MinecraftRenderer;
 using MinecraftRenderer.Snbt;
 using MinecraftRenderer.TexturePacks;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Processing;
 
 var options = ParseArguments(args);
 
@@ -43,6 +48,20 @@ if (views.Count == 0)
 	return;
 }
 
+options.AnimatedFormats = NormalizeAnimatedFormats(options.AnimatedFormats);
+if (options.AnimatedFormats is { Count: > 0 })
+{
+	var invalidFormats = options.AnimatedFormats
+		.Where(static format => format is not ("gif" or "apng" or "webp"))
+		.ToList();
+	if (invalidFormats.Count > 0)
+	{
+		Console.Error.WriteLine($"Unsupported animated format(s): {string.Join(", ", invalidFormats)}. Valid values: gif, apng, webp.");
+		Environment.ExitCode = 1;
+		return;
+	}
+}
+
 var blockFilter = options.Blocks?.Count > 0 ? options.Blocks : null;
 var itemFilter = options.Items?.Count > 0 ? options.Items : null;
 var includeBlocks = options.IncludeBlocks && (blockFilter is null || blockFilter.Count > 0);
@@ -78,6 +97,9 @@ using var renderer = resolvedAssetDirectory.IsAggregatedJson
 	: MinecraftBlockRenderer.CreateFromMinecraftAssets(resolvedAssetDirectory.Path, texturePackRegistry,
 		options.TexturePackIds);
 var results = new List<MinecraftAtlasGenerator.AtlasResult>();
+var candidateItemNames = MinecraftAtlasGenerator.GetCandidateItemNames(renderer, itemFilter, includeItems);
+AnimatedExportSummary? animatedSummary = null;
+var animationRequests = new List<AnimatedItemRequest>();
 
 if (!string.IsNullOrWhiteSpace(options.SnbtItemDirectory))
 {
@@ -110,6 +132,12 @@ if (!string.IsNullOrWhiteSpace(options.SnbtItemDirectory))
 			options.Rows,
 			snbtEntries);
 		results.AddRange(snbtResults);
+
+		var snbtAnimationRequests = BuildAnimatedRequestsFromSnbtEntries(snbtEntries);
+		if (snbtAnimationRequests.Count > 0)
+		{
+			animationRequests.AddRange(snbtAnimationRequests);
+		}
 	}
 }
 else if (!string.IsNullOrWhiteSpace(options.HypixelInventoryFile))
@@ -136,6 +164,10 @@ else if (!string.IsNullOrWhiteSpace(options.HypixelInventoryFile))
 } 
 else 
 {
+	if (includeItems && candidateItemNames.Count > 0)
+	{
+		animationRequests.AddRange(candidateItemNames.Select(static name => new AnimatedItemRequest(name, name)));
+	}
 	results = MinecraftAtlasGenerator.GenerateAtlases(
 		renderer,
 		outputDirectory,
@@ -147,6 +179,29 @@ else
 		itemFilter,
 		includeBlocks,
 		includeItems).ToList();
+}
+
+var shouldExportAnimations = options.AnimatedFormats is { Count: > 0 } && animationRequests.Count > 0;
+
+if (shouldExportAnimations)
+{
+	var animatedOutput = options.AnimatedOutputDirectory;
+	if (string.IsNullOrWhiteSpace(animatedOutput))
+	{
+		animatedOutput = Path.Combine(outputDirectory, "animated");
+	}
+	else if (!Path.IsPathRooted(animatedOutput))
+	{
+		animatedOutput = Path.GetFullPath(animatedOutput, outputDirectory);
+	}
+
+	animatedSummary = ExportAnimatedItems(
+		renderer,
+		views,
+		animationRequests,
+		options.AnimatedFormats!,
+		animatedOutput!,
+		options.TileSize);
 }
 
 if (options.GenerateDebugBlock)
@@ -161,6 +216,31 @@ Console.WriteLine($"Generated {results.Count} atlas {(results.Count == 1 ? "file
 foreach (var result in results)
 {
 	Console.WriteLine($" - [{result.Category}/{result.ViewName}/page {result.PageNumber}] {result.ImagePath}");
+}
+
+if (animatedSummary is not null)
+{
+	Console.WriteLine();
+	if (animatedSummary.Animated > 0)
+	{
+		Console.WriteLine($"Exported {animatedSummary.Animated} animated item {(animatedSummary.Animated == 1 ? "sequence" : "sequences")} across {animatedSummary.Attempted} evaluated combinations.");
+		foreach (var (format, count) in animatedSummary.FormatCounts.OrderBy(static pair => pair.Key, StringComparer.OrdinalIgnoreCase))
+		{
+			Console.WriteLine($"   {format.ToUpperInvariant()}: {count} file{(count == 1 ? string.Empty : "s")}");
+		}
+		if (!string.IsNullOrWhiteSpace(animatedSummary.ManifestPath))
+		{
+			Console.WriteLine($"Animated manifest: {animatedSummary.ManifestPath}");
+		}
+		if (animatedSummary.Errors > 0)
+		{
+			Console.WriteLine($"Animated export failures: {animatedSummary.Errors}");
+		}
+	}
+	else
+	{
+		Console.WriteLine("No animated texture sequences detected for the selected items/views.");
+	}
 }
 
 return;
@@ -198,6 +278,12 @@ static CliOptions ParseArguments(string[] arguments)
 				break;
 			case "--items":
 				options.Items = ParseList(ReadNext(arguments, ref i, "--items"));
+				break;
+			case "--animated-formats":
+				options.AnimatedFormats = ParseList(ReadNext(arguments, ref i, "--animated-formats"));
+				break;
+			case "--animated-output":
+				options.AnimatedOutputDirectory = ReadNext(arguments, ref i, "--animated-output");
 				break;
 			case "--no-blocks":
 				options.IncludeBlocks = false;
@@ -401,6 +487,219 @@ static List<string>? ParseList(string? value)
 		.ToList();
 }
 
+static List<string>? NormalizeAnimatedFormats(List<string>? formats)
+{
+	if (formats is null || formats.Count == 0)
+	{
+		return null;
+	}
+
+	var normalized = formats
+		.Select(static format => format?.Trim().ToLowerInvariant())
+		.Where(static format => !string.IsNullOrWhiteSpace(format))
+		.Select(static format => format!)
+		.Distinct(StringComparer.OrdinalIgnoreCase)
+		.ToList();
+
+	return normalized.Count == 0 ? null : normalized;
+}
+static AnimatedExportSummary ExportAnimatedItems(
+	MinecraftBlockRenderer renderer,
+	IReadOnlyList<MinecraftAtlasGenerator.AtlasView> views,
+	IReadOnlyList<AnimatedItemRequest> items,
+	IReadOnlyList<string> formats,
+	string outputDirectory,
+	int tileSize)
+{
+	ArgumentNullException.ThrowIfNull(renderer);
+	ArgumentNullException.ThrowIfNull(views);
+	ArgumentNullException.ThrowIfNull(items);
+	ArgumentNullException.ThrowIfNull(formats);
+	ArgumentOutOfRangeException.ThrowIfNegativeOrZero(tileSize);
+
+	Directory.CreateDirectory(outputDirectory);
+	var formatCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+	foreach (var format in formats)
+	{
+		if (!formatCounts.ContainsKey(format))
+		{
+			formatCounts[format] = 0;
+		}
+	}
+
+	var manifestEntries = new List<AnimatedManifestEntry>();
+	var attempted = 0;
+	var animated = 0;
+	var errors = 0;
+
+	foreach (var view in views)
+	{
+		var normalizedOptions = MinecraftAtlasGenerator.NormalizeItemRenderOptions(view.Options);
+		var viewSegment = MinecraftAtlasGenerator.SanitizeFileName(view.Name);
+
+		foreach (var request in items)
+		{
+			attempted++;
+			var displayLabel = string.IsNullOrWhiteSpace(request.Label) ? request.ItemName : request.Label;
+
+			try
+			{
+				var requestOptions = normalizedOptions;
+				if (request.ItemData is not null)
+				{
+					requestOptions = requestOptions with { ItemData = request.ItemData };
+				}
+
+				using var animation = renderer.RenderAnimatedGuiItemWithResourceId(request.ItemName, requestOptions);
+				if (animation.Frames.Count <= 1)
+				{
+					continue;
+				}
+
+				animated++;
+				foreach (var frame in animation.Frames)
+				{
+					if (frame.Image.Width != tileSize || frame.Image.Height != tileSize)
+					{
+						frame.Image.Mutate(ctx => ctx.Resize(new ResizeOptions
+						{
+							Size = new Size(tileSize, tileSize),
+							Sampler = KnownResamplers.NearestNeighbor,
+							Mode = ResizeMode.Stretch
+						}));
+					}
+				}
+
+				var packStackHash = string.IsNullOrWhiteSpace(animation.ResourceId.PackStackHash)
+					? "vanilla"
+					: animation.ResourceId.PackStackHash;
+				var packSegment = MinecraftAtlasGenerator.SanitizeFileName(packStackHash);
+				var targetDirectory = Path.Combine(outputDirectory, viewSegment, packSegment);
+				Directory.CreateDirectory(targetDirectory);
+
+				var sanitizedLabel = MinecraftAtlasGenerator.SanitizeFileName(displayLabel);
+				if (string.IsNullOrWhiteSpace(sanitizedLabel))
+				{
+					sanitizedLabel = MinecraftAtlasGenerator.SanitizeFileName(request.ItemName);
+				}
+
+				var baseFileName = $"{sanitizedLabel}_{animation.ResourceId.ResourceId}";
+				var files = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+				foreach (var format in formats)
+				{
+					var extension = format switch
+					{
+						"gif" => ".gif",
+						"apng" => ".apng",
+						"webp" => ".webp",
+						_ => throw new InvalidOperationException($"Unsupported animation format '{format}'.")
+					};
+
+					var outputPath = Path.Combine(targetDirectory, baseFileName + extension);
+					switch (format)
+					{
+						case "gif":
+							animation.SaveAsGif(outputPath);
+							break;
+						case "apng":
+							animation.SaveAsAnimatedPng(outputPath);
+							break;
+						case "webp":
+							animation.SaveAsWebp(outputPath);
+							break;
+					}
+
+					formatCounts[format] = formatCounts[format] + 1;
+					files[format] = Path.GetRelativePath(outputDirectory, outputPath);
+				}
+
+				var frameDurations = animation.Frames.Select(static frame => frame.DurationMs).ToList();
+				var manifestEntry = new AnimatedManifestEntry(
+					displayLabel,
+					view.Name,
+					animation.ResourceId.ResourceId,
+					animation.ResourceId.SourcePackId,
+					packStackHash,
+					animation.Frames.Count,
+					frameDurations,
+					frameDurations.Sum(),
+					files,
+					animation.ResourceId.Textures,
+					request.SourcePath);
+				manifestEntries.Add(manifestEntry);
+			}
+			catch (Exception ex)
+			{
+				errors++;
+				Console.Error.WriteLine($"Failed to export animation for '{displayLabel}' (view: {view.Name}): {ex.Message}");
+			}
+		}
+	}
+
+	string? manifestPath = null;
+	if (manifestEntries.Count > 0)
+	{
+		var manifestOptions = new JsonSerializerOptions
+		{
+			WriteIndented = true,
+			DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+			PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+		};
+		manifestPath = Path.Combine(outputDirectory, "manifest.json");
+		File.WriteAllText(manifestPath, JsonSerializer.Serialize(manifestEntries, manifestOptions));
+	}
+
+	return new AnimatedExportSummary(attempted, animated, errors, formatCounts, manifestPath);
+}
+
+static List<AnimatedItemRequest> BuildAnimatedRequestsFromSnbtEntries(
+	IReadOnlyList<SnbtItemAtlasGenerator.SnbtItemEntry> entries)
+{
+	var requests = new List<AnimatedItemRequest>();
+	if (entries is null || entries.Count == 0)
+	{
+		return requests;
+	}
+
+	foreach (var entry in entries)
+	{
+		var document = entry.Document;
+		var compound = document?.RootCompound;
+		if (compound is null)
+		{
+			continue;
+		}
+
+		var itemId = SnbtItemUtilities.TryGetItemId(compound);
+		if (string.IsNullOrWhiteSpace(itemId))
+		{
+			continue;
+		}
+
+		var itemData = MinecraftBlockRenderer.ExtractItemRenderDataFromNbt(compound);
+		var label = string.IsNullOrWhiteSpace(itemId)
+			? entry.Name
+			: $"{entry.Name} ({itemId})";
+		var sourcePath = entry.SourcePath;
+		if (!string.IsNullOrWhiteSpace(sourcePath) && Path.IsPathRooted(sourcePath))
+		{
+			try
+			{
+				sourcePath = Path.GetRelativePath(Directory.GetCurrentDirectory(), sourcePath);
+			}
+			catch
+			{
+				// Ignore path conversion failures and keep the original path.
+			}
+		}
+
+		requests.Add(new AnimatedItemRequest(itemId.Trim(), label, itemData, sourcePath));
+	}
+
+	return requests;
+}
+
 static TexturePackRegistry? InitializeTexturePackRegistry(CliOptions options, string assetsPath)
 {
 	var needsRegistry = options.TexturePackDirectories is { Count: > 0 } || options.TexturePackIds is { Count: > 0 };
@@ -508,6 +807,8 @@ static void PrintHelp()
 	Console.WriteLine("  --no-blocks          Skip block rendering");
 	Console.WriteLine("  --no-items           Skip item rendering");
 	Console.WriteLine("  --views <names>      Comma-separated view names (default: all). Available: " + string.Join(", ", MinecraftAtlasGenerator.DefaultViews.Select(v => v.Name)));
+	Console.WriteLine("  --animated-formats <list>  Comma-separated animated export formats (gif, apng, webp)");
+	Console.WriteLine("  --animated-output <path>   Directory for animated sequences (default: <output>/animated)");
 	Console.WriteLine("  --debug-block        Generate a synthetic debug cube with colored faces into its own atlas");
 	Console.WriteLine("  --texture-pack-dir <path>  Register an unzipped resource pack directory (can be specified multiple times)");
 	Console.WriteLine("  --texture-pack-id <id>     Apply a registered pack id (last flag has highest priority; specify multiple for stacks)");
@@ -543,4 +844,6 @@ sealed class CliOptions
 	public List<string>? TexturePackIds { get; set; }
 	public string? SnbtItemDirectory { get; set; }
 	public string? HypixelInventoryFile { get; set; }
+	public List<string>? AnimatedFormats { get; set; }
+	public string? AnimatedOutputDirectory { get; set; }
 }

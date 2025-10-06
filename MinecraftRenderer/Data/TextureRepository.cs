@@ -8,6 +8,7 @@ using System.IO;
 using System.Linq;
 using System.Numerics;
 using System.Text.Json;
+using System.Threading;
 using MinecraftRenderer.Assets;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Advanced;
@@ -21,6 +22,10 @@ public sealed class TextureRepository : IDisposable
 	private readonly ConcurrentDictionary<string, Image<Rgba32>> _cache = new(StringComparer.OrdinalIgnoreCase);
 	private readonly Dictionary<string, string> _embedded = new(StringComparer.OrdinalIgnoreCase);
 	private readonly Image<Rgba32> _missingTexture;
+	private readonly ConcurrentDictionary<string, TextureAnimation> _animationCache =
+		new(StringComparer.OrdinalIgnoreCase);
+	private volatile AnimationOverride? _activeAnimationOverride;
+	private readonly object _animationOverrideLock = new();
 	private readonly Dictionary<uint, int> _trimPaletteLookup;
 	private readonly int _trimPaletteLength;
 	public Image<Rgba32>? GrassColorMap { get; private set; }
@@ -105,6 +110,11 @@ public sealed class TextureRepository : IDisposable
 		}
 
 		var normalized = NormalizeTextureId(textureId);
+		var overrideContext = _activeAnimationOverride;
+		if (overrideContext is not null && overrideContext.TryGetFrame(normalized, out var overrideFrame))
+		{
+			return overrideFrame.Image;
+		}
 
 		return _cache.GetOrAdd(normalized, LoadTextureInternal);
 	}
@@ -127,6 +137,11 @@ public sealed class TextureRepository : IDisposable
 		var strengthKey = strengthMultiplier.ToString("0.###", CultureInfo.InvariantCulture);
 		var blendKey = blend.ToString("0.###", CultureInfo.InvariantCulture);
 		var cacheKey = $"{normalized}_{tint.ToHex()}_{strengthKey}_{blendKey}";
+		var overrideSuffix = _activeAnimationOverride?.CacheKeySuffix;
+		if (!string.IsNullOrEmpty(overrideSuffix))
+		{
+			cacheKey += $"|anim:{overrideSuffix}";
+		}
 
 		return _cache.GetOrAdd(cacheKey, _ =>
 		{
@@ -210,7 +225,7 @@ public sealed class TextureRepository : IDisposable
 			if (File.Exists(candidate))
 			{
 				var loadedTexture = Image.Load<Rgba32>(candidate);
-				return ProcessAnimatedTexture(candidate, loadedTexture);
+				return ProcessAnimatedTexture(normalized, candidate, loadedTexture);
 			}
 		}
 
@@ -399,7 +414,7 @@ public sealed class TextureRepository : IDisposable
 		}
 	}
 
-	private static string NormalizeTextureId(string textureId)
+	internal static string NormalizeTextureId(string textureId)
 	{
 		var normalized = textureId.Trim();
 
@@ -446,12 +461,26 @@ public sealed class TextureRepository : IDisposable
 		return image;
 	}
 
-	private static Image<Rgba32> ProcessAnimatedTexture(string texturePath, Image<Rgba32> image)
+	private Image<Rgba32> ProcessAnimatedTexture(string normalizedKey, string texturePath, Image<Rgba32> spriteSheet)
+	{
+		var animation = TryBuildTextureAnimation(texturePath, spriteSheet);
+		if (animation is null || animation.Frames.Count == 0)
+		{
+			return spriteSheet;
+		}
+
+		_animationCache[normalizedKey] = animation;
+		var firstFrame = animation.Frames[0].Image.Clone();
+		spriteSheet.Dispose();
+		return firstFrame;
+	}
+
+	private TextureAnimation? TryBuildTextureAnimation(string texturePath, Image<Rgba32> spriteSheet)
 	{
 		var metadataPath = texturePath + ".mcmeta";
 		if (!File.Exists(metadataPath))
 		{
-			return image;
+			return null;
 		}
 
 		try
@@ -459,157 +488,135 @@ public sealed class TextureRepository : IDisposable
 			using var stream = File.OpenRead(metadataPath);
 			using var document = JsonDocument.Parse(stream);
 
-			if (!document.RootElement.TryGetProperty("animation", out var animation) ||
-			    animation.ValueKind != JsonValueKind.Object)
+			if (!document.RootElement.TryGetProperty("animation", out var animationElement) ||
+			    animationElement.ValueKind != JsonValueKind.Object)
 			{
-				return image;
+				return null;
 			}
 
-			var frameWidth = GetOptionalPositiveInt(animation, "width") ?? image.Width;
-			var frameHeight = GetOptionalPositiveInt(animation, "height");
-			var frameIndices = ExtractFrameIndices(animation);
-
-			frameHeight ??= InferFrameHeight(image.Height, frameWidth, frameIndices);
-
-			frameWidth = Math.Clamp(frameWidth, 1, image.Width);
-			var frameHeightValue = Math.Clamp(frameHeight ?? image.Height, 1, image.Height);
-
-			if (frameWidth == image.Width && frameHeightValue == image.Height)
+			var defaultFrameTime = 1;
+			if (animationElement.TryGetProperty("frametime", out var frametimeProperty) &&
+			    frametimeProperty.ValueKind == JsonValueKind.Number)
 			{
-				return image;
+				defaultFrameTime = Math.Max(frametimeProperty.GetInt32(), 1);
 			}
 
-			var totalFramesByHeight = Math.Max(1, image.Height / frameHeightValue);
-			var selectedIndex = SelectRepresentativeFrameIndex(image, frameWidth, frameHeightValue, frameIndices,
-				totalFramesByHeight);
+			var explicitFrames = ExtractFrameSequence(animationElement, defaultFrameTime);
+			var frameWidth = Math.Clamp(GetOptionalPositiveInt(animationElement, "width") ?? spriteSheet.Width,
+				1, spriteSheet.Width);
+			var frameHeightValue = GetOptionalPositiveInt(animationElement, "height") ?? frameWidth;
+			frameHeightValue = Math.Clamp(frameHeightValue, 1, spriteSheet.Height);
 
-			selectedIndex = Math.Clamp(selectedIndex, 0, Math.Max(totalFramesByHeight - 1, 0));
-			var yOffset = selectedIndex * frameHeightValue;
-			if (yOffset + frameHeightValue > image.Height)
+			var framesPerRow = Math.Max(1, spriteSheet.Width / frameWidth);
+			var framesPerColumn = Math.Max(1, spriteSheet.Height / frameHeightValue);
+			var maximumFrameIndex = Math.Max(framesPerRow * framesPerColumn - 1, 0);
+
+			var sequence = explicitFrames.Count > 0
+				? explicitFrames
+				: BuildSequentialFrames(maximumFrameIndex + 1, defaultFrameTime);
+
+			var frames = new List<TextureAnimationFrame>(sequence.Count);
+			foreach (var descriptor in sequence)
 			{
-				yOffset = Math.Max(0, image.Height - frameHeightValue);
+				if (descriptor.Index < 0)
+				{
+					continue;
+				}
+
+				var normalizedIndex = maximumFrameIndex > 0
+					? descriptor.Index % (maximumFrameIndex + 1)
+					: 0;
+				var column = normalizedIndex % framesPerRow;
+				var row = normalizedIndex / framesPerRow;
+				var x = column * frameWidth;
+				var y = row * frameHeightValue;
+
+				if (x + frameWidth > spriteSheet.Width || y + frameHeightValue > spriteSheet.Height)
+				{
+					continue;
+				}
+
+				var frameImage = spriteSheet.Clone(ctx => ctx.Crop(new Rectangle(x, y, frameWidth, frameHeightValue)));
+				var durationMs = Math.Max(50, descriptor.FrameTime * 50);
+				frames.Add(new TextureAnimationFrame(normalizedIndex, frameImage, durationMs));
 			}
 
-			var cropRectangle = new Rectangle(0, yOffset, frameWidth, frameHeightValue);
-			var cropped = image.Clone(ctx => ctx.Crop(cropRectangle));
-			image.Dispose();
-			return cropped;
+			if (frames.Count == 0)
+			{
+				return null;
+			}
+
+			var interpolate = animationElement.TryGetProperty("interpolate", out var interpolateElement) &&
+			                     interpolateElement.ValueKind == JsonValueKind.True;
+
+			return new TextureAnimation(frames, interpolate, frameWidth, frameHeightValue);
 		}
 		catch (JsonException)
 		{
-			return image;
+			return null;
 		}
 		catch (IOException)
 		{
-			return image;
+			return null;
 		}
 	}
 
-	private static int InferFrameHeight(int imageHeight, int frameWidth, IReadOnlyList<int> explicitFrames)
+	private static IReadOnlyList<AnimationFrameDescriptor> ExtractFrameSequence(JsonElement animationElement,
+		int defaultFrameTime)
 	{
-		if (explicitFrames.Count > 0)
-		{
-			var maxIndex = explicitFrames.Max();
-			if (maxIndex >= 0)
-			{
-				var divisor = Math.Max(maxIndex + 1, 1);
-				var candidate = imageHeight / divisor;
-				if (candidate > 0)
-				{
-					return Math.Max(1, candidate);
-				}
-			}
-		}
-
-		if (frameWidth > 0)
-		{
-			var frameCountEstimate = Math.Max(1, imageHeight / frameWidth);
-			var candidate = imageHeight / frameCountEstimate;
-			if (candidate > 0)
-			{
-				return Math.Max(1, candidate);
-			}
-		}
-
-		return Math.Max(1, imageHeight);
-	}
-
-	private static int SelectRepresentativeFrameIndex(Image<Rgba32> spriteSheet, int frameWidth, int frameHeight,
-		IReadOnlyList<int> explicitFrames, int totalFramesByHeight)
-	{
-		if (explicitFrames.Count > 0)
-		{
-			var firstFrame = explicitFrames[0];
-			return Math.Max(0, firstFrame);
-		}
-
-		var clampedFrameWidth = Math.Clamp(frameWidth, 1, spriteSheet.Width);
-		var clampedFrameHeight = Math.Clamp(frameHeight, 1, spriteSheet.Height);
-
-		var bestIndex = 0;
-		long bestScore = long.MinValue;
-
-		for (var index = 0; index < totalFramesByHeight; index++)
-		{
-			var yOffset = index * clampedFrameHeight;
-			if (yOffset + clampedFrameHeight > spriteSheet.Height)
-			{
-				break;
-			}
-
-			long score = 0;
-			for (var y = 0; y < clampedFrameHeight; y++)
-			{
-				var row = spriteSheet.DangerousGetPixelRowMemory(yOffset + y).Span;
-				for (var x = 0; x < clampedFrameWidth; x++)
-				{
-					score += row[x].A;
-				}
-			}
-
-			if (score > bestScore)
-			{
-				bestScore = score;
-				bestIndex = index;
-			}
-		}
-
-		return bestIndex;
-	}
-
-	private static IReadOnlyList<int> ExtractFrameIndices(JsonElement animation)
-	{
-		if (!animation.TryGetProperty("frames", out var framesElement) ||
+		if (!animationElement.TryGetProperty("frames", out var framesElement) ||
 		    framesElement.ValueKind != JsonValueKind.Array)
 		{
 			return [];
 		}
 
-		var indices = new List<int>();
-		foreach (var frameElement in framesElement.EnumerateArray())
+		var frames = new List<AnimationFrameDescriptor>();
+		foreach (var entry in framesElement.EnumerateArray())
 		{
-			var index = ParseFrameIndex(frameElement);
-			if (index >= 0)
+			switch (entry.ValueKind)
 			{
-				indices.Add(index);
+				case JsonValueKind.Number:
+					frames.Add(new AnimationFrameDescriptor(entry.GetInt32(), defaultFrameTime));
+					break;
+				case JsonValueKind.Object:
+					var index = entry.TryGetProperty("index", out var indexElement) &&
+					             indexElement.ValueKind == JsonValueKind.Number
+						? indexElement.GetInt32()
+						: -1;
+					if (index < 0)
+					{
+						continue;
+					}
+
+					var frameTime = defaultFrameTime;
+					if (entry.TryGetProperty("time", out var timeElement) &&
+					    timeElement.ValueKind == JsonValueKind.Number)
+					{
+						frameTime = Math.Max(timeElement.GetInt32(), 1);
+					}
+
+					frames.Add(new AnimationFrameDescriptor(index, frameTime));
+					break;
 			}
 		}
 
-		return indices;
+		return frames;
 	}
 
-	private static int ParseFrameIndex(JsonElement element)
+	private static IReadOnlyList<AnimationFrameDescriptor> BuildSequentialFrames(int frameCount, int defaultFrameTime)
 	{
-		switch (element.ValueKind)
+		if (frameCount <= 0)
 		{
-			case JsonValueKind.Number:
-				return element.GetInt32();
-			case JsonValueKind.Object when element.TryGetProperty("index", out var indexProperty) &&
-			                               indexProperty.ValueKind == JsonValueKind.Number:
-				return indexProperty.GetInt32();
-			default:
-				return -1;
+			return [];
 		}
+
+		var frames = new List<AnimationFrameDescriptor>(frameCount);
+		for (var i = 0; i < frameCount; i++)
+		{
+			frames.Add(new AnimationFrameDescriptor(i, defaultFrameTime));
+		}
+
+		return frames;
 	}
 
 	private bool TryLoadTrimPaletteColors(out Rgba32[] colors)
@@ -777,10 +784,228 @@ public sealed class TextureRepository : IDisposable
 		return null;
 	}
 
+	internal bool TryGetAnimation(string textureId, out TextureAnimation animation)
+	{
+		var normalized = NormalizeTextureId(textureId);
+		return _animationCache.TryGetValue(normalized, out animation);
+	}
+
+	internal IDisposable BeginAnimationOverride(IReadOnlyDictionary<string, TextureAnimationFrame> frames)
+	{
+		if (frames is null || frames.Count == 0)
+		{
+			return NoopScope.Instance;
+		}
+
+		Monitor.Enter(_animationOverrideLock);
+		var previous = _activeAnimationOverride;
+		var cacheKey = BuildOverrideCacheKey(frames);
+		_activeAnimationOverride = new AnimationOverride(frames, cacheKey);
+		return new AnimationOverrideScope(this, previous);
+	}
+
+	private static string BuildOverrideCacheKey(IReadOnlyDictionary<string, TextureAnimationFrame> frames)
+	{
+		return string.Join('|', frames
+			.OrderBy(static kvp => kvp.Key, StringComparer.OrdinalIgnoreCase)
+			.Select(static kvp => $"{kvp.Key}:{kvp.Value.FrameIndex}"));
+	}
+
+	private sealed record AnimationFrameDescriptor(int Index, int FrameTime);
+
+	internal sealed class TextureAnimation
+	{
+		public TextureAnimation(IReadOnlyList<TextureAnimationFrame> frames, bool interpolate, int frameWidth,
+			int frameHeight)
+		{
+			Frames = frames ?? throw new ArgumentNullException(nameof(frames));
+			Interpolate = interpolate;
+			FrameWidth = frameWidth;
+			FrameHeight = frameHeight;
+			TotalDurationMs = frames.Sum(static frame => Math.Max(frame.DurationMs, 50));
+		}
+
+		public IReadOnlyList<TextureAnimationFrame> Frames { get; }
+		public bool Interpolate { get; }
+		public int FrameWidth { get; }
+		public int FrameHeight { get; }
+		public int TotalDurationMs { get; }
+
+		public TextureAnimationFrame GetFrameAtTime(long elapsedMilliseconds, out bool requiresDisposal)
+		{
+			requiresDisposal = false;
+			if (Frames.Count == 0)
+			{
+				throw new InvalidOperationException("Animation does not contain frames.");
+			}
+
+			if (TotalDurationMs <= 0)
+			{
+				return Frames[0];
+			}
+
+			var normalized = (int)(elapsedMilliseconds % TotalDurationMs);
+			var accumulated = 0;
+			for (var index = 0; index < Frames.Count; index++)
+			{
+				var frame = Frames[index];
+				var duration = Math.Max(frame.DurationMs, 50);
+				var nextAccumulated = accumulated + duration;
+				if (normalized < nextAccumulated)
+				{
+					if (!Interpolate || Frames.Count == 1)
+					{
+						return frame;
+					}
+
+					var spanWithinFrame = normalized - accumulated;
+					if (spanWithinFrame <= 0)
+					{
+						return frame;
+					}
+
+					var progress = duration <= 0 ? 0d : spanWithinFrame / (double)duration;
+					if (progress <= 0d)
+					{
+						return frame;
+					}
+
+					if (progress >= 0.999d)
+					{
+						var nextFrameNearly = Frames[(index + 1) % Frames.Count];
+						return nextFrameNearly;
+					}
+
+					requiresDisposal = true;
+					var nextIndex = (index + 1) % Frames.Count;
+					var blendedFrame = CreateInterpolatedFrame(frame, Frames[nextIndex], progress);
+					return blendedFrame;
+				}
+
+				accumulated = nextAccumulated;
+			}
+
+			return Frames[^1];
+		}
+
+		private TextureAnimationFrame CreateInterpolatedFrame(TextureAnimationFrame current,
+			TextureAnimationFrame next, double progress)
+		{
+			var alpha = (float)Math.Clamp(progress, 0d, 1d);
+			var blended = current.Image.Clone();
+			var width = Math.Min(blended.Width, next.Image.Width);
+			var height = Math.Min(blended.Height, next.Image.Height);
+
+			for (var y = 0; y < height; y++)
+			{
+				var targetRow = blended.DangerousGetPixelRowMemory(y).Span;
+				var nextRow = next.Image.DangerousGetPixelRowMemory(y).Span;
+				var maxX = Math.Min(targetRow.Length, nextRow.Length);
+				for (var x = 0; x < maxX; x++)
+				{
+					var basePixel = targetRow[x];
+					var nextPixel = nextRow[x];
+					targetRow[x] = BlendPixel(basePixel, nextPixel, alpha);
+				}
+			}
+
+			var fractionKey = (int)Math.Clamp(Math.Round(alpha * 1000d), 0d, 1000d);
+			var frameKey = HashCode.Combine(current.FrameIndex, next.FrameIndex, fractionKey);
+			return new TextureAnimationFrame(frameKey, blended, current.DurationMs);
+		}
+
+		private static Rgba32 BlendPixel(Rgba32 source, Rgba32 target, float amount)
+		{
+			amount = Math.Clamp(amount, 0f, 1f);
+			var inverse = 1f - amount;
+			var r = (byte)Math.Clamp((source.R * inverse) + (target.R * amount), 0f, 255f);
+			var g = (byte)Math.Clamp((source.G * inverse) + (target.G * amount), 0f, 255f);
+			var b = (byte)Math.Clamp((source.B * inverse) + (target.B * amount), 0f, 255f);
+			var a = (byte)Math.Clamp((source.A * inverse) + (target.A * amount), 0f, 255f);
+			return new Rgba32(r, g, b, a);
+		}
+	}
+
+	internal sealed class TextureAnimationFrame
+	{
+		public TextureAnimationFrame(int frameIndex, Image<Rgba32> image, int durationMs)
+		{
+			FrameIndex = frameIndex;
+			Image = image ?? throw new ArgumentNullException(nameof(image));
+			DurationMs = durationMs;
+		}
+
+		public int FrameIndex { get; }
+		public Image<Rgba32> Image { get; }
+		public int DurationMs { get; }
+	}
+
+	private sealed class AnimationOverride
+	{
+		private readonly IReadOnlyDictionary<string, TextureAnimationFrame> _frames;
+
+		public AnimationOverride(IReadOnlyDictionary<string, TextureAnimationFrame> frames, string cacheKeySuffix)
+		{
+			_frames = frames;
+			CacheKeySuffix = cacheKeySuffix;
+		}
+
+		public string CacheKeySuffix { get; }
+
+		public bool TryGetFrame(string normalizedTextureId, out TextureAnimationFrame frame)
+			=> _frames.TryGetValue(normalizedTextureId, out frame);
+	}
+
+	private sealed class AnimationOverrideScope : IDisposable
+	{
+		private readonly TextureRepository _owner;
+		private readonly AnimationOverride? _previous;
+		private bool _disposed;
+
+		public AnimationOverrideScope(TextureRepository owner, AnimationOverride? previous)
+		{
+			_owner = owner;
+			_previous = previous;
+		}
+
+		public void Dispose()
+		{
+			if (_disposed)
+			{
+				return;
+			}
+
+			_owner._activeAnimationOverride = _previous;
+			Monitor.Exit(_owner._animationOverrideLock);
+			_disposed = true;
+		}
+	}
+
+	private sealed class NoopScope : IDisposable
+	{
+		public static NoopScope Instance { get; } = new();
+
+		public void Dispose()
+		{
+			// No-op.
+		}
+	}
+
 	public void Dispose()
 	{
 		if (_disposed) return;
 		_disposed = true;
+		_activeAnimationOverride = null;
+
+		foreach (var animation in _animationCache.Values)
+		{
+			foreach (var frame in animation.Frames)
+			{
+				frame.Image.Dispose();
+			}
+		}
+
+		_animationCache.Clear();
 
 		foreach (var texture in _cache.Values)
 		{
