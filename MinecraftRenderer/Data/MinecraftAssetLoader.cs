@@ -462,11 +462,11 @@ internal static class MinecraftAssetLoader
 					var modelReference = ResolveModelReferenceFromItemDefinition(document.RootElement);
 					entry = new ItemDefinitionEntry(itemName, modelReference, tintMap, selector);
 				}
-				catch (JsonException ex)
+				catch (JsonException)
 				{
 					continue;
 				}
-				catch (Exception ex)
+				catch (Exception)
 				{
 					continue;
 				}

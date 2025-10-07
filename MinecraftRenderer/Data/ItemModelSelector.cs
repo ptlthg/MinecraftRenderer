@@ -120,7 +120,6 @@ internal sealed class ItemModelSelectorCondition(
 					return false;
 				}
 			}
-
 			return true;
 		}
 
@@ -136,7 +135,7 @@ internal sealed class ItemModelSelectorCondition(
 		return false;
 	}
 
-	private static bool TryMatchCustomDataValue(NbtCompound compound, string key, string expected)
+	internal static bool TryMatchCustomDataValue(NbtCompound compound, string key, string expected)
 	{
 		if (!compound.TryGetValue(key, out var tag))
 		{
@@ -430,6 +429,55 @@ internal sealed class ItemModelSelectorSelect(
 				string.Equals(value, context.DisplayContext, StringComparison.OrdinalIgnoreCase));
 		}
 
+		if (string.Equals(Property, "component", StringComparison.OrdinalIgnoreCase))
+		{
+			foreach (var value in when)
+			{
+				if (MatchesComponentValue(value, context))
+				{
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+		return false;
+	}
+
+	private static bool MatchesComponentValue(string? value, ItemModelContext context)
+	{
+		if (string.IsNullOrWhiteSpace(value))
+		{
+			return false;
+		}
+
+		var itemData = context.ItemData;
+		if (itemData is null)
+		{
+			return false;
+		}
+
+		if (string.Equals(value, "minecraft:custom_data", StringComparison.OrdinalIgnoreCase) ||
+		    string.Equals(value, "custom_data", StringComparison.OrdinalIgnoreCase))
+		{
+			return itemData.CustomData is not null;
+		}
+
+		if (string.Equals(value, "minecraft:profile", StringComparison.OrdinalIgnoreCase) ||
+		    string.Equals(value, "profile", StringComparison.OrdinalIgnoreCase))
+		{
+			return itemData.Profile is not null;
+		}
+
+		if (string.Equals(value, "minecraft:dyed_color", StringComparison.OrdinalIgnoreCase) ||
+		    string.Equals(value, "dyed_color", StringComparison.OrdinalIgnoreCase))
+		{
+			return itemData.Layer0Tint is not null
+			       || (itemData.AdditionalLayerTints is not null && itemData.AdditionalLayerTints.Count > 0)
+			       || itemData.DisableDefaultLayer0Tint;
+		}
+
 		return false;
 	}
 }
@@ -509,20 +557,28 @@ internal sealed class ItemModelSelectorOptimized : ItemModelSelector
 	private readonly Dictionary<string, string> _customDataIdToModel;
 	private readonly Dictionary<string, ItemModelSelector> _customDataIdToSelector;
 	private readonly ItemModelSelector? _fallbackSelector;
+	private readonly IReadOnlyList<CustomDataCompositeMapping> _compositeMappings;
+
+	internal readonly record struct CustomDataCompositeMapping(
+		IReadOnlyDictionary<string, string> ExpectedValues,
+		string? Model,
+		ItemModelSelector? Selector);
 
 	public ItemModelSelectorOptimized(
 		Dictionary<string, string> customDataIdToModel,
 		Dictionary<string, ItemModelSelector> customDataIdToSelector,
+		IReadOnlyList<CustomDataCompositeMapping> compositeMappings,
 		ItemModelSelector? fallbackSelector)
 	{
 		_customDataIdToModel = customDataIdToModel;
 		_customDataIdToSelector = customDataIdToSelector;
+		_compositeMappings = compositeMappings;
 		_fallbackSelector = fallbackSelector;
 	}
 
 	public override string? Resolve(ItemModelContext context)
 	{
-		// Fast path: Check if we have a direct custom_data match
+		// Fast path: Check if we have a direct custom_data.id or custom_data.model match
 		if (context.ItemData?.CustomData is { } customData)
 		{
 			string? customDataKey = null;
@@ -555,14 +611,57 @@ internal sealed class ItemModelSelectorOptimized : ItemModelSelector
 				{
 					return selector.Resolve(context);
 				}
+				
+				// If id/model didn't match, DON'T short-circuit - fall through to check
+				// other properties via the fallback selector (e.g., potion + potion_type)
 			}
 		}
 
-		// Fallback to the original selector tree (for non-custom-data conditions)
-		return _fallbackSelector?.Resolve(context);
+		// Fallback to the original selector tree (for non-id/model conditions like potion properties)
+		if (context.ItemData?.CustomData is { } compositeCustomData && _compositeMappings.Count > 0)
+		{
+			foreach (var mapping in _compositeMappings)
+			{
+				if (!MatchesComposite(compositeCustomData, mapping.ExpectedValues))
+				{
+					continue;
+				}
+
+				if (mapping.Selector is not null)
+				{
+					return mapping.Selector.Resolve(context);
+				}
+
+				if (!string.IsNullOrWhiteSpace(mapping.Model))
+				{
+					return mapping.Model;
+				}
+			}
+		}
+
+		if (_fallbackSelector is null)
+		{
+			return null;
+		}
+
+		return _fallbackSelector.Resolve(context);
 	}
 
-	public int CustomDataMappingCount => _customDataIdToModel.Count + _customDataIdToSelector.Count;
+	private static bool MatchesComposite(NbtCompound customData, IReadOnlyDictionary<string, string> expected)
+	{
+		foreach (var (key, value) in expected)
+		{
+			if (!ItemModelSelectorCondition.TryMatchCustomDataValue(customData, key, value))
+			{
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	public int CustomDataMappingCount
+		=> _customDataIdToModel.Count + _customDataIdToSelector.Count + _compositeMappings.Count;
 }
 
 internal static class ItemModelSelectorParser
@@ -638,21 +737,24 @@ internal static class ItemModelSelectorParser
 			return null;
 		}
 
-		Console.WriteLine(
-			$"[TryOptimizeCustomDataSelector] Detected deeply nested custom_data selector (est. depth: {estimatedDepth}). Building lookup table...");
-
 		var modelMappings = new Dictionary<string, string>(StringComparer.Ordinal);
 		var selectorMappings = new Dictionary<string, ItemModelSelector>(StringComparer.Ordinal);
-		var fallbackModel = ExtractCustomDataMappings(element, modelMappings, selectorMappings, 0, 100000);
+		var compositeMappings = new List<ItemModelSelectorOptimized.CustomDataCompositeMapping>();
+		var extractionResult = ExtractCustomDataMappings(element, modelMappings, selectorMappings, compositeMappings, 0, 100000);
+		var fallbackModel = extractionResult.FallbackModel;
 
-		if (modelMappings.Count > 0 || selectorMappings.Count > 0)
+		if (extractionResult.EncounteredUnsupportedCondition ||
+		    (modelMappings.Count == 0 && selectorMappings.Count == 0))
 		{
-			Console.WriteLine(
-				$"[TryOptimizeCustomDataSelector] Built lookup table with {modelMappings.Count} model mappings + {selectorMappings.Count} selector mappings");
+			return null;
+		}
 
-			// Parse the fallback model if we found one
-			ItemModelSelector? fallbackSelector = null;
-			if (fallbackModel.HasValue && fallbackModel.Value.ValueKind == JsonValueKind.String)
+		// Parse the fallback model if we found one
+		ItemModelSelector? fallbackSelector = null;
+		if (fallbackModel.HasValue)
+		{
+			// If it's a string, create a simple model selector
+			if (fallbackModel.Value.ValueKind == JsonValueKind.String)
 			{
 				var modelStr = fallbackModel.Value.GetString();
 				if (!string.IsNullOrWhiteSpace(modelStr))
@@ -660,12 +762,17 @@ internal static class ItemModelSelectorParser
 					fallbackSelector = new ItemModelSelectorModel(modelStr, null);
 				}
 			}
-
-			return new ItemModelSelectorOptimized(modelMappings, selectorMappings, fallbackSelector);
+			// Otherwise, parse the complex selector tree (e.g., potion multi-property conditions)
+			else if (fallbackModel.Value.ValueKind == JsonValueKind.Object)
+			{
+				fallbackSelector = Parse(fallbackModel.Value, 0);
+			}
 		}
 
-		return null;
+		return new ItemModelSelectorOptimized(modelMappings, selectorMappings, compositeMappings, fallbackSelector);
 	}
+
+		private readonly record struct CustomDataExtractionResult(JsonElement? FallbackModel, bool EncounteredUnsupportedCondition);
 
 	/// <summary>
 	/// Checks if a selector is a deeply nested custom_data conditional tree.
@@ -738,10 +845,11 @@ internal static class ItemModelSelectorParser
 	/// Iteratively extracts custom_data.id → model/selector mappings from a nested conditional tree.
 	/// Uses a work queue to avoid stack overflow.
 	/// </summary>
-	private static JsonElement? ExtractCustomDataMappings(
+	private static CustomDataExtractionResult ExtractCustomDataMappings(
 		JsonElement root,
 		Dictionary<string, string> modelMappings,
 		Dictionary<string, ItemModelSelector> selectorMappings,
+		List<ItemModelSelectorOptimized.CustomDataCompositeMapping> compositeMappings,
 		int startDepth,
 		int maxDepth)
 	{
@@ -755,6 +863,7 @@ internal static class ItemModelSelectorParser
 		var queue = new Queue<(JsonElement element, int depth)>();
 		queue.Enqueue((startElement, startDepth));
 		JsonElement? fallbackModel = null;
+		var encounteredUnsupportedCondition = false;
 
 		while (queue.Count > 0)
 		{
@@ -788,50 +897,95 @@ internal static class ItemModelSelectorParser
 			    predEl.ValueKind == JsonValueKind.String &&
 			    predEl.GetString() == "custom_data")
 			{
-				// Extract the custom_data.id or custom_data.model value
+				// Extract the custom_data.id or composite value requirements
 				string? customDataId = null;
+				Dictionary<string, string>? compositeExpectedValues = null;
+				var supportedKeyFound = false;
 
 				if (current.TryGetProperty("value", out var valueEl))
 				{
 					if (valueEl.ValueKind == JsonValueKind.String)
 					{
 						customDataId = valueEl.GetString();
+						supportedKeyFound = !string.IsNullOrWhiteSpace(customDataId);
 					}
 					else if (valueEl.ValueKind == JsonValueKind.Object)
 					{
-						// Try "id" field first, then "model" field
 						if (valueEl.TryGetProperty("id", out var idEl) &&
 						    idEl.ValueKind == JsonValueKind.String)
 						{
 							customDataId = idEl.GetString();
+							supportedKeyFound = true;
 						}
 						else if (valueEl.TryGetProperty("model", out var modelEl) &&
 						         modelEl.ValueKind == JsonValueKind.String)
 						{
 							customDataId = modelEl.GetString();
+							supportedKeyFound = true;
+						}
+
+						Dictionary<string, string>? extracted = null;
+						foreach (var property in valueEl.EnumerateObject())
+						{
+							if (property.Value.ValueKind == JsonValueKind.String)
+							{
+								extracted ??= new Dictionary<string, string>(StringComparer.Ordinal);
+								extracted[property.Name] = property.Value.GetString()!;
+							}
+						}
+
+						if (extracted is not null)
+						{
+							if (!string.IsNullOrWhiteSpace(customDataId))
+							{
+								extracted.Remove("id");
+								extracted.Remove("model");
+							}
+
+							if (extracted.Count > 0)
+							{
+								compositeExpectedValues = extracted;
+								supportedKeyFound = true;
+							}
 						}
 					}
 				}
 
-				// If we found a custom_data.id, process the on_true branch
-				if (!string.IsNullOrWhiteSpace(customDataId) &&
-				    current.TryGetProperty("on_true", out var onTrueEl))
+				if (!supportedKeyFound)
 				{
-					// Try to extract a simple model first
-					var model = ExtractModelFromElement(onTrueEl);
+					encounteredUnsupportedCondition = true;
+				}
+
+				ItemModelSelector? selector = null;
+				string? model = null;
+
+				if (current.TryGetProperty("on_true", out var onTrueEl))
+				{
+					model = ExtractModelFromElement(onTrueEl);
+					if (string.IsNullOrWhiteSpace(model))
+					{
+						selector = Parse(onTrueEl, 0);
+					}
+				}
+
+				if (!string.IsNullOrWhiteSpace(customDataId))
+				{
 					if (!string.IsNullOrWhiteSpace(model))
 					{
-						modelMappings[customDataId] = model;
+						modelMappings[customDataId] = model!;
 					}
-					else
+					else if (selector is not null)
 					{
-						// on_true is a complex selector - parse it (it should be shallow)
-						var selector = Parse(onTrueEl, 0);
-						if (selector != null)
-						{
-							selectorMappings[customDataId] = selector;
-						}
+						selectorMappings[customDataId] = selector;
 					}
+				}
+
+				if (compositeExpectedValues is not null && (!string.IsNullOrWhiteSpace(model) || selector is not null))
+				{
+					compositeMappings.Add(new ItemModelSelectorOptimized.CustomDataCompositeMapping(
+						compositeExpectedValues,
+						string.IsNullOrWhiteSpace(model) ? null : model,
+						selector));
 				}
 
 				// Continue traversing on_false branch
@@ -847,7 +1001,7 @@ internal static class ItemModelSelectorParser
 			}
 		}
 
-		return fallbackModel;
+		return new CustomDataExtractionResult(fallbackModel, encounteredUnsupportedCondition);
 	}
 
 	/// <summary>
@@ -908,18 +1062,28 @@ internal static class ItemModelSelectorParser
 				return null;
 			}
 
-			// Check for fallback property first (e.g., Hypixel+ pack structure)
-			if (element.TryGetProperty("fallback", out var fallbackElement))
+			// Unwrap pass-through nodes that only forward to on_false/on_true without specifying a type
+			if (!element.TryGetProperty("type", out _)
+			    && !element.TryGetProperty("cases", out _)
+			    && !element.TryGetProperty("entries", out _)
+			    && !element.TryGetProperty("model", out _))
 			{
-				element = fallbackElement;
-				// Don't increment depth for tail recursion optimization
-				continue; // Tail recursion optimization: loop instead of recursive call
+				if (element.TryGetProperty("on_false", out var wrapperOnFalse))
+				{
+					element = wrapperOnFalse;
+					depth++;
+					continue;
+				}
+
+				if (element.TryGetProperty("on_true", out var wrapperOnTrue))
+				{
+					element = wrapperOnTrue;
+					depth++;
+					continue;
+				}
 			}
 
-			var type = NormalizeType(element.TryGetProperty("type", out var typeProperty)
-				? typeProperty.GetString()
-				: null);
-
+			var type = DetermineSelectorType(element);
 			return type switch
 			{
 				"model" => new ItemModelSelectorModel(GetString(element, "model"), GetString(element, "base")),
@@ -933,6 +1097,47 @@ internal static class ItemModelSelectorParser
 				_ => CreateFallbackSelector(element)
 			};
 		}
+	}
+
+	private static string DetermineSelectorType(JsonElement element)
+	{
+		if (element.ValueKind != JsonValueKind.Object)
+		{
+			return "model";
+		}
+
+		if (element.TryGetProperty("type", out var typeProperty) && typeProperty.ValueKind == JsonValueKind.String)
+		{
+			return NormalizeType(typeProperty.GetString());
+		}
+
+		if (element.TryGetProperty("cases", out var casesElement) && casesElement.ValueKind == JsonValueKind.Array)
+		{
+			return "select";
+		}
+
+		if (element.TryGetProperty("entries", out var entriesElement) && entriesElement.ValueKind == JsonValueKind.Array)
+		{
+			return "range_dispatch";
+		}
+
+		if (element.TryGetProperty("models", out var modelsElement) && modelsElement.ValueKind == JsonValueKind.Array)
+		{
+			return "composite";
+		}
+
+		if ((element.TryGetProperty("on_true", out _) || element.TryGetProperty("on_false", out _)) &&
+		    element.TryGetProperty("property", out _))
+		{
+			return "condition";
+		}
+
+		if (element.TryGetProperty("model", out var modelElement) && modelElement.ValueKind == JsonValueKind.Object)
+		{
+			return DetermineSelectorType(modelElement);
+		}
+
+		return "model";
 	}
 
 	private static ItemModelSelector? ParseCondition(JsonElement element, int depth)

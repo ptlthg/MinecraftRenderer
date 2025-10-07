@@ -399,7 +399,7 @@ public sealed partial class MinecraftBlockRenderer
 				}
 			}
 
-			if (effectiveModel is null)
+			if (effectiveModel is null && modelCandidates is not null)
 			{
 				foreach (var candidate in modelCandidates)
 				{

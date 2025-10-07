@@ -1,18 +1,18 @@
-namespace MinecraftRenderer;
-
-using System.Linq;
+using System.Collections.Concurrent;
 using System.Numerics;
 using System.Text.Json;
 using MinecraftRenderer.Assets;
 
+namespace MinecraftRenderer;
+
 public sealed class BlockModelResolver
 {
-	private readonly Dictionary<string, BlockModelDefinition> _definitions;
-	private readonly Dictionary<string, BlockModelInstance> _cache = new(StringComparer.OrdinalIgnoreCase);
+	private readonly ConcurrentDictionary<string, BlockModelDefinition> _definitions;
+	private readonly ConcurrentDictionary<string, BlockModelInstance> _cache = new(StringComparer.OrdinalIgnoreCase);
 
 	private BlockModelResolver(Dictionary<string, BlockModelDefinition> definitions)
 	{
-		_definitions = definitions;
+		_definitions = new ConcurrentDictionary<string, BlockModelDefinition>(definitions, StringComparer.OrdinalIgnoreCase);
 	}
 
 	internal IReadOnlyDictionary<string, BlockModelDefinition> Definitions => _definitions;
@@ -62,7 +62,7 @@ public sealed class BlockModelResolver
 		}
 
 		var instance = ResolveInternal(normalized, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
-		_cache[normalized] = instance;
+		_cache.TryAdd(normalized, instance);
 		return instance;
 	}
 

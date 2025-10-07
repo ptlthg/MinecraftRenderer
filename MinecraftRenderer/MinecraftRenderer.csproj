@@ -7,6 +7,7 @@
         <LangVersion>latest</LangVersion>
         <AssemblyName>MinecraftRenderer</AssemblyName>
         <RootNamespace>MinecraftRenderer</RootNamespace>
+        <NoWarn>CS1591</NoWarn>
         
         <!-- Package metadata for local references and future NuGet publishing -->
         <PackageId>MinecraftRenderer</PackageId>

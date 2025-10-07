@@ -2444,14 +2444,19 @@ public sealed partial class MinecraftBlockRenderer
 			var textureId = layerTextureIds[layerIndex];
 			var explicitLayerTint = GetExplicitLayerTint(explicitItemData, layerIndex, primaryTintLayerIndex);
 			Color? layerTint = explicitLayerTint;
-			if (!layerTint.HasValue)
+			var defaultTintApplied = false;
+			if (!layerTint.HasValue && TryResolveDefaultLayerTint(normalizedItemKey, itemInfo, layerIndex,
+				    layerIndex == primaryTintLayerIndex, disablePrimaryDefault, out var defaultTint))
 			{
-				var defaultTint = ResolveDefaultLayerTint(normalizedItemKey, itemInfo, layerIndex,
-					layerIndex == primaryTintLayerIndex, disablePrimaryDefault);
-				if (defaultTint.HasValue)
-				{
-					layerTint = defaultTint.Value;
-				}
+				layerTint = defaultTint;
+				defaultTintApplied = true;
+			}
+
+			if (defaultTintApplied && ShouldBypassDefaultLayerTint(textureId, layerIndex, primaryTintLayerIndex,
+				    layerTextureIds.Count))
+			{
+				layerTint = null;
+				defaultTintApplied = false;
 			}
 
 			var hasMetadataTint = itemInfo?.LayerTints.ContainsKey(layerIndex) == true;
@@ -2546,8 +2551,8 @@ public sealed partial class MinecraftBlockRenderer
 		return 0;
 	}
 
-	private static Color? ResolveDefaultLayerTint(string? normalizedItemKey, ItemRegistry.ItemInfo? itemInfo,
-		int layerIndex, bool isPrimaryDyeLayer, bool disablePrimaryDefault)
+	private static bool TryResolveDefaultLayerTint(string? normalizedItemKey, ItemRegistry.ItemInfo? itemInfo,
+		int layerIndex, bool isPrimaryDyeLayer, bool disablePrimaryDefault, out Color color)
 	{
 		if (itemInfo is not null && itemInfo.LayerTints.Count > 0 &&
 		    itemInfo.LayerTints.TryGetValue(layerIndex, out var tintInfo))
@@ -2555,28 +2560,29 @@ public sealed partial class MinecraftBlockRenderer
 			switch (tintInfo.Kind)
 			{
 				case ItemRegistry.ItemTintKind.Dye:
-					if (disablePrimaryDefault && isPrimaryDyeLayer)
+					if (!disablePrimaryDefault || !isPrimaryDyeLayer)
 					{
-						return null;
-					}
-
-					if (tintInfo.DefaultColor.HasValue)
-					{
-						return tintInfo.DefaultColor.Value;
+						if (tintInfo.DefaultColor.HasValue)
+						{
+							color = tintInfo.DefaultColor.Value;
+							return true;
+						}
 					}
 
 					break;
 				case ItemRegistry.ItemTintKind.Constant:
 					if (tintInfo.DefaultColor.HasValue)
 					{
-						return tintInfo.DefaultColor.Value;
+						color = tintInfo.DefaultColor.Value;
+						return true;
 					}
 
 					break;
 				default:
 					if (tintInfo.DefaultColor.HasValue && !(disablePrimaryDefault && isPrimaryDyeLayer))
 					{
-						return tintInfo.DefaultColor.Value;
+						color = tintInfo.DefaultColor.Value;
+						return true;
 					}
 
 					break;
@@ -2585,34 +2591,29 @@ public sealed partial class MinecraftBlockRenderer
 
 		if (string.IsNullOrWhiteSpace(normalizedItemKey))
 		{
-			return null;
+			color = default;
+			return false;
 		}
 
 		if (LegacyDefaultTintLayerOverrides.TryGetValue(normalizedItemKey, out var overrides) &&
 		    overrides.Contains(layerIndex))
 		{
-			if (disablePrimaryDefault && isPrimaryDyeLayer)
+			if (!(disablePrimaryDefault && isPrimaryDyeLayer) &&
+			    LegacyDefaultTintOverrides.TryGetValue(normalizedItemKey, out var overrideColor))
 			{
-				return null;
-			}
-
-			if (LegacyDefaultTintOverrides.TryGetValue(normalizedItemKey, out var overrideColor))
-			{
-				return overrideColor;
+				color = overrideColor;
+				return true;
 			}
 		}
 
 		if (layerIndex == 0
 		    && LegacyDefaultTintOverrides.TryGetValue(normalizedItemKey, out var legacyColor)
 		    && (!LegacyDefaultTintLayerOverrides.TryGetValue(normalizedItemKey, out var constrainedLayers) ||
-		        constrainedLayers.Contains(layerIndex)))
+		        constrainedLayers.Contains(layerIndex))
+		    && !(disablePrimaryDefault && isPrimaryDyeLayer))
 		{
-			if (disablePrimaryDefault && isPrimaryDyeLayer)
-			{
-				return null;
-			}
-
-			return legacyColor;
+			color = legacyColor;
+			return true;
 		}
 
 		if (!string.IsNullOrWhiteSpace(normalizedItemKey)
@@ -2620,10 +2621,46 @@ public sealed partial class MinecraftBlockRenderer
 		    && layerIndex == 0
 		    && !(disablePrimaryDefault && isPrimaryDyeLayer))
 		{
-			return DefaultLeatherArmorColor;
+			color = DefaultLeatherArmorColor;
+			return true;
 		}
 
-		return null;
+		color = default;
+		return false;
+	}
+
+	private static bool ShouldBypassDefaultLayerTint(string textureId, int layerIndex, int primaryTintLayerIndex,
+		int totalLayerCount)
+	{
+		if (totalLayerCount != 1)
+		{
+			return false;
+		}
+
+		if (layerIndex != primaryTintLayerIndex)
+		{
+			return false;
+		}
+
+		var textureNamespace = ExtractResourceNamespace(textureId);
+		return !string.Equals(textureNamespace, "minecraft", StringComparison.OrdinalIgnoreCase);
+	}
+
+	private static string ExtractResourceNamespace(string textureId)
+	{
+		if (string.IsNullOrWhiteSpace(textureId))
+		{
+			return "minecraft";
+		}
+
+		var normalized = textureId.Trim();
+		var colonIndex = normalized.IndexOf(':');
+		if (colonIndex >= 0)
+		{
+			return normalized[..colonIndex].Trim().ToLowerInvariant();
+		}
+
+		return "minecraft";
 	}
 
 	private static void ApplyLayerTint(Image<Rgba32> image, Color tint)
