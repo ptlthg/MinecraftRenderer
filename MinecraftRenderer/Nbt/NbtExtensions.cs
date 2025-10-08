@@ -198,4 +198,77 @@ public static class NbtExtensions
 
 		return null;
 	}
+	
+	/// <summary>
+	/// Create a new NbtCompound with a profile component added.
+	/// This creates the minecraft:profile component structure expected by the skull rendering pipeline.
+	/// </summary>
+	/// <param name="compound">The root NbtCompound (should contain or will contain a "components" compound).</param>
+	/// <param name="profileValue">The base64-encoded texture profile value (e.g., from NEU repo or Minecraft API).</param>
+	/// <param name="signature">Optional signature for the texture (usually not needed for custom items).</param>
+	/// <returns>A new NbtCompound with the profile component added.</returns>
+	/// <example>
+	/// <code>
+	/// var root = new NbtCompound(new[]
+	/// {
+	///     new KeyValuePair&lt;string, NbtTag&gt;("id", new NbtString("minecraft:player_head")),
+	///     new KeyValuePair&lt;string, NbtTag&gt;("count", new NbtInt(1))
+	/// });
+	/// 
+	/// var withProfile = root.WithProfileComponent("ewogICJ0aW1lc3RhbXAiIDogMTYzMzQ2NzI4MiwKICAicHJvZmlsZUlkIiA6ICI0MTNkMTdkMzMyODQ0OTYwYTExNWU2ZjYzNmE0ZDcyYyIsCiAgInByb2ZpbGVOYW1lIiA6ICJNaW5lY3JhZnRTa2luIiwKICAidGV4dHVyZXMiIDogewogICAgIlNLSU4iIDogewogICAgICAidXJsIiA6ICJodHRwOi8vdGV4dHVyZXMubWluZWNyYWZ0Lm5ldC90ZXh0dXJlLzE0ZjZhYjdkMWQyOGJkZTY1OTZiZjdkNGU5ZjlmMGI0ZjFlNWY5MTdkNTI1MjQ0ODJlZWM4ODFlYWM4YTZjNTEiCiAgICB9CiAgfQp9");
+	/// </code>
+	/// </example>
+	public static NbtCompound WithProfileComponent(this NbtCompound compound, string profileValue, string? signature = null)
+	{
+		ArgumentNullException.ThrowIfNull(compound);
+		ArgumentException.ThrowIfNullOrWhiteSpace(profileValue);
+
+		// Build the property compound
+		var propertyEntries = new List<KeyValuePair<string, NbtTag>>
+		{
+			new("name", new NbtString("textures")),
+			new("value", new NbtString(profileValue))
+		};
+
+		if (!string.IsNullOrWhiteSpace(signature))
+		{
+			propertyEntries.Add(new KeyValuePair<string, NbtTag>("signature", new NbtString(signature)));
+		}
+
+		var propertyCompound = new NbtCompound(propertyEntries);
+
+		// Build the properties list
+		var propertiesList = new NbtList(NbtTagType.Compound, [propertyCompound]);
+
+		// Build the profile compound
+		var profileCompound = new NbtCompound([
+			new KeyValuePair<string, NbtTag>("properties", propertiesList)
+		]);
+
+		// Get or create components compound
+		NbtCompound components;
+		IEnumerable<KeyValuePair<string, NbtTag>> otherRootEntries;
+
+		if (compound.TryGetValue("components", out var componentsTag) && componentsTag is NbtCompound existingComponents)
+		{
+			// Components exist, add profile to them
+			components = new NbtCompound(existingComponents.Concat([
+				new KeyValuePair<string, NbtTag>("minecraft:profile", profileCompound)
+			]));
+			otherRootEntries = compound.Where(kvp => kvp.Key != "components");
+		}
+		else
+		{
+			// No components, create new one with just the profile
+			components = new NbtCompound([
+				new KeyValuePair<string, NbtTag>("minecraft:profile", profileCompound)
+			]);
+			otherRootEntries = compound;
+		}
+
+		// Build the new root compound
+		return new NbtCompound(otherRootEntries.Concat([
+			new KeyValuePair<string, NbtTag>("components", components)
+		]));
+	}
 }
