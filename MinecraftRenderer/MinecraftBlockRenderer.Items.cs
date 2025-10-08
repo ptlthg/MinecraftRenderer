@@ -1089,7 +1089,15 @@ public sealed partial class MinecraftBlockRenderer
 				customDataId = idValue;
 			}
 
-			var resolvedTextureValue = resolver!(customDataId, itemData?.Profile);
+			var context = new SkullResolverContext(
+				ItemId: itemName,
+				ItemData: itemData,
+				CustomDataId: customDataId,
+				Profile: itemData?.Profile,
+				CustomData: itemData?.CustomData
+			);
+
+			var resolvedTextureValue = resolver!(context);
 			if (!string.IsNullOrWhiteSpace(resolvedTextureValue))
 			{
 				var resolverCompound = new NbtCompound([
@@ -1175,7 +1183,7 @@ public sealed partial class MinecraftBlockRenderer
 			return false;
 		}
 
-		if (!TryResolveHeadSkin(options, out var skinSource))
+		if (!TryResolveHeadSkin(itemName, options, out var skinSource))
 		{
 			return false;
 		}
@@ -1311,7 +1319,7 @@ public sealed partial class MinecraftBlockRenderer
 		       || string.Equals(normalized, "item/player_head#inventory", StringComparison.OrdinalIgnoreCase);
 	}
 
-	private bool TryResolveHeadSkin(BlockRenderOptions options, out Image<Rgba32> skin)
+	private bool TryResolveHeadSkin(string itemName, BlockRenderOptions options, out Image<Rgba32> skin)
 	{
 		skin = null!;
 		var itemData = options.ItemData;
@@ -1333,7 +1341,15 @@ public sealed partial class MinecraftBlockRenderer
 				customDataId = idValue;
 			}
 
-			var resolvedTexture = options.SkullTextureResolver(customDataId, itemData?.Profile);
+			var context = new SkullResolverContext(
+				ItemId: itemName,
+				ItemData: itemData,
+				CustomDataId: customDataId,
+				Profile: itemData?.Profile,
+				CustomData: itemData?.CustomData
+			);
+
+			var resolvedTexture = options.SkullTextureResolver(context);
 			if (!string.IsNullOrWhiteSpace(resolvedTexture))
 			{
 				if (TryLoadSkinFromTextureValue(resolvedTexture, out var resolvedSkin))

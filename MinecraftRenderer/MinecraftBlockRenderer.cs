@@ -15,12 +15,21 @@ using MinecraftRenderer.TexturePacks;
 public sealed partial class MinecraftBlockRenderer : IDisposable
 {
 	/// <summary>
+	/// Context information provided to the skull texture resolver.
+	/// </summary>
+	public sealed record SkullResolverContext(
+		string ItemId,
+		ItemRenderData? ItemData,
+		string? CustomDataId,
+		NbtCompound? Profile,
+		NbtCompound? CustomData);
+
+	/// <summary>
 	/// Resolves skull textures for player heads and custom skulls.
 	/// </summary>
-	/// <param name="customDataId">The custom_data.id value (e.g., Skyblock item ID), if present.</param>
-	/// <param name="profile">The profile NBT compound containing skin data, if present.</param>
+	/// <param name="context">Complete context about the item being rendered, including item ID, full custom data, and profile.</param>
 	/// <returns>A texture value string (base64 or URL), or null if no texture is available.</returns>
-	public delegate string? SkullTextureResolver(string? customDataId, NbtCompound? profile);
+	public delegate string? SkullTextureResolver(SkullResolverContext context);
 
 	public record BlockRenderOptions(
 		int Size = 512,
