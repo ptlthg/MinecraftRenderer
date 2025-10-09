@@ -363,6 +363,56 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 			: RenderItem(normalizedItemId, options);
 	}
 
+	public RenderedResource RenderItemFromNbtWithResourceId(NbtDocument document, BlockRenderOptions? options = null)
+	{
+		ArgumentNullException.ThrowIfNull(document);
+		var compound = document.RootCompound
+		               ?? throw new ArgumentException("SNBT document must have a compound root.", nameof(document));
+		return RenderItemFromNbtWithResourceId(compound, options);
+	}
+
+	public RenderedResource RenderItemFromNbtWithResourceId(NbtCompound compound, BlockRenderOptions? options = null)
+	{
+		ArgumentNullException.ThrowIfNull(compound);
+		var itemId = SnbtItemUtilities.TryGetItemId(compound)
+		             ?? throw new ArgumentException("SNBT item payload did not contain an item id.", nameof(compound));
+		var normalizedItemId = NormalizeItemTextureKey(itemId);
+
+		var baseOptions = options ?? BlockRenderOptions.Default;
+		var itemData = ExtractItemRenderDataFromComponents(compound);
+		var effectiveOptions = itemData is not null
+			? baseOptions with { ItemData = itemData }
+			: baseOptions;
+
+		return RenderGuiItemWithResourceId(normalizedItemId, effectiveOptions);
+	}
+
+	public AnimatedRenderedResource RenderAnimatedItemFromNbtWithResourceId(NbtDocument document,
+		BlockRenderOptions? options = null)
+	{
+		ArgumentNullException.ThrowIfNull(document);
+		var compound = document.RootCompound
+		               ?? throw new ArgumentException("SNBT document must have a compound root.", nameof(document));
+		return RenderAnimatedItemFromNbtWithResourceId(compound, options);
+	}
+
+	public AnimatedRenderedResource RenderAnimatedItemFromNbtWithResourceId(NbtCompound compound,
+		BlockRenderOptions? options = null)
+	{
+		ArgumentNullException.ThrowIfNull(compound);
+		var itemId = SnbtItemUtilities.TryGetItemId(compound)
+		             ?? throw new ArgumentException("SNBT item payload did not contain an item id.", nameof(compound));
+		var normalizedItemId = NormalizeItemTextureKey(itemId);
+
+		var baseOptions = options ?? BlockRenderOptions.Default;
+		var itemData = ExtractItemRenderDataFromComponents(compound);
+		var effectiveOptions = itemData is not null
+			? baseOptions with { ItemData = itemData }
+			: baseOptions;
+
+		return RenderAnimatedGuiItemWithResourceId(normalizedItemId, effectiveOptions);
+	}
+
 	public static ItemRenderData? ExtractItemRenderDataFromNbt(NbtCompound compound)
 	{
 		ArgumentNullException.ThrowIfNull(compound);

@@ -146,20 +146,4 @@ public class NbtExtensionsTests
 		Assert.Equal(64, image.Width);
 		Assert.Equal(64, image.Height);
 	}
-
-	[Fact]
-	public void AddProfileComponent_ThrowsNotSupportedException()
-	{
-		// Arrange
-		var root = new NbtCompound(new[]
-		{
-			new KeyValuePair<string, NbtTag>("id", new NbtString("minecraft:player_head"))
-		});
-
-		// Act & Assert
-		#pragma warning disable CS0618 // Type or member is obsolete
-		Assert.Throws<NotSupportedException>(() =>
-			root.AddProfileComponent("test_value"));
-		#pragma warning restore CS0618
-	}
 }

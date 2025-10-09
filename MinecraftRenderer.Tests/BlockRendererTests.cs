@@ -168,6 +168,97 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 	}
 
 	[Fact]
+	public void RenderItemFromNbtWithResourceIdMatchesDirectOperations()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 64 };
+
+		var nbt = new NbtCompound(new[]
+		{
+			new KeyValuePair<string, NbtTag>("id", new NbtString("minecraft:diamond_sword")),
+			new KeyValuePair<string, NbtTag>("Count", new NbtByte((sbyte)1))
+		});
+
+		using var combined = renderer.RenderItemFromNbtWithResourceId(nbt, options);
+		using var separate = renderer.RenderItemFromNbt(nbt, options);
+		using var baseline = renderer.RenderGuiItemWithResourceId("diamond_sword", options);
+		using var baselineNamespaced = renderer.RenderGuiItemWithResourceId("minecraft:diamond_sword", options);
+		output.WriteLine($"combined: {combined.ResourceId.ResourceId}");
+		output.WriteLine($"baseline: {baseline.ResourceId.ResourceId}");
+		output.WriteLine($"namespaced: {baselineNamespaced.ResourceId.ResourceId}");
+		Assert.True(ImagesAreIdentical(separate, combined.Image));
+		Assert.True(ImagesAreIdentical(baseline.Image, combined.Image));
+		Assert.Equal(baseline.ResourceId.ResourceId, combined.ResourceId.ResourceId);
+		Assert.Equal(baseline.ResourceId.PackStackHash, combined.ResourceId.PackStackHash);
+		Assert.Equal(baseline.ResourceId.SourcePackId, combined.ResourceId.SourcePackId);
+		Assert.Equal(baseline.ResourceId.Model, combined.ResourceId.Model);
+		Assert.Equal(baseline.ResourceId.Textures, combined.ResourceId.Textures);
+	}
+
+	[Fact]
+	public void RenderItemFromNbtWithResourceIdHonorsExtractedItemData()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		var baseOptions = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 64 };
+
+		var components = new NbtCompound(new[]
+		{
+			new KeyValuePair<string, NbtTag>("minecraft:dyed_color", new NbtInt(0x00FF66CC))
+		});
+
+		var nbt = new NbtCompound(new[]
+		{
+			new KeyValuePair<string, NbtTag>("id", new NbtString("minecraft:leather_helmet")),
+			new KeyValuePair<string, NbtTag>("components", components)
+		});
+
+		using var combined = renderer.RenderItemFromNbtWithResourceId(nbt, baseOptions);
+
+		var extractedData = MinecraftBlockRenderer.ExtractItemRenderDataFromNbt(nbt);
+		Assert.NotNull(extractedData);
+		var expectedOptions = baseOptions with { ItemData = extractedData };
+
+		using var separate = renderer.RenderItem("minecraft:leather_helmet", expectedOptions);
+		using var baseline = renderer.RenderGuiItemWithResourceId("leather_helmet", expectedOptions);
+
+		Assert.True(ImagesAreIdentical(separate, combined.Image));
+		Assert.True(ImagesAreIdentical(baseline.Image, combined.Image));
+		Assert.Equal(baseline.ResourceId.ResourceId, combined.ResourceId.ResourceId);
+		Assert.Equal(baseline.ResourceId.PackStackHash, combined.ResourceId.PackStackHash);
+		Assert.Equal(baseline.ResourceId.SourcePackId, combined.ResourceId.SourcePackId);
+		Assert.Equal(baseline.ResourceId.Model, combined.ResourceId.Model);
+		Assert.Equal(baseline.ResourceId.Textures, combined.ResourceId.Textures);
+	}
+
+	[Fact]
+	public void RenderAnimatedItemFromNbtWithResourceIdReturnsSingleFrameForStaticItem()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 64 };
+
+		var nbt = new NbtCompound(new[]
+		{
+			new KeyValuePair<string, NbtTag>("id", new NbtString("minecraft:diamond_sword")),
+			new KeyValuePair<string, NbtTag>("Count", new NbtByte((sbyte)1))
+		});
+
+		using var animated = renderer.RenderAnimatedItemFromNbtWithResourceId(nbt, options);
+		Assert.Single(animated.Frames);
+
+		using var expected = renderer.RenderItemFromNbt(nbt, options);
+		using var baseline = renderer.RenderAnimatedGuiItemWithResourceId("diamond_sword", options);
+		Assert.Single(baseline.Frames);
+
+		Assert.True(ImagesAreIdentical(expected, animated.Frames[0].Image));
+		Assert.True(ImagesAreIdentical(baseline.Frames[0].Image, animated.Frames[0].Image));
+		Assert.Equal(baseline.ResourceId.ResourceId, animated.ResourceId.ResourceId);
+		Assert.Equal(baseline.ResourceId.PackStackHash, animated.ResourceId.PackStackHash);
+		Assert.Equal(baseline.ResourceId.SourcePackId, animated.ResourceId.SourcePackId);
+		Assert.Equal(baseline.ResourceId.Model, animated.ResourceId.Model);
+		Assert.Equal(baseline.ResourceId.Textures, animated.ResourceId.Textures);
+	}
+
+	[Fact]
 	public void DefaultInventoryOrientationShowsFrontOnRight()
 	{
 		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
