@@ -196,6 +196,59 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 	}
 
 	[Fact]
+	public void RenderItemFromNbtWithResourceIdIgnoresUnusedData()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 64 };
+
+		var nbt = new NbtCompound(new[]
+		{
+			new KeyValuePair<string, NbtTag>("id", new NbtString("minecraft:diamond_sword")),
+			new KeyValuePair<string, NbtTag>("Count", new NbtByte((sbyte)1)),
+			// Extra unused data that should be ignored
+			new KeyValuePair<string, NbtTag>("tag", new NbtCompound(new[]
+			{
+				new KeyValuePair<string, NbtTag>("minecraft:custom_data", new NbtCompound(new[]
+				{
+					new KeyValuePair<string, NbtTag>("uuid", new NbtString(Guid.NewGuid().ToString())),
+					new KeyValuePair<string, NbtTag>("cultivated_crops", new NbtLong(12897189621)),
+				}))
+			}))
+		});
+
+		var nbt2 = new NbtCompound(new[]
+		{
+			new KeyValuePair<string, NbtTag>("id", new NbtString("minecraft:diamond_sword")),
+			new KeyValuePair<string, NbtTag>("Count", new NbtByte((sbyte)1)),
+			// Extra unused data that should be ignored
+			new KeyValuePair<string, NbtTag>("tag", new NbtCompound(new[]
+			{
+				new KeyValuePair<string, NbtTag>("minecraft:custom_data", new NbtCompound(new[]
+				{
+					new KeyValuePair<string, NbtTag>("uuid", new NbtString(Guid.NewGuid().ToString())),
+					new KeyValuePair<string, NbtTag>("cultivated_crops", new NbtLong(98761234532)),
+					new KeyValuePair<string, NbtTag>("enchantments",
+						new NbtCompound(new[]
+						{
+							new KeyValuePair<string, NbtTag>("id", new NbtString("minecraft:sharpness")),
+							new KeyValuePair<string, NbtTag>("lvl", new NbtInt(5))
+						}))
+				}))
+			}))
+		});
+
+		using var result1 = renderer.RenderItemFromNbtWithResourceId(nbt, options);
+		using var result2 = renderer.RenderItemFromNbtWithResourceId(nbt2, options);
+
+		Assert.True(ImagesAreIdentical(result1.Image, result2.Image));
+		Assert.Equal(result1.ResourceId.ResourceId, result2.ResourceId.ResourceId);
+		Assert.Equal(result1.ResourceId.PackStackHash, result2.ResourceId.PackStackHash);
+		Assert.Equal(result1.ResourceId.SourcePackId, result2.ResourceId.SourcePackId);
+		Assert.Equal(result1.ResourceId.Model, result2.ResourceId.Model);
+		Assert.Equal(result1.ResourceId.Textures, result2.ResourceId.Textures);
+	}
+
+	[Fact]
 	public void RenderItemFromNbtWithResourceIdHonorsExtractedItemData()
 	{
 		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
