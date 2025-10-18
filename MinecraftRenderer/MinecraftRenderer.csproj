@@ -17,6 +17,7 @@
         <RepositoryUrl>https://github.com/ptlthg/MinecraftRenderer</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
         
         <IsPackable>true</IsPackable>
         <ProduceReferenceAssembly>true</ProduceReferenceAssembly>
