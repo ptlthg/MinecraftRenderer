@@ -1,16 +1,17 @@
 # MinecraftRenderer
 
-.NET renderer for Minecraft heads, blocks, and block-based items using [SixLabors.ImageSharp](https://github.com/SixLabors/ImageSharp).
+.NET renderer for Minecraft heads, blocks, and GUI-ready items using [SixLabors.ImageSharp](https://github.com/SixLabors/ImageSharp).
 
 ## Features
 
-- Render player heads with arbitrary rotations and overlays using `MinecraftHeadRenderer`.
-- Render block and item models (including GUI transforms and per-face textures) with `MinecraftBlockRenderer`.
-- Default block and item renders keep the Minecraft inventory GUI rotation while staying orthographic by default.
-- Loads vanilla model and texture metadata directly from the JSON files in the `minecraft/` directory – You need to unzip `client.jar` for this (it's the assets directory).
-- Ships with a small unit test suite to verify rendering stays functional.
+- `MinecraftBlockRenderer` renders block and item models with Minecraft's GUI transforms, lighting, biome tints, and pack overlays.
+- `RenderItemFromNbt` and `RenderItemFromNbtWithResourceId` turn vanilla or Hypixel SNBT payloads into images (and expose deterministic resource IDs plus animation metadata).
+- `MinecraftHeadRenderer` draws player heads from skins, custom data, or resolver-provided textures.
+- Texture pack stacks, overlays, and custom data directories are supported without rebuilding the renderer.
+- Skull rendering accepts pluggable resolvers that see the full item context (`SkullResolverContext`).
+- Ships with an xUnit suite that exercises model rendering, lighting, texture packs, and Hypixel item parsing.
 
-## Getting started
+## Quick start
 
 1. Restore the solution and run the tests:
 
@@ -18,93 +19,96 @@
 	dotnet test
 	```
 
-2. Render a block from your own code:
+2. Create a renderer backed by aggregated JSON data (see **Data files**):
 
 	```csharp
 	using MinecraftRenderer;
 
 	var dataPath = Path.Combine(Environment.CurrentDirectory, "minecraft");
-
 	using var renderer = MinecraftBlockRenderer.CreateFromDataDirectory(dataPath);
-	using var image = renderer.RenderBlock("stone", new MinecraftBlockRenderer.BlockRenderOptions(Size: 256));
-
-	image.Save("stone.png");
 	```
 
-3. Render a head with the existing head renderer:
+3. Render a block or item:
 
 	```csharp
-	using MinecraftRenderer;
-	using SixLabors.ImageSharp;
-	using SixLabors.ImageSharp.PixelFormats;
+	using var block = renderer.RenderBlock(
+		"stone",
+		MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 256 });
+	block.Save("stone.png");
 
-	using var skin = Image.Load<Rgba32>("steve.png");
-	var head = MinecraftHeadRenderer.RenderHead(new MinecraftHeadRenderer.RenderOptions(256, -35, 25, 0), skin);
-	head.Save("head.png");
+	using var item = renderer.RenderItem(
+		"minecraft:diamond_sword",
+		MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 });
+	item.Save("diamond_sword.png");
 	```
+
+4. Render directly from SNBT and capture the resource ID that fingerprints the model/texture stack:
+
+	```csharp
+	var nbt = NbtDocument.Parse(@"{
+	  id: ""minecraft:player_head"",
+	  Count: 1b,
+	  components: {
+	    ""minecraft:profile"": {
+	      id: ""abcd-efgh"",
+	      properties: [{ name: ""textures"", value: ""...base64..."" }]
+	    }
+	  }
+	}");
+
+	using var rendered = renderer.RenderItemFromNbtWithResourceId(nbt);
+	rendered.Image.Save("head.png");
+	Console.WriteLine($"Resource ID: {rendered.ResourceId.ResourceId}");
+	```
+
+`RenderAnimatedItemFromNbtWithResourceId` returns an `AnimatedRenderedResource` when any bound textures carry animation metadata; static items still produce a single frame.
+
+## Rendering APIs in a nutshell
+
+- `RenderBlock`, `RenderItem`, and `RenderGuiItemFromTextureId` cover direct model/texture rendering.
+- `RenderItemFromNbt` and `RenderItem` overloads accept `ItemRenderData` to apply dyes, custom data, or skull profiles.
+- `RenderItemFromNbtWithResourceId` / `RenderAnimatedItemFromNbtWithResourceId` return `RenderedResource` / `AnimatedRenderedResource` (image plus pack-aware fingerprint, model path, and resolved textures).
+- `BlockRenderOptions` control camera, transforms, lighting, texture packs, and skull texture resolvers. Clone with `with` to tweak individual properties.
 
 ## Data files
 
-The project expects the vanilla JSON metadata and textures located under the `minecraft/` directory:
+Optional `customdata/` overlays located next to the assets tree are detected automatically. Texture pack registries can be supplied via `TexturePackRegistry` to build layered pack stacks.
 
-- `blocks_models.json`: merged block model definitions.
-- `blocks_textures.json`: mappings from block names to model IDs.
-- `items_textures.json`: mappings for item names (used when available).
-- `texture_content.json` plus the resource folders (e.g. `minecraft/blocks/`, `minecraft/items/`): PNG texture data.
+The library ships with `MinecraftAssetDownloader` to fetch and unzip asset files directly from Mojang:
 
-To integrate other Minecraft versions or resource packs, replace these files with your own exported data.
+```csharp
+using MinecraftRenderer;
 
-## Atlas generation
+Console.WriteLine("Downloading Minecraft 1.21.10 assets...");
+var assetsPath = await MinecraftAssetDownloader.DownloadAndExtractAssets(
+	version: "1.21.10",
+	acceptEula: true, // Review https://www.minecraft.net/en-us/eula first
+	progress: new Progress<(int Percentage, string Status)>(p =>
+		Console.WriteLine($"[{p.Percentage}%] {p.Status}"))
+);
 
-Quickly inspect all rendered assets by exporting atlas images across multiple camera angles:
+Console.WriteLine($"Assets extracted to: {assetsPath}");
+
+using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(assetsPath);
+using var stone = renderer.RenderBlock("stone", new MinecraftBlockRenderer.BlockRenderOptions(Size: 256));
+stone.Save("stone.png");
+```
+
+`MinecraftAssetDownloader.GetAvailableVersions` and `GetLatestVersion` can help you pick the right version before downloading, but not all versions are guaranteed to work.
+
+## Atlas generator (developer aid)
+
+`CreateAtlases` is a CLI utility that dumps pages of renders for debugging or content reviews. Run it from the repo root when you want a quick visual diff:
 
 ```powershell
 dotnet run --project CreateAtlases/CreateAtlases.csproj -- --output atlases
 ```
 
-The CLI auto-discovers the `minecraft/` directory when run from the repo root. Customise the export with options such as:
-
-```powershell
-dotnet run --project CreateAtlases/CreateAtlases.csproj -- --tile-size 192 --columns 10 --rows 10 --views isometric_right,front
-dotnet run --project CreateAtlases/CreateAtlases.csproj -- --blocks stone,grass_block --items diamond_sword
-```
-
-Working with Hypixel-style SNBT exports? Point the generator at a directory of `.snbt` item stacks to produce dedicated atlases (each file becomes its own tile) while still honouring any texture packs passed via `--texture-pack-id`:
-
-```powershell
-dotnet run --project CreateAtlases/CreateAtlases.csproj -- --snbt-dir snbt-test-items --texture-pack-id firmskyblock
-```
-
-SNBT atlases are written to an `atlases/snbt/` subfolder alongside the standard block/item output, and their manifests include any per-item parsing or render errors.
-
-Need to export animated GUI items? Add `--animated-formats` with any combination of `gif`, `apng`, or `webp` to mirror the per-item animation frames from `.mcmeta` files. Outputs land under an `animated/` subdirectory (or a custom path via `--animated-output`), grouped by view and texture pack, and a manifest listing frame timings is generated automatically.
-
-```powershell
-dotnet run --project CreateAtlases/CreateAtlases.csproj -- --views front --animated-formats gif,webp
-```
-
-Prefer to drive it from code? Use the generator API directly:
-
-```csharp
-using MinecraftRenderer;
-
-var dataPath = Path.Combine(Environment.CurrentDirectory, "data");
-using var renderer = MinecraftBlockRenderer.CreateFromDataDirectory(dataPath);
-
-var results = MinecraftAtlasGenerator.GenerateAtlases(
-	renderer,
-	outputDirectory: Path.Combine(Environment.CurrentDirectory, "atlases"),
-	views: MinecraftAtlasGenerator.DefaultViews,
-	tileSize: 160,
-	columns: 12,
-	rows: 12);
-```
-
-Each atlas is accompanied by a JSON manifest listing the block/item occupying each grid cell (with render errors captured per entry). Provide `blockFilter`/`itemFilter` sequences to focus on subsets or tweak `tileSize`/`columns`/`rows` to split the output across more pages.
+Additional flags exist for custom camera views, SNBT item directories, or animated outputs, but the tool is not required for normal library usage.
 
 ## Running tests
 
-The solution includes an xUnit test project that renders a stone block and asserts opaque pixels are produced. Run the suite with:
+Execute the regression suite from the repository root:
 
 ```powershell
 dotnet test
