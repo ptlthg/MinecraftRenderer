@@ -8,7 +8,7 @@
         <AssemblyName>MinecraftRenderer</AssemblyName>
         <RootNamespace>MinecraftRenderer</RootNamespace>
         <NoWarn>CS1591</NoWarn>
-        
+
         <PackageId>MinecraftRenderer</PackageId>
         <Version>0.2.3</Version>
         <Authors>ptlthg</Authors>
@@ -18,21 +18,22 @@
         <RepositoryType>git</RepositoryType>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-        <PackageReadmeFile>../README.md</PackageReadmeFile>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
         <IsPackable>true</IsPackable>
         <ProduceReferenceAssembly>true</ProduceReferenceAssembly>
     </PropertyGroup>
 
     <ItemGroup>
-      <PackageReference Include="SixLabors.ImageSharp" Version="3.1.11" />
+        <PackageReference Include="SixLabors.ImageSharp" Version="3.1.11"/>
     </ItemGroup>
-    
+
     <ItemGroup>
-      <Content Include="customdata\**\*">
-          <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-          <Link>customdata\%(RecursiveDir)%(Filename)%(Extension)</Link>
-          <Pack>true</Pack>
-          <PackagePath>contentFiles\any\any\customdata;content\customdata</PackagePath>
+        <None Include="../README.md" Pack="true" PackagePath="\"/>
+        <Content Include="customdata\**\*">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+            <Link>customdata\%(RecursiveDir)%(Filename)%(Extension)</Link>
+            <Pack>true</Pack>
+            <PackagePath>contentFiles\any\any\customdata;content\customdata</PackagePath>
         </Content>
     </ItemGroup>
 
