@@ -413,6 +413,30 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		return RenderAnimatedGuiItemWithResourceId(normalizedItemId, effectiveOptions);
 	}
 
+	public ResourceIdResult ComputeResourceIdFromNbt(NbtDocument document, BlockRenderOptions? options = null)
+	{
+		ArgumentNullException.ThrowIfNull(document);
+		var compound = document.RootCompound
+		               ?? throw new ArgumentException("SNBT document must have a compound root.", nameof(document));
+		return ComputeResourceIdFromNbt(compound, options);
+	}
+
+	public ResourceIdResult ComputeResourceIdFromNbt(NbtCompound compound, BlockRenderOptions? options = null)
+	{
+		ArgumentNullException.ThrowIfNull(compound);
+		var itemId = SnbtItemUtilities.TryGetItemId(compound)
+		             ?? throw new ArgumentException("SNBT item payload did not contain an item id.", nameof(compound));
+		var normalizedItemId = NormalizeItemTextureKey(itemId);
+
+		var baseOptions = options ?? BlockRenderOptions.Default;
+		var itemData = ExtractItemRenderDataFromComponents(compound);
+		var effectiveOptions = itemData is not null
+			? baseOptions with { ItemData = itemData }
+			: baseOptions;
+
+		return ComputeResourceId(normalizedItemId, effectiveOptions);
+	}
+
 	public static ItemRenderData? ExtractItemRenderDataFromNbt(NbtCompound compound)
 	{
 		ArgumentNullException.ThrowIfNull(compound);

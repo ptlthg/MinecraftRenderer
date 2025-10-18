@@ -183,6 +183,8 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 		using var separate = renderer.RenderItemFromNbt(nbt, options);
 		using var baseline = renderer.RenderGuiItemWithResourceId("diamond_sword", options);
 		using var baselineNamespaced = renderer.RenderGuiItemWithResourceId("minecraft:diamond_sword", options);
+		var computedFromNbt = renderer.ComputeResourceIdFromNbt(nbt, options);
+		var computedDirect = renderer.ComputeResourceId("diamond_sword", options);
 		output.WriteLine($"combined: {combined.ResourceId.ResourceId}");
 		output.WriteLine($"baseline: {baseline.ResourceId.ResourceId}");
 		output.WriteLine($"namespaced: {baselineNamespaced.ResourceId.ResourceId}");
@@ -193,6 +195,16 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 		Assert.Equal(baseline.ResourceId.SourcePackId, combined.ResourceId.SourcePackId);
 		Assert.Equal(baseline.ResourceId.Model, combined.ResourceId.Model);
 		Assert.Equal(baseline.ResourceId.Textures, combined.ResourceId.Textures);
+		Assert.Equal(baseline.ResourceId.ResourceId, computedFromNbt.ResourceId);
+		Assert.Equal(baseline.ResourceId.Model, computedFromNbt.Model);
+		Assert.Equal(baseline.ResourceId.SourcePackId, computedFromNbt.SourcePackId);
+		Assert.Equal(baseline.ResourceId.Textures, computedFromNbt.Textures);
+		Assert.Equal(baseline.ResourceId.PackStackHash, computedFromNbt.PackStackHash);
+		Assert.Equal(baseline.ResourceId.ResourceId, computedDirect.ResourceId);
+		Assert.Equal(baseline.ResourceId.Model, computedDirect.Model);
+		Assert.Equal(baseline.ResourceId.SourcePackId, computedDirect.SourcePackId);
+		Assert.Equal(baseline.ResourceId.Textures, computedDirect.Textures);
+		Assert.Equal(baseline.ResourceId.PackStackHash, computedDirect.PackStackHash);
 	}
 
 	[Fact]
@@ -239,6 +251,9 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 
 		using var result1 = renderer.RenderItemFromNbtWithResourceId(nbt, options);
 		using var result2 = renderer.RenderItemFromNbtWithResourceId(nbt2, options);
+		var computed1 = renderer.ComputeResourceIdFromNbt(nbt, options);
+		var computed2 = renderer.ComputeResourceIdFromNbt(nbt2, options);
+		var baseline = renderer.ComputeResourceId("diamond_sword", options);
 
 		Assert.True(ImagesAreIdentical(result1.Image, result2.Image));
 		Assert.Equal(result1.ResourceId.ResourceId, result2.ResourceId.ResourceId);
@@ -246,6 +261,21 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 		Assert.Equal(result1.ResourceId.SourcePackId, result2.ResourceId.SourcePackId);
 		Assert.Equal(result1.ResourceId.Model, result2.ResourceId.Model);
 		Assert.Equal(result1.ResourceId.Textures, result2.ResourceId.Textures);
+		Assert.Equal(result1.ResourceId.ResourceId, computed1.ResourceId);
+		Assert.Equal(result1.ResourceId.ResourceId, computed2.ResourceId);
+		Assert.Equal(result1.ResourceId.ResourceId, baseline.ResourceId);
+		Assert.Equal(result1.ResourceId.PackStackHash, computed1.PackStackHash);
+		Assert.Equal(result1.ResourceId.PackStackHash, computed2.PackStackHash);
+		Assert.Equal(result1.ResourceId.PackStackHash, baseline.PackStackHash);
+		Assert.Equal(result1.ResourceId.SourcePackId, computed1.SourcePackId);
+		Assert.Equal(result1.ResourceId.SourcePackId, computed2.SourcePackId);
+		Assert.Equal(result1.ResourceId.SourcePackId, baseline.SourcePackId);
+		Assert.Equal(result1.ResourceId.Model, computed1.Model);
+		Assert.Equal(result1.ResourceId.Model, computed2.Model);
+		Assert.Equal(result1.ResourceId.Model, baseline.Model);
+		Assert.Equal(result1.ResourceId.Textures, computed1.Textures);
+		Assert.Equal(result1.ResourceId.Textures, computed2.Textures);
+		Assert.Equal(result1.ResourceId.Textures, baseline.Textures);
 	}
 
 	[Fact]
@@ -270,6 +300,8 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 		var extractedData = MinecraftBlockRenderer.ExtractItemRenderDataFromNbt(nbt);
 		Assert.NotNull(extractedData);
 		var expectedOptions = baseOptions with { ItemData = extractedData };
+		var computedFromNbt = renderer.ComputeResourceIdFromNbt(nbt, expectedOptions);
+		var computedDirect = renderer.ComputeResourceId("leather_helmet", expectedOptions);
 
 		using var separate = renderer.RenderItem("minecraft:leather_helmet", expectedOptions);
 		using var baseline = renderer.RenderGuiItemWithResourceId("leather_helmet", expectedOptions);
@@ -281,6 +313,16 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 		Assert.Equal(baseline.ResourceId.SourcePackId, combined.ResourceId.SourcePackId);
 		Assert.Equal(baseline.ResourceId.Model, combined.ResourceId.Model);
 		Assert.Equal(baseline.ResourceId.Textures, combined.ResourceId.Textures);
+		Assert.Equal(baseline.ResourceId.ResourceId, computedFromNbt.ResourceId);
+		Assert.Equal(baseline.ResourceId.Model, computedFromNbt.Model);
+		Assert.Equal(baseline.ResourceId.SourcePackId, computedFromNbt.SourcePackId);
+		Assert.Equal(baseline.ResourceId.Textures, computedFromNbt.Textures);
+		Assert.Equal(baseline.ResourceId.PackStackHash, computedFromNbt.PackStackHash);
+		Assert.Equal(baseline.ResourceId.ResourceId, computedDirect.ResourceId);
+		Assert.Equal(baseline.ResourceId.Model, computedDirect.Model);
+		Assert.Equal(baseline.ResourceId.SourcePackId, computedDirect.SourcePackId);
+		Assert.Equal(baseline.ResourceId.Textures, computedDirect.Textures);
+		Assert.Equal(baseline.ResourceId.PackStackHash, computedDirect.PackStackHash);
 	}
 
 	[Fact]
@@ -300,7 +342,12 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 
 		using var expected = renderer.RenderItemFromNbt(nbt, options);
 		using var baseline = renderer.RenderAnimatedGuiItemWithResourceId("diamond_sword", options);
+		var computedFromNbt = renderer.ComputeResourceIdFromNbt(nbt, options);
+		var computedDirect = renderer.ComputeResourceId("diamond_sword", options);
 		Assert.Single(baseline.Frames);
+
+		using var clone = animated.CloneAsAnimatedImage();
+		Assert.Single(clone.Frames);
 
 		Assert.True(ImagesAreIdentical(expected, animated.Frames[0].Image));
 		Assert.True(ImagesAreIdentical(baseline.Frames[0].Image, animated.Frames[0].Image));
@@ -309,6 +356,113 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 		Assert.Equal(baseline.ResourceId.SourcePackId, animated.ResourceId.SourcePackId);
 		Assert.Equal(baseline.ResourceId.Model, animated.ResourceId.Model);
 		Assert.Equal(baseline.ResourceId.Textures, animated.ResourceId.Textures);
+		Assert.Equal(baseline.ResourceId.ResourceId, computedFromNbt.ResourceId);
+		Assert.Equal(baseline.ResourceId.Model, computedFromNbt.Model);
+		Assert.Equal(baseline.ResourceId.SourcePackId, computedFromNbt.SourcePackId);
+		Assert.Equal(baseline.ResourceId.Textures, computedFromNbt.Textures);
+		Assert.Equal(baseline.ResourceId.PackStackHash, computedFromNbt.PackStackHash);
+		Assert.Equal(baseline.ResourceId.ResourceId, computedDirect.ResourceId);
+		Assert.Equal(baseline.ResourceId.Model, computedDirect.Model);
+		Assert.Equal(baseline.ResourceId.SourcePackId, computedDirect.SourcePackId);
+		Assert.Equal(baseline.ResourceId.Textures, computedDirect.Textures);
+		Assert.Equal(baseline.ResourceId.PackStackHash, computedDirect.PackStackHash);
+	}
+
+	[Fact]
+	public void CloneAsAnimatedImagePreservesFramesForAnimatedItems()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 64 };
+
+		var nbt = new NbtCompound(new[]
+		{
+			new KeyValuePair<string, NbtTag>("id", new NbtString("minecraft:compass")),
+			new KeyValuePair<string, NbtTag>("Count", new NbtByte((sbyte)1))
+		});
+
+		using var animated = renderer.RenderAnimatedItemFromNbtWithResourceId(nbt, options);
+		Assert.True(animated.Frames.Count >= 1, "Animated render should produce at least one frame.");
+
+		using var composite = animated.CloneAsAnimatedImage();
+		Assert.Equal(animated.Frames.Count, composite.Frames.Count);
+		for (var i = 0; i < animated.Frames.Count; i++)
+		{
+			var source = animated.Frames[i].Image;
+			var target = composite.Frames[i];
+			Assert.Equal(source.Width, target.Width);
+			Assert.Equal(source.Height, target.Height);
+		}
+	}
+
+	[Fact]
+	public async Task AnimatedRenderedResourceSupportsAsyncSaves()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 64 };
+
+		var nbt = new NbtCompound(new[]
+		{
+			new KeyValuePair<string, NbtTag>("id", new NbtString("minecraft:compass")),
+			new KeyValuePair<string, NbtTag>("Count", new NbtByte((sbyte)1))
+		});
+
+		using var animated = renderer.RenderAnimatedItemFromNbtWithResourceId(nbt, options);
+		Assert.True(animated.Frames.Count >= 1, "Animated render should produce at least one frame.");
+
+		var tempRoot = Path.Combine(Path.GetTempPath(), "mcrenderer_async", Guid.NewGuid().ToString("N"));
+		Directory.CreateDirectory(tempRoot);
+
+		try
+		{
+			var gifPath = Path.Combine(tempRoot, "compass.gif");
+			await animated.SaveAsGifAsync(gifPath);
+			Assert.True(File.Exists(gifPath));
+			Assert.True(new FileInfo(gifPath).Length > 0);
+
+			var pngPath = Path.Combine(tempRoot, "compass.apng");
+			await animated.SaveAsAnimatedPngAsync(pngPath);
+			Assert.True(File.Exists(pngPath));
+			Assert.True(new FileInfo(pngPath).Length > 0);
+
+			var webpPath = Path.Combine(tempRoot, "compass.webp");
+			await animated.SaveAsWebpAsync(webpPath);
+			Assert.True(File.Exists(webpPath));
+			Assert.True(new FileInfo(webpPath).Length > 0);
+		}
+		finally
+		{
+			if (Directory.Exists(tempRoot))
+			{
+				Directory.Delete(tempRoot, recursive: true);
+			}
+		}
+	}
+
+	[Fact]
+	public void ComputeResourceIdMatchesAnimatedRenderForNbtItems()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 64 };
+
+		var nbt = new NbtCompound(new[]
+		{
+			new KeyValuePair<string, NbtTag>("id", new NbtString("minecraft:compass")),
+			new KeyValuePair<string, NbtTag>("Count", new NbtByte((sbyte)1))
+		});
+
+		var fromCompute = renderer.ComputeResourceId("compass", options);
+		var fromComputeNbt = renderer.ComputeResourceIdFromNbt(nbt, options);
+		using var animated = renderer.RenderAnimatedItemFromNbtWithResourceId(nbt, options);
+		Assert.Equal(fromCompute.ResourceId, animated.ResourceId.ResourceId);
+		Assert.Equal(fromCompute.Model, animated.ResourceId.Model);
+		Assert.Equal(fromCompute.SourcePackId, animated.ResourceId.SourcePackId);
+		Assert.Equal(fromCompute.Textures, animated.ResourceId.Textures);
+		Assert.Equal(fromCompute.PackStackHash, animated.ResourceId.PackStackHash);
+		Assert.Equal(fromCompute.ResourceId, fromComputeNbt.ResourceId);
+		Assert.Equal(fromCompute.Model, fromComputeNbt.Model);
+		Assert.Equal(fromCompute.SourcePackId, fromComputeNbt.SourcePackId);
+		Assert.Equal(fromCompute.Textures, fromComputeNbt.Textures);
+		Assert.Equal(fromCompute.PackStackHash, fromComputeNbt.PackStackHash);
 	}
 
 	[Fact]

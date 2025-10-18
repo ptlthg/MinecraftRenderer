@@ -414,7 +414,12 @@ public static class LegacyItemMappings
 			165 => "minecraft:slime_block",
 			166 => "minecraft:barrier",
 			167 => "minecraft:iron_trapdoor",
-			168 => "minecraft:prismarine",
+			168 => damage switch
+			{ 
+				1 => "minecraft:prismarine_bricks",
+				2 => "minecraft:dark_prismarine",
+				_ => "minecraft:prismarine",
+			},
 			169 => "minecraft:sea_lantern",
 			170 => "minecraft:hay_block",
 			171 => damage switch

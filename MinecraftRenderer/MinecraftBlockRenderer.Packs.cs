@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using MinecraftRenderer.Assets;
@@ -10,6 +11,8 @@ using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.Formats.Webp;
 using SixLabors.ImageSharp.Metadata;
 using SixLabors.ImageSharp.PixelFormats;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace MinecraftRenderer;
 
@@ -73,26 +76,47 @@ public sealed partial class MinecraftBlockRenderer
 		public void SaveAsGif(string path)
 		{
 			ArgumentException.ThrowIfNullOrWhiteSpace(path);
-			using var image = BuildAnimatedImage(ApplyGifMetadata);
+			using var image = CloneAsAnimatedImage(ApplyGifMetadata);
 			var metadata = image.Metadata.GetGifMetadata();
 			metadata.RepeatCount = 0;
 			image.Save(path, new GifEncoder());
 		}
 
+		public async Task SaveAsGifAsync(string path, CancellationToken cancellationToken = default)
+		{
+			ArgumentException.ThrowIfNullOrWhiteSpace(path);
+			using var image = CloneAsAnimatedImage(ApplyGifMetadata);
+			var metadata = image.Metadata.GetGifMetadata();
+			metadata.RepeatCount = 0;
+			await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true);
+			await image.SaveAsync(stream, new GifEncoder(), cancellationToken).ConfigureAwait(false);
+		}
+
 		public void SaveAsAnimatedPng(string path)
 		{
 			ArgumentException.ThrowIfNullOrWhiteSpace(path);
-			using var image = BuildAnimatedImage(ApplyPngMetadata);
+			using var image = CloneAsAnimatedImage(ApplyPngMetadata);
 			var metadata = image.Metadata.GetPngMetadata();
 			metadata.AnimateRootFrame = true;
 			metadata.RepeatCount = 0;
 			image.Save(path, new PngEncoder());
 		}
 
+		public async Task SaveAsAnimatedPngAsync(string path, CancellationToken cancellationToken = default)
+		{
+			ArgumentException.ThrowIfNullOrWhiteSpace(path);
+			using var image = CloneAsAnimatedImage(ApplyPngMetadata);
+			var metadata = image.Metadata.GetPngMetadata();
+			metadata.AnimateRootFrame = true;
+			metadata.RepeatCount = 0;
+			await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true);
+			await image.SaveAsync(stream, new PngEncoder(), cancellationToken).ConfigureAwait(false);
+		}
+
 		public void SaveAsWebp(string path)
 		{
 			ArgumentException.ThrowIfNullOrWhiteSpace(path);
-			using var image = BuildAnimatedImage(ApplyWebpMetadata);
+			using var image = CloneAsAnimatedImage(ApplyWebpMetadata);
 			var metadata = image.Metadata.GetWebpMetadata();
 			metadata.RepeatCount = 0;
 			var encoder = new WebpEncoder
@@ -105,10 +129,30 @@ public sealed partial class MinecraftBlockRenderer
 			image.Save(path, encoder);
 		}
 
-		private Image<Rgba32> BuildAnimatedImage(Action<ImageFrame<Rgba32>, AnimationFrame> applyFrameMetadata)
+		public async Task SaveAsWebpAsync(string path, CancellationToken cancellationToken = default)
+		{
+			ArgumentException.ThrowIfNullOrWhiteSpace(path);
+			using var image = CloneAsAnimatedImage(ApplyWebpMetadata);
+			var metadata = image.Metadata.GetWebpMetadata();
+			metadata.RepeatCount = 0;
+			var encoder = new WebpEncoder
+			{
+				FileFormat = WebpFileFormatType.Lossless,
+				Quality = 100,
+				Method = WebpEncodingMethod.BestQuality,
+				TransparentColorMode = WebpTransparentColorMode.Preserve
+			};
+			await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true);
+			await image.SaveAsync(stream, encoder, cancellationToken).ConfigureAwait(false);
+		}
+
+		public Image<Rgba32> CloneAsAnimatedImage()
+			=> CloneAsAnimatedImage(null);
+
+		public Image<Rgba32> CloneAsAnimatedImage(Action<ImageFrame<Rgba32>, AnimationFrame>? configureFrame)
 		{
 			var baseImage = Frames[0].Image.Clone();
-			applyFrameMetadata(baseImage.Frames.RootFrame, Frames[0]);
+			configureFrame?.Invoke(baseImage.Frames.RootFrame, Frames[0]);
 
 			for (var i = 1; i < Frames.Count; i++)
 			{
@@ -116,7 +160,7 @@ public sealed partial class MinecraftBlockRenderer
 				baseImage.Frames.AddFrame(clone.Frames.RootFrame);
 				clone.Dispose();
 				var targetFrame = baseImage.Frames[^1];
-				applyFrameMetadata(targetFrame, Frames[i]);
+				configureFrame?.Invoke(targetFrame, Frames[i]);
 			}
 
 			return baseImage;
