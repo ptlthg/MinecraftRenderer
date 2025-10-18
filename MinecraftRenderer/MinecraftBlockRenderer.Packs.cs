@@ -331,6 +331,62 @@ public sealed partial class MinecraftBlockRenderer
 		PreloadTexturePackStacks(stacksToPreload);
 	}
 
+	public Image<Rgba32>? GetTexturePackIcon(string packId)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(packId);
+		EnsureNotDisposed();
+
+		if (string.Equals(packId, VanillaPackId, StringComparison.OrdinalIgnoreCase))
+		{
+			var vanillaRoot = _packContext.AssetsRoot;
+			if (!string.IsNullOrWhiteSpace(vanillaRoot))
+			{
+				var vanillaIconPath = Path.Combine(vanillaRoot, "pack.png");
+				if (File.Exists(vanillaIconPath))
+				{
+					try
+					{
+						return Image.Load<Rgba32>(vanillaIconPath);
+					}
+					catch (ImageFormatException)
+					{
+						return null;
+					}
+					catch (NotSupportedException)
+					{
+						return null;
+					}
+				}
+			}
+
+			return null;
+		}
+
+		if (!TryResolveRegisteredPack(packId, out var pack))
+		{
+			return null;
+		}
+
+		var iconPath = Path.Combine(pack.RootPath, "pack.png");
+		if (!File.Exists(iconPath))
+		{
+			return null;
+		}
+
+		try
+		{
+			return Image.Load<Rgba32>(iconPath);
+		}
+		catch (ImageFormatException)
+		{
+			return null;
+		}
+		catch (NotSupportedException)
+		{
+			return null;
+		}
+	}
+
 	private MinecraftBlockRenderer CreatePackRenderer(TexturePackStack packStack)
 	{
 		var packContext = RenderPackContext.Create(_assetsDirectory, _baseOverlayRoots, packStack);
@@ -354,6 +410,26 @@ public sealed partial class MinecraftBlockRenderer
 		return new MinecraftBlockRenderer(modelResolver, textureRepository, blockRegistry, itemRegistry,
 			_assetsDirectory,
 			_baseOverlayRoots, null, packContext);
+	}
+
+	private bool TryResolveRegisteredPack(string packId, out RegisteredResourcePack pack)
+	{
+		if (_packRegistry is not null && _packRegistry.TryGetPack(packId, out pack))
+		{
+			return true;
+		}
+
+		foreach (var candidate in _packContext.Packs)
+		{
+			if (string.Equals(candidate.Id, packId, StringComparison.OrdinalIgnoreCase))
+			{
+				pack = candidate;
+				return true;
+			}
+		}
+
+		pack = null!;
+		return false;
 	}
 
 	public ResourceIdResult ComputeResourceId(string target, BlockRenderOptions? options = null)

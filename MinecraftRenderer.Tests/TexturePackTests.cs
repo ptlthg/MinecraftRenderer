@@ -57,7 +57,9 @@ public sealed class TexturePackTests : IDisposable
 
 	private string CreateTestPack(string id, Rgba32 color,
 		IReadOnlyDictionary<string, Rgba32>? namespaceColors = null,
-		string? rootOverride = null)
+		string? rootOverride = null,
+		bool includePackPng = true,
+		Rgba32? packIconColor = null)
 	{
 		var baseRoot = rootOverride ?? _tempRoot;
 		Directory.CreateDirectory(baseRoot);
@@ -89,6 +91,14 @@ public sealed class TexturePackTests : IDisposable
 			Directory.CreateDirectory(texturesDir);
 			using var image = new Image<Rgba32>(16, 16, entry.Value);
 			image.Save(Path.Combine(texturesDir, "stone.png"));
+		}
+
+		if (includePackPng)
+		{
+			var iconColor = packIconColor ?? color;
+			var iconPath = Path.Combine(packRoot, "pack.png");
+			using var icon = new Image<Rgba32>(32, 32, iconColor);
+			icon.Save(iconPath);
 		}
 
 		return packRoot;
@@ -265,6 +275,45 @@ public sealed class TexturePackTests : IDisposable
 			Assert.Equal(resourceId.Model, combined.ResourceId.Model);
 			Assert.Equal(resourceId.Textures, combined.ResourceId.Textures);
 		}
+	}
+
+	[Fact]
+	public void GetTexturePackIconReturnsIconWhenAvailable()
+	{
+		var iconPackRoot = CreateTestPack("icon-pack", new Rgba32(64, 128, 200, 255), includePackPng: true);
+		var missingIconPackRoot = CreateTestPack("no-icon-pack", new Rgba32(180, 60, 120, 255), includePackPng: false);
+
+		var registry = TexturePackRegistry.Create();
+		registry.RegisterPack(iconPackRoot);
+		registry.RegisterPack(missingIconPackRoot);
+
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory, registry);
+
+		using var icon = renderer.GetTexturePackIcon("icon-pack");
+		Assert.NotNull(icon);
+		Assert.True(icon!.Width > 0);
+		Assert.True(icon.Height > 0);
+
+		var missingIcon = renderer.GetTexturePackIcon("no-icon-pack");
+		Assert.Null(missingIcon);
+
+		var unknownIcon = renderer.GetTexturePackIcon("unknown-pack");
+		Assert.Null(unknownIcon);
+
+		var packOptions = MinecraftBlockRenderer.BlockRenderOptions.Default with
+		{
+			PackIds = new[] { "icon-pack" }
+		};
+		renderer.ComputeResourceId("stone", packOptions);
+
+		var cacheField = typeof(MinecraftBlockRenderer).GetField("_packRendererCache",
+			BindingFlags.Instance | BindingFlags.NonPublic);
+		Assert.NotNull(cacheField);
+		var cache = (ConcurrentDictionary<string, MinecraftBlockRenderer>)cacheField!.GetValue(renderer)!;
+		var stack = registry.BuildPackStack(new[] { "icon-pack" });
+		Assert.True(cache.TryGetValue(stack.Fingerprint, out var packRenderer));
+		using var iconFromPackRenderer = packRenderer.GetTexturePackIcon("icon-pack");
+		Assert.NotNull(iconFromPackRenderer);
 	}
 
 	private static void AssertFalseImageEqual(Image<Rgba32> baseline, Image<Rgba32> candidate)
