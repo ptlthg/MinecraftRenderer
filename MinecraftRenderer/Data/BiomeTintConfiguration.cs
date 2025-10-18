@@ -2,8 +2,6 @@ namespace MinecraftRenderer;
 
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Text.Json;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
@@ -47,41 +45,16 @@ internal sealed class BiomeTintConfiguration
 
 	public static BiomeTintConfiguration LoadDefault()
 	{
-		var baseDirectory = AppContext.BaseDirectory;
-		var candidates = new[]
-		{
-			Path.Combine(baseDirectory, "biome_tint_config.json"),
-			Path.Combine(baseDirectory, "Data", "biome_tint_config.json")
-		};
-
-		foreach (var candidate in candidates)
-		{
-			if (File.Exists(candidate))
-			{
-				return LoadFromFile(candidate);
-			}
-		}
-
-		throw new FileNotFoundException(
-			$"Biome tint configuration file not found. Searched paths: {string.Join(", ", candidates)}.");
+		return new BiomeTintConfiguration(
+			CreateSet(GrassTextureKeys),
+			CreateSet(GrassBlockKeys),
+			CreateSet(FoliageTextureKeys),
+			CreateSet(FoliageBlockKeys),
+			CreateSet(DryFoliageTextureKeys),
+			CreateSet(DryFoliageBlockKeys),
+			CreateSet(ItemTintExclusionKeys),
+			CreateColorMap());
 	}
-
-	public static BiomeTintConfiguration LoadFromFile(string path)
-	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(path);
-
-		var json = File.ReadAllText(path);
-		var dto = JsonSerializer.Deserialize<BiomeTintConfigurationDto>(json, SerializerOptions) ??
-		          new BiomeTintConfigurationDto();
-		return dto.ToConfiguration();
-	}
-
-	private static readonly JsonSerializerOptions SerializerOptions = new()
-	{
-		PropertyNameCaseInsensitive = true,
-		ReadCommentHandling = JsonCommentHandling.Skip,
-		AllowTrailingCommas = true
-	};
 
 	private static HashSet<string> CreateSet(IEnumerable<string>? values)
 	{
@@ -103,56 +76,203 @@ internal sealed class BiomeTintConfiguration
 		return set;
 	}
 
-	private static Dictionary<string, Color> CreateColorMap(Dictionary<string, int[]>? values)
+	private static Dictionary<string, Color> CreateColorMap()
 	{
 		var result = new Dictionary<string, Color>(StringComparer.OrdinalIgnoreCase);
-		if (values is null)
+		foreach (var (key, r, g, b) in ConstantColorEntries)
 		{
-			return result;
-		}
-
-		foreach (var (key, channels) in values)
-		{
-			if (string.IsNullOrWhiteSpace(key) || channels.Length < 3)
+			if (string.IsNullOrWhiteSpace(key))
 			{
 				continue;
 			}
 
 			var normalized = key.Trim().ToLowerInvariant();
-			var r = (byte)Math.Clamp(channels[0], 0, 255);
-			var g = (byte)Math.Clamp(channels[1], 0, 255);
-			var b = (byte)Math.Clamp(channels[2], 0, 255);
 			result[normalized] = new Color(new Rgb24(r, g, b));
 		}
 
 		return result;
 	}
 
-	private sealed record BiomeTintConfigurationDto
+	private static readonly string[] GrassTextureKeys =
 	{
-		public BiomeTintCategoryDto? Grass { get; init; }
-		public BiomeTintCategoryDto? Foliage { get; init; }
-		public BiomeTintCategoryDto? DryFoliage { get; init; }
-		public List<string>? ItemTintExclusions { get; init; }
-		public Dictionary<string, int[]>? ConstantColors { get; init; }
+		"grass",
+		"tall_grass",
+		"short_grass",
+		"large_fern",
+		"fern",
+		"grass_block_top",
+		"grass_block_side_overlay",
+		"grass_block_snow",
+		"hanging_roots",
+		"pale_hanging_moss",
+		"pale_hanging_moss_tip",
+		"moss",
+		"moss_block",
+		"moss_carpet",
+		"pale_moss_block",
+		"pale_moss_carpet",
+		"sugar_cane",
+		"cattail",
+		"kelp",
+		"kelp_top",
+		"kelp_plant",
+		"seagrass",
+		"seagrass_top",
+		"tall_seagrass_top",
+		"sea_grass"
+	};
 
-		public BiomeTintConfiguration ToConfiguration()
-		{
-			return new BiomeTintConfiguration(
-				CreateSet(Grass?.Textures),
-				CreateSet(Grass?.Blocks),
-				CreateSet(Foliage?.Textures),
-				CreateSet(Foliage?.Blocks),
-				CreateSet(DryFoliage?.Textures),
-				CreateSet(DryFoliage?.Blocks),
-				CreateSet(ItemTintExclusions),
-				CreateColorMap(ConstantColors));
-		}
-	}
-
-	private sealed record BiomeTintCategoryDto
+	private static readonly string[] GrassBlockKeys =
 	{
-		public List<string>? Textures { get; init; }
-		public List<string>? Blocks { get; init; }
-	}
+		"grass_block",
+		"grass",
+		"tall_grass",
+		"short_grass",
+		"large_fern",
+		"fern",
+		"hanging_roots",
+		"pale_hanging_moss",
+		"pale_hanging_moss_tip",
+		"moss_block",
+		"moss_carpet",
+		"pale_moss_block",
+		"pale_moss_carpet",
+		"seagrass",
+		"tall_seagrass",
+		"kelp",
+		"kelp_plant",
+		"sugar_cane",
+		"cattail",
+		"potted_fern"
+	};
+
+	private static readonly string[] FoliageTextureKeys =
+	{
+		"oak_leaves",
+		"spruce_leaves",
+		"birch_leaves",
+		"jungle_leaves",
+		"acacia_leaves",
+		"dark_oak_leaves",
+		"mangrove_leaves",
+		"pale_oak_leaves",
+		"azalea_leaves",
+		"flowering_azalea_leaves",
+		"vine",
+		"cave_vines",
+		"cave_vines_body",
+		"cave_vines_body_lit",
+		"cave_vines_head",
+		"cave_vines_head_lit",
+		"cave_vines_lit",
+		"cave_vines_plant",
+		"cave_vines_plant_lit",
+		"oak_sapling",
+		"spruce_sapling",
+		"birch_sapling",
+		"jungle_sapling",
+		"acacia_sapling",
+		"dark_oak_sapling",
+		"mangrove_propagule",
+		"pale_oak_sapling",
+		"azalea",
+		"flowering_azalea",
+		"big_dripleaf_top",
+		"big_dripleaf_stem",
+		"big_dripleaf_stem_bottom",
+		"big_dripleaf_stem_mid",
+		"small_dripleaf_top",
+		"small_dripleaf_stem",
+		"small_dripleaf_stem_top"
+	};
+
+	private static readonly string[] FoliageBlockKeys =
+	{
+		"oak_leaves",
+		"spruce_leaves",
+		"birch_leaves",
+		"jungle_leaves",
+		"acacia_leaves",
+		"dark_oak_leaves",
+		"mangrove_leaves",
+		"pale_oak_leaves",
+		"azalea_leaves",
+		"flowering_azalea_leaves",
+		"vine",
+		"cave_vines",
+		"cave_vines_plant",
+		"cave_vines_lit",
+		"cave_vines_plant_lit",
+		"oak_sapling",
+		"spruce_sapling",
+		"birch_sapling",
+		"jungle_sapling",
+		"acacia_sapling",
+		"dark_oak_sapling",
+		"mangrove_propagule",
+		"pale_oak_sapling",
+		"azalea",
+		"flowering_azalea",
+		"big_dripleaf",
+		"big_dripleaf_stem",
+		"small_dripleaf",
+		"small_dripleaf_stem",
+		"potted_oak_sapling",
+		"potted_spruce_sapling",
+		"potted_birch_sapling",
+		"potted_jungle_sapling",
+		"potted_acacia_sapling",
+		"potted_dark_oak_sapling",
+		"potted_mangrove_propagule",
+		"potted_pale_oak_sapling",
+		"potted_azalea_bush",
+		"potted_flowering_azalea_bush"
+	};
+
+	private static readonly string[] DryFoliageTextureKeys =
+	{
+		"dead_bush",
+		"leaf_litter",
+		"leaf_litter_1",
+		"leaf_litter_2",
+		"leaf_litter_3",
+		"leaf_litter_4",
+		"short_dry_grass",
+		"tall_dry_grass"
+	};
+
+	private static readonly string[] DryFoliageBlockKeys =
+	{
+		"dead_bush",
+		"leaf_litter",
+		"leaf_litter_1",
+		"leaf_litter_2",
+		"leaf_litter_3",
+		"leaf_litter_4",
+		"short_dry_grass",
+		"tall_dry_grass",
+		"potted_dead_bush"
+	};
+
+	private static readonly string[] ItemTintExclusionKeys =
+	{
+		"oak_sapling",
+		"spruce_sapling",
+		"birch_sapling",
+		"jungle_sapling",
+		"acacia_sapling",
+		"dark_oak_sapling",
+		"mangrove_propagule",
+		"pale_oak_sapling",
+		"azalea",
+		"flowering_azalea",
+		"cherry_sapling"
+	};
+
+	private static readonly (string Key, byte R, byte G, byte B)[] ConstantColorEntries =
+	{
+		("birch_leaves", 128, 167, 85),
+		("spruce_leaves", 97, 153, 97),
+		("lily_pad", 32, 128, 48)
+	};
 }

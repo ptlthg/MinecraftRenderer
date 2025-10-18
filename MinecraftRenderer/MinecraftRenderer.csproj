@@ -10,7 +10,7 @@
         <NoWarn>CS1591</NoWarn>
         
         <PackageId>MinecraftRenderer</PackageId>
-        <Version>0.2.2</Version>
+        <Version>0.2.3</Version>
         <Authors>ptlthg</Authors>
         <Description>A .NET library for rendering Minecraft blocks and items with support for custom texture packs, block models, and Hypixel Skyblock items.</Description>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -18,7 +18,7 @@
         <RepositoryType>git</RepositoryType>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-        
+        <PackageReadmeFile>../README.md</PackageReadmeFile>
         <IsPackable>true</IsPackable>
         <ProduceReferenceAssembly>true</ProduceReferenceAssembly>
     </PropertyGroup>
@@ -29,16 +29,11 @@
     
     <ItemGroup>
       <Content Include="customdata\**\*">
-        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-        <Link>customdata\%(RecursiveDir)%(Filename)%(Extension)</Link>
-        <Pack>true</Pack>
-        <PackagePath>contentFiles\any\any\customdata;content\customdata</PackagePath>
-      </Content>
-    <Content Include="Data\biome_tint_config.json">
-        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-        <Pack>true</Pack>
-        <PackagePath>contentFiles\any\any\Data</PackagePath>
-    </Content>
+          <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+          <Link>customdata\%(RecursiveDir)%(Filename)%(Extension)</Link>
+          <Pack>true</Pack>
+          <PackagePath>contentFiles\any\any\customdata;content\customdata</PackagePath>
+        </Content>
     </ItemGroup>
 
 </Project>
