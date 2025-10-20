@@ -104,6 +104,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 	private bool _disposed;
 
 	public TextureRepository TextureRepository => _textureRepository;
+	public TexturePackRegistry? PackRegistry => _packRegistry;
 
 	private MinecraftBlockRenderer(BlockModelResolver modelResolver, TextureRepository textureRepository,
 		BlockRegistry blockRegistry, ItemRegistry? itemRegistry, string? assetsDirectory,

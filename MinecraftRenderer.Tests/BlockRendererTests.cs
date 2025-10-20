@@ -5,6 +5,10 @@ using MinecraftRenderer.Hypixel;
 using MinecraftRenderer.Nbt;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Advanced;
+using SixLabors.ImageSharp.Formats.Gif;
+using SixLabors.ImageSharp.Formats.Png;
+using SixLabors.ImageSharp.Formats.Webp;
+using SixLabors.ImageSharp.Metadata;
 using SixLabors.ImageSharp.PixelFormats;
 using Xunit;
 using Xunit.Abstractions;
@@ -392,6 +396,37 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 			Assert.Equal(source.Width, target.Width);
 			Assert.Equal(source.Height, target.Height);
 		}
+	}
+
+	[Fact]
+	public void CloneAsAnimatedImageSetsAnimationMetadata()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 64 };
+
+		var nbt = new NbtCompound(new[]
+		{
+			new KeyValuePair<string, NbtTag>("id", new NbtString("minecraft:compass")),
+			new KeyValuePair<string, NbtTag>("Count", new NbtByte((sbyte)1))
+		});
+
+		using var animated = renderer.RenderAnimatedItemFromNbtWithResourceId(nbt, options);
+		using var composite = animated.CloneAsAnimatedImage();
+
+		Assert.True(composite.Frames.Count >= 1, "Animated image should contain at least one frame.");
+
+		var rootMetadata = composite.Metadata;
+		Assert.Equal(0, Convert.ToInt32(rootMetadata.GetGifMetadata().RepeatCount));
+		Assert.Equal(0, Convert.ToInt32(rootMetadata.GetPngMetadata().RepeatCount));
+		Assert.Equal(0, Convert.ToInt32(rootMetadata.GetWebpMetadata().RepeatCount));
+		Assert.True(rootMetadata.GetPngMetadata().AnimateRootFrame);
+
+		var rootFrame = composite.Frames.RootFrame;
+		Assert.True(rootFrame.Metadata.GetGifMetadata().FrameDelay > 0);
+		var pngFrameDelay = rootFrame.Metadata.GetPngMetadata().FrameDelay;
+		Assert.True(pngFrameDelay.Numerator > 0);
+		Assert.True(pngFrameDelay.Denominator > 0);
+		Assert.True(rootFrame.Metadata.GetWebpMetadata().FrameDelay > 0);
 	}
 
 	[Fact]

@@ -152,6 +152,9 @@ public sealed partial class MinecraftBlockRenderer
 		public Image<Rgba32> CloneAsAnimatedImage(Action<ImageFrame<Rgba32>, AnimationFrame>? configureFrame)
 		{
 			var baseImage = Frames[0].Image.Clone();
+			ApplyDefaultImageMetadata(baseImage);
+
+			ApplyDefaultFrameMetadata(baseImage.Frames.RootFrame, Frames[0]);
 			configureFrame?.Invoke(baseImage.Frames.RootFrame, Frames[0]);
 
 			for (var i = 1; i < Frames.Count; i++)
@@ -160,10 +163,40 @@ public sealed partial class MinecraftBlockRenderer
 				baseImage.Frames.AddFrame(clone.Frames.RootFrame);
 				clone.Dispose();
 				var targetFrame = baseImage.Frames[^1];
+				ApplyDefaultFrameMetadata(targetFrame, Frames[i]);
 				configureFrame?.Invoke(targetFrame, Frames[i]);
 			}
 
 			return baseImage;
+		}
+
+		private static void ApplyDefaultImageMetadata(Image<Rgba32> image)
+		{
+			var gifMetadata = image.Metadata.GetGifMetadata();
+			gifMetadata.RepeatCount = 0;
+
+			var pngMetadata = image.Metadata.GetPngMetadata();
+			pngMetadata.AnimateRootFrame = true;
+			pngMetadata.RepeatCount = 0;
+
+			var webpMetadata = image.Metadata.GetWebpMetadata();
+			webpMetadata.RepeatCount = 0;
+		}
+
+		private static void ApplyDefaultFrameMetadata(ImageFrame<Rgba32> frame, AnimationFrame source)
+		{
+			var frameDelayTicks = Math.Max(1, (int)Math.Round(source.DurationMs / 10f));
+			var gifMetadata = frame.Metadata.GetGifMetadata();
+			gifMetadata.DisposalMethod = GifDisposalMethod.RestoreToBackground;
+			gifMetadata.FrameDelay = frameDelayTicks;
+
+			var pngMetadata = frame.Metadata.GetPngMetadata();
+			pngMetadata.DisposalMethod = PngDisposalMethod.RestoreToBackground;
+			pngMetadata.FrameDelay = Rational.FromDouble(frameDelayTicks);
+
+			var webpMetadata = frame.Metadata.GetWebpMetadata();
+			webpMetadata.DisposalMethod = WebpDisposalMethod.RestoreToBackground;
+			webpMetadata.FrameDelay = (uint)Math.Max(1, source.DurationMs);
 		}
 
 		private static void ApplyGifMetadata(ImageFrame<Rgba32> frame, AnimationFrame source)
