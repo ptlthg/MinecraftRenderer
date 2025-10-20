@@ -10,7 +10,7 @@
         <NoWarn>CS1591</NoWarn>
 
         <PackageId>MinecraftRenderer</PackageId>
-        <Version>0.2.4</Version>
+        <Version>0.2.5</Version>
         <Authors>ptlthg</Authors>
         <Description>A .NET library for rendering Minecraft blocks and items with support for custom texture packs, block models, and Hypixel Skyblock items.</Description>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -21,6 +21,9 @@
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <IsPackable>true</IsPackable>
         <ProduceReferenceAssembly>true</ProduceReferenceAssembly>
+
+        <IncludeContentInPack>true</IncludeContentInPack>
+        <ContentTargetFolders>contentFiles</ContentTargetFolders>
     </PropertyGroup>
 
     <ItemGroup>
@@ -30,10 +33,11 @@
     <ItemGroup>
         <None Include="../README.md" Pack="true" PackagePath="\"/>
         <Content Include="customdata\**\*">
-            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-            <Link>customdata\%(RecursiveDir)%(Filename)%(Extension)</Link>
             <Pack>true</Pack>
-            <PackagePath>contentFiles\any\any\customdata;content\customdata</PackagePath>
+            <PackagePath>contentFiles\any\any\customdata\%(RecursiveDir)%(Filename)%(Extension)</PackagePath>
+            <BuildAction>Content</BuildAction>
+            <PackageCopyToOutput>true</PackageCopyToOutput>
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </Content>
     </ItemGroup>
 
