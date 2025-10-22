@@ -713,7 +713,7 @@ public static class LegacyItemMappings
 			360 => "minecraft:melon_slice",
 			361 => "minecraft:pumpkin_seeds",
 			362 => "minecraft:melon_seeds",
-			363 => "minecraft:raw_beef",
+			363 => "minecraft:beef",
 			364 => "minecraft:cooked_beef",
 			365 => "minecraft:chicken",
 			366 => "minecraft:cooked_chicken",
