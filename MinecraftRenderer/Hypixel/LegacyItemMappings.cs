@@ -786,7 +786,7 @@ public static class LegacyItemMappings
 			387 => "minecraft:written_book",
 			388 => "minecraft:emerald",
 			389 => "minecraft:item_frame",
-			390 => "minecraft:flower_pot_item",
+			390 => "minecraft:flower_pot",
 			391 => "minecraft:carrot",
 			392 => "minecraft:potato",
 			393 => "minecraft:baked_potato",
