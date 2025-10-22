@@ -174,7 +174,8 @@ public class MinecraftHeadRenderer
 				tri.T3,
 				skin,
 				tri.TextureRect,
-				tri.Shading);
+				tri.Shading,
+				tri.IsOverlay);
 		}
 
 		return canvas;
@@ -261,14 +262,16 @@ public class MinecraftHeadRenderer
 				transformed[0], transformed[1], transformed[2],
 				face.UvMap[0], face.UvMap[1], face.UvMap[2],
 				texRect, depth,
-				shading
+				shading,
+				isOverlay
 			));
 
 			triangles.Add(new VisibleTriangle(
 				transformed[0], transformed[2], transformed[3],
 				face.UvMap[0], face.UvMap[2], face.UvMap[3],
 				texRect, depth,
-				shading
+				shading,
+				isOverlay
 			));
 		}
 	}
@@ -283,7 +286,8 @@ public class MinecraftHeadRenderer
 		Vector2 p1, Vector2 p2, Vector2 p3,
 		Vector2 t1, Vector2 t2, Vector2 t3,
 		Image<Rgba32> skin, Rectangle textureRect,
-		float shadingFactor)
+		float shadingFactor,
+		bool isOverlay)
 	{
 		var area = (p2.X - p1.X) * (p3.Y - p1.Y) - (p3.X - p1.X) * (p2.Y - p1.Y);
 		if (MathF.Abs(area) < 0.01f) return; // Degenerate triangle
@@ -339,8 +343,13 @@ public class MinecraftHeadRenderer
 				var texY = (int)MathF.Max(0, MathF.Min(texCoord.Y * textureRect.Height, texHeight));
 
 				var color = skin[textureRect.X + texX, textureRect.Y + texY];
+				if (!isOverlay && color.A != 255)
+				{
+					color = new Rgba32(color.R, color.G, color.B, 255);
+				}
 
-				if (color.A <= alphaThreshold)
+				var isTransparent = color.A <= alphaThreshold;
+				if (isTransparent && isOverlay)
 				{
 					continue;
 				}
@@ -433,7 +442,8 @@ public class MinecraftHeadRenderer
 		Vector2 T3,
 		Rectangle TextureRect,
 		float Depth,
-		float Shading);
+		float Shading,
+		bool IsOverlay);
 
 	private readonly record struct BarycentricData(
 		Vector2 V0,

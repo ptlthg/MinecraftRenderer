@@ -10,7 +10,7 @@
         <NoWarn>CS1591</NoWarn>
 
         <PackageId>MinecraftRenderer</PackageId>
-        <Version>0.2.5</Version>
+        <Version>0.2.6</Version>
         <Authors>ptlthg</Authors>
         <Description>A .NET library for rendering Minecraft blocks and items with support for custom texture packs, block models, and Hypixel Skyblock items.</Description>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
