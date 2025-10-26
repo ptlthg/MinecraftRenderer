@@ -37,7 +37,7 @@ public static class LegacyItemMappings
 				6 => "minecraft:polished_andesite",
 				_ => "minecraft:stone"
 			},
-			2 => "minecraft:grass",
+			2 => "minecraft:grass_block",
 			3 => damage switch {
 				1 => "minecraft:coarse_dirt",
 				2 => "minecraft:podzol",
