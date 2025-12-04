@@ -11,6 +11,13 @@
 - Skull rendering accepts pluggable resolvers that see the full item context (`SkullResolverContext`).
 - Ships with an xUnit suite that exercises model rendering, lighting, texture packs, and Hypixel item parsing.
 
+## Install
+
+Install from the [NuGet package](https://www.nuget.org/packages/MinecraftRenderer)!
+```powershell
+dotnet add package MinecraftRenderer
+```
+
 ## Quick start
 
 1. Restore the solution and run the tests:
@@ -63,7 +70,14 @@
 
 `RenderAnimatedItemFromNbtWithResourceId` returns an `AnimatedRenderedResource` when any bound textures carry animation metadata; static items still produce a single frame.
 
-## Rendering APIs in a nutshell
+## Hypixel Skyblock
+
+The main intention of this was for rendering Hypixel Skyblock items on https://elitebot.dev/. To do this you'll have to write an adapter to transform skyblock items from however you have them saved into something that this renderer will recognize. The main challenge here is that Hypixel sends you item data in 1.8.9 format, but this renderer wants modern SNBT item data.
+
+You can see an example implementation here: https://github.com/EliteFarmers/API/tree/master/EliteAPI/Features/Textures/Services
+That project also uses the [SkyblockRepo](https://www.nuget.org/packages/SkyblockRepo) package.
+
+## Rendering APIs
 
 - `RenderBlock`, `RenderItem`, and `RenderGuiItemFromTextureId` cover direct model/texture rendering.
 - `RenderItemFromNbt` and `RenderItem` overloads accept `ItemRenderData` to apply dyes, custom data, or skull profiles.
@@ -96,7 +110,7 @@ stone.Save("stone.png");
 
 `MinecraftAssetDownloader.GetAvailableVersions` and `GetLatestVersion` can help you pick the right version before downloading, but not all versions are guaranteed to work.
 
-## Atlas generator (developer aid)
+## Atlas generator
 
 `CreateAtlases` is a CLI utility that dumps pages of renders for debugging or content reviews. Run it from the repo root when you want a quick visual diff:
 
@@ -105,6 +119,8 @@ dotnet run --project CreateAtlases/CreateAtlases.csproj -- --output atlases
 ```
 
 Additional flags exist for custom camera views, SNBT item directories, or animated outputs, but the tool is not required for normal library usage.
+
+It's possible that this might be expanded into proper atlases for actual use, but right now it is just for debugging.
 
 ## Running tests
 
