@@ -855,7 +855,7 @@ public sealed partial class MinecraftBlockRenderer
 			TryAdd($"textures/item/{normalized}");
 		}
 
-		if (model is not null && model.Elements.Count > 0 && !hasModelLayer)
+		if (model is not null && model.Elements.Count > 0)
 		{
 			rendered = null!;
 			return false;

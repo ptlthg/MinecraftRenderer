@@ -122,6 +122,51 @@ public sealed class AssetNamespaceRegistry
             }
         }
     }
+    /// <summary>
+    /// Returns a list of unique source IDs in the order they were first encountered.
+    /// </summary>
+    public IReadOnlyList<string> GetSources()
+    {
+        var sources = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var root in _roots)
+        {
+            if (seen.Add(root.SourceId))
+            {
+                sources.Add(root.SourceId);
+            }
+        }
+
+        return sources;
+    }
+
+    /// <summary>
+    /// Retrieves the ordered roots for a specific namespace and source ID.
+    /// </summary>
+    public IReadOnlyList<AssetNamespaceRoot> GetRoots(string namespaceName, string sourceId)
+    {
+        if (string.IsNullOrWhiteSpace(namespaceName))
+        {
+            namespaceName = "minecraft";
+        }
+
+        if (!_rootsByNamespace.TryGetValue(namespaceName, out var bucket))
+        {
+            return [];
+        }
+
+        var results = new List<AssetNamespaceRoot>();
+        foreach (var root in bucket)
+        {
+            if (string.Equals(root.SourceId, sourceId, StringComparison.OrdinalIgnoreCase))
+            {
+                results.Add(root);
+            }
+        }
+
+        return results;
+    }
 }
 
 /// <summary>

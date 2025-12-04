@@ -114,7 +114,13 @@ public sealed partial class MinecraftBlockRenderer
 
 		var availableSize = options.Size * (1f - padding * 2f);
 		var scale = availableSize / referenceDimension * DefaultGuiScaleNormalization;
-		var center = new Vector2((bounds.MinX + bounds.MaxX) * 0.5f, (bounds.MinY + bounds.MaxY) * 0.5f);
+		
+		var translation = guiTransform.Translation ?? [0f, 0f, 0f];
+		var hasExplicitTranslation = MathF.Abs(translation[0]) > 0.1f || MathF.Abs(translation[1]) > 0.1f || MathF.Abs(translation[2]) > 0.1f;
+
+		var center = hasExplicitTranslation
+			? Vector2.Zero
+			: new Vector2((bounds.MinX + bounds.MaxX) * 0.5f, (bounds.MinY + bounds.MaxY) * 0.5f);
 		var offset = new Vector2(options.Size / 2f);
 
 		PerspectiveParams? perspective = options.PerspectiveAmount > 0.01f
@@ -446,7 +452,7 @@ public sealed partial class MinecraftBlockRenderer
 				var point = new Vector2(x + 0.5f, y + 0.5f);
 				var bary = GetBarycentric(p1, point, in baryData);
 
-				const float epsilon = 1e-5f;
+				const float epsilon = 1e-4f;
 				if (bary.X < -epsilon || bary.Y < -epsilon || bary.Z < -epsilon)
 				{
 					continue;

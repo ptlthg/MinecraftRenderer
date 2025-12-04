@@ -17,7 +17,7 @@ using SixLabors.ImageSharp.Processing;
 
 public sealed class TextureRepository : IDisposable
 {
-	private readonly IReadOnlyList<string> _dataRoots;
+	private readonly IReadOnlyList<TextureSource> _sources;
 	private readonly AssetNamespaceRegistry? _assetNamespaces;
 	private readonly ConcurrentDictionary<string, Image<Rgba32>> _cache = new(StringComparer.OrdinalIgnoreCase);
 	private readonly Dictionary<string, string> _embedded = new(StringComparer.OrdinalIgnoreCase);
@@ -36,8 +36,8 @@ public sealed class TextureRepository : IDisposable
 	public TextureRepository(string dataRoot, string? embeddedTextureFile = null,
 		IEnumerable<string>? overlayRoots = null, AssetNamespaceRegistry? assetNamespaces = null)
 	{
-		_dataRoots = BuildRootList(dataRoot, overlayRoots);
 		_assetNamespaces = assetNamespaces;
+		_sources = BuildSourceList(dataRoot, overlayRoots, assetNamespaces);
 		_missingTexture = CreateMissingTexture();
 
 		if (TryLoadTrimPaletteColors(out var trimPaletteColors))
@@ -55,7 +55,7 @@ public sealed class TextureRepository : IDisposable
 			_trimPaletteLookup = new Dictionary<uint, int>();
 		}
 
-		var colormapRoot = _dataRoots.FirstOrDefault(x => Directory.Exists(Path.Combine(x, "colormap")));
+		var colormapRoot = FindColormapRoot();
 		if (colormapRoot is not null)
 		{
 			var grassPath = Path.Combine(colormapRoot, "colormap", "grass.png");
@@ -220,12 +220,20 @@ public sealed class TextureRepository : IDisposable
 
 	private Image<Rgba32> LoadTextureInternal(string normalized)
 	{
-		foreach (var candidate in EnumerateCandidatePaths(normalized))
+		var (namespaceName, pathWithinNamespace) = ParseNamespace(normalized);
+		var logicalPaths = EnumerateLogicalPaths(pathWithinNamespace).ToList();
+
+		// Iterate sources in reverse order (High Priority -> Low Priority)
+		for (var i = _sources.Count - 1; i >= 0; i--)
 		{
-			if (File.Exists(candidate))
+			var source = _sources[i];
+			foreach (var logicalPath in logicalPaths)
 			{
-				var loadedTexture = Image.Load<Rgba32>(candidate);
-				return ProcessAnimatedTexture(normalized, candidate, loadedTexture);
+				if (source.TryResolve(namespaceName, logicalPath, out var candidate))
+				{
+					var loadedTexture = Image.Load<Rgba32>(candidate);
+					return ProcessAnimatedTexture(normalized, candidate, loadedTexture);
+				}
 			}
 		}
 
@@ -252,70 +260,26 @@ public sealed class TextureRepository : IDisposable
 		return _missingTexture;
 	}
 
-	private IEnumerable<string> EnumerateCandidatePaths(string normalized)
+	private static (string Namespace, string Path) ParseNamespace(string normalized)
 	{
 		var sanitized = normalized.TrimStart('/').Replace('\\', '/');
-		if (string.IsNullOrWhiteSpace(sanitized))
+		var colonIndex = sanitized.IndexOf(':');
+		if (colonIndex >= 0)
+		{
+			return (sanitized[..colonIndex], sanitized[(colonIndex + 1)..]);
+		}
+
+		return ("minecraft", sanitized);
+	}
+
+	private IEnumerable<string> EnumerateLogicalPaths(string pathWithinNamespace)
+	{
+		if (string.IsNullOrWhiteSpace(pathWithinNamespace))
 		{
 			yield break;
 		}
 
-		var namespaceName = "minecraft";
-		var pathWithinNamespace = sanitized;
-		var colonIndex = sanitized.IndexOf(':');
-		if (colonIndex >= 0)
-		{
-			namespaceName = sanitized[..colonIndex];
-			pathWithinNamespace = sanitized[(colonIndex + 1)..];
-		}
-
-		var candidates = new List<string>();
-		var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-		IEnumerable<string> EnumerateRoots(string targetNamespace)
-		{
-			if (_assetNamespaces is null)
-			{
-				for (var i = _dataRoots.Count - 1; i >= 0; i--)
-				{
-					yield return _dataRoots[i];
-				}
-
-				yield break;
-			}
-
-			IReadOnlyList<AssetNamespaceRoot> resolved = _assetNamespaces.ResolveRoots(targetNamespace);
-			if (resolved.Count == 0 && !string.Equals(targetNamespace, "minecraft", StringComparison.OrdinalIgnoreCase))
-			{
-				resolved = _assetNamespaces.ResolveRoots("minecraft");
-			}
-
-			for (var i = resolved.Count - 1; i >= 0; i--)
-			{
-				yield return resolved[i].Path;
-			}
-		}
-
-		void AddCandidate(string relativePath, string? explicitNamespace = null)
-		{
-			if (string.IsNullOrWhiteSpace(relativePath))
-			{
-				return;
-			}
-
-			var targetNamespace = explicitNamespace ?? namespaceName;
-			var withExtension = relativePath.Replace('/', Path.DirectorySeparatorChar) + ".png";
-			foreach (var root in EnumerateRoots(targetNamespace))
-			{
-				var combined = Path.Combine(root, withExtension);
-				if (seen.Add(combined))
-				{
-					candidates.Add(combined);
-				}
-			}
-		}
-
-		AddCandidate(pathWithinNamespace);
+		yield return pathWithinNamespace;
 
 		var segments = pathWithinNamespace.Split('/', StringSplitOptions.RemoveEmptyEntries);
 		var workingSegments = segments;
@@ -325,7 +289,7 @@ public sealed class TextureRepository : IDisposable
 			workingSegments = workingSegments.Skip(1).ToArray();
 			if (workingSegments.Length > 0)
 			{
-				AddCandidate(string.Join('/', workingSegments));
+				yield return string.Join('/', workingSegments);
 			}
 		}
 
@@ -335,61 +299,161 @@ public sealed class TextureRepository : IDisposable
 			var remainder = string.Join('/', workingSegments.Skip(1));
 			foreach (var variant in EnumerateFolderCandidates(first))
 			{
-				AddCandidate($"{variant}/{remainder}");
+				if (!string.Equals(variant, first, StringComparison.OrdinalIgnoreCase))
+				{
+					yield return $"{variant}/{remainder}";
+				}
 			}
 		}
 
 		if (workingSegments.Length > 0)
 		{
-			AddCandidate(workingSegments[^1]);
-		}
-
-		foreach (var candidate in candidates)
-		{
-			yield return candidate;
+			yield return workingSegments[^1];
 		}
 	}
 
-	private static IReadOnlyList<string> BuildRootList(string primaryRoot, IEnumerable<string>? overlayRoots)
+	private IEnumerable<string> EnumerateCandidatePaths(string normalized)
 	{
-		var ordered = new List<string>();
-
-		void TryAddDirectory(string? candidate)
+		// Legacy method kept for internal helpers that might rely on it, but refactored to use new logic
+		var (namespaceName, pathWithinNamespace) = ParseNamespace(normalized);
+		foreach (var logicalPath in EnumerateLogicalPaths(pathWithinNamespace))
 		{
-			if (string.IsNullOrWhiteSpace(candidate))
+			for (var i = _sources.Count - 1; i >= 0; i--)
 			{
-				return;
+				var source = _sources[i];
+				if (source.TryResolve(namespaceName, logicalPath, out var candidate))
+				{
+					yield return candidate;
+				}
+			}
+		}
+	}
+
+	private static IReadOnlyList<TextureSource> BuildSourceList(string primaryRoot, IEnumerable<string>? overlayRoots, AssetNamespaceRegistry? assetNamespaces)
+	{
+		var sources = new List<TextureSource>();
+
+		if (assetNamespaces is not null)
+		{
+			foreach (var sourceId in assetNamespaces.GetSources())
+			{
+				sources.Add(new RegistryTextureSource(sourceId, assetNamespaces));
+			}
+		}
+		else
+		{
+			// Fallback: Treat each root as a separate source to preserve order
+			var orderedRoots = new List<string>();
+			
+			void TryAddDirectory(string? candidate)
+			{
+				if (string.IsNullOrWhiteSpace(candidate)) return;
+				var fullPath = Path.GetFullPath(candidate);
+				if (!Directory.Exists(fullPath)) return;
+				if (!orderedRoots.Contains(fullPath, StringComparer.OrdinalIgnoreCase))
+				{
+					orderedRoots.Add(fullPath);
+				}
+				
+				var texturesSubdirectory = Path.Combine(fullPath, "textures");
+				if (Directory.Exists(texturesSubdirectory) && !orderedRoots.Contains(texturesSubdirectory, StringComparer.OrdinalIgnoreCase))
+				{
+					orderedRoots.Add(texturesSubdirectory);
+				}
 			}
 
-			var fullPath = Path.GetFullPath(candidate);
-			if (!Directory.Exists(fullPath))
+			TryAddDirectory(primaryRoot);
+			if (overlayRoots is not null)
 			{
-				return;
+				foreach (var overlay in overlayRoots)
+				{
+					TryAddDirectory(overlay);
+				}
 			}
 
-			if (!ordered.Contains(fullPath, StringComparer.OrdinalIgnoreCase))
+			foreach (var root in orderedRoots)
 			{
-				ordered.Add(fullPath);
-			}
-
-			var texturesSubdirectory = Path.Combine(fullPath, "textures");
-			if (Directory.Exists(texturesSubdirectory) &&
-			    !ordered.Contains(texturesSubdirectory, StringComparer.OrdinalIgnoreCase))
-			{
-				ordered.Add(texturesSubdirectory);
+				sources.Add(new DirectoryTextureSource(root));
 			}
 		}
 
-		TryAddDirectory(primaryRoot);
-		if (overlayRoots is not null)
+		return sources;
+	}
+
+	private string? FindColormapRoot()
+	{
+		for (var i = _sources.Count - 1; i >= 0; i--)
 		{
-			foreach (var overlay in overlayRoots)
+			if (_sources[i].TryResolve("minecraft", "colormap/grass", out var path))
 			{
-				TryAddDirectory(overlay);
+				return Path.GetDirectoryName(Path.GetDirectoryName(path));
 			}
 		}
+		return null;
+	}
 
-		return ordered;
+	private abstract class TextureSource
+	{
+		public abstract bool TryResolve(string namespaceName, string relativePath, out string absolutePath);
+	}
+
+	private sealed class RegistryTextureSource : TextureSource
+	{
+		private readonly string _sourceId;
+		private readonly AssetNamespaceRegistry _registry;
+
+		public RegistryTextureSource(string sourceId, AssetNamespaceRegistry registry)
+		{
+			_sourceId = sourceId;
+			_registry = registry;
+		}
+
+		public override bool TryResolve(string namespaceName, string relativePath, out string absolutePath)
+		{
+			var roots = _registry.GetRoots(namespaceName, _sourceId);
+			if (roots.Count == 0 && !string.Equals(namespaceName, "minecraft", StringComparison.OrdinalIgnoreCase))
+			{
+				roots = _registry.GetRoots("minecraft", _sourceId);
+			}
+
+			var withExtension = relativePath.Replace('/', Path.DirectorySeparatorChar) + ".png";
+			foreach (var root in roots)
+			{
+				var candidate = Path.Combine(root.Path, withExtension);
+				if (File.Exists(candidate))
+				{
+					absolutePath = candidate;
+					return true;
+				}
+			}
+
+			absolutePath = null!;
+			return false;
+		}
+	}
+
+	private sealed class DirectoryTextureSource : TextureSource
+	{
+		private readonly string _root;
+
+		public DirectoryTextureSource(string root)
+		{
+			_root = root;
+		}
+
+		public override bool TryResolve(string namespaceName, string relativePath, out string absolutePath)
+		{
+			var withExtension = relativePath.Replace('/', Path.DirectorySeparatorChar) + ".png";
+			var candidate = Path.Combine(_root, withExtension);
+			if (File.Exists(candidate))
+			{
+				absolutePath = candidate;
+				return true;
+			}
+
+			absolutePath = null!;
+			return false;
+		}
 	}
 
 	private static IEnumerable<string> EnumerateFolderCandidates(string folder)
