@@ -254,6 +254,21 @@ public sealed partial class MinecraftBlockRenderer
 		return renderer;
 	}
 
+	private MinecraftBlockRenderer ResolveRendererForPackIds(IReadOnlyList<string>? packIds)
+	{
+		if (_packRegistry is null || packIds is null || packIds.Count == 0)
+		{
+			return this;
+		}
+
+		if (_packContext.PackIds.Count > 0 && PackSequencesEqual(packIds, _packContext.PackIds))
+		{
+			return this;
+		}
+
+		return GetRendererForPackStack(packIds);
+	}
+
 	private bool PackSequencesEqual(IReadOnlyList<string> candidate, IReadOnlyList<string> baseline)
 	{
 		if (candidate.Count != baseline.Count)

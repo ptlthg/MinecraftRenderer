@@ -8,6 +8,7 @@ using System.Linq;
 using System.Numerics;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp.Processing;
 using MinecraftRenderer.Nbt;
 using MinecraftRenderer.Snbt;
 using MinecraftRenderer.TexturePacks;
@@ -79,6 +80,18 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 			       && CustomData is null
 			       && Profile is null;
 		}
+	}
+
+	/// <summary>
+	/// Options for rendering a single block face.
+	/// </summary>
+	public record BlockFaceRenderOptions(
+		BlockFaceDirection Direction = BlockFaceDirection.Up,
+		int Size = 512,
+		int Rotation = 0,
+		IReadOnlyList<string>? PackIds = null)
+	{
+		public static BlockFaceRenderOptions Default { get; } = new();
 	}
 
 	public static bool DebugDisableCulling = false;
@@ -319,6 +332,20 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		return renderer.RenderBlockInternal(blockName, forwardedOptions);
 	}
 
+	/// <summary>
+	/// Renders a single face of a block to a flat 2D image.
+	/// </summary>
+	/// <param name="blockName">The block name (e.g., "dirt", "grass_block").</param>
+	/// <param name="options">Optional render options including direction and rotation.</param>
+	/// <returns>An image of the block's face texture at the specified size.</returns>
+	public Image<Rgba32> RenderBlockFace(string blockName, BlockFaceRenderOptions? options = null)
+	{
+		ArgumentException.ThrowIfNullOrWhiteSpace(blockName);
+		var effectiveOptions = options ?? BlockFaceRenderOptions.Default;
+		var renderer = ResolveRendererForPackIds(effectiveOptions.PackIds);
+		return renderer.RenderBlockFaceInternal(blockName, effectiveOptions);
+	}
+
 	public Image<Rgba32> RenderItem(string itemName, BlockRenderOptions? options = null)
 	{
 		var effectiveOptions = options ?? BlockRenderOptions.Default;
@@ -455,6 +482,79 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 
 		var model = _modelResolver.Resolve(modelName);
 		return RenderModel(model, options, blockName);
+	}
+
+	private Image<Rgba32> RenderBlockFaceInternal(string blockName, BlockFaceRenderOptions options)
+	{
+		EnsureNotDisposed();
+
+		var direction = options.Direction;
+		var size = options.Size;
+
+		var modelName = blockName;
+		if (_blockRegistry.TryGetModel(blockName, out var mappedModel) && !string.IsNullOrWhiteSpace(mappedModel))
+		{
+			modelName = mappedModel;
+		}
+
+		var model = _modelResolver.Resolve(modelName);
+
+		string? textureId = null;
+		ModelFace? face = null;
+
+		foreach (var element in model.Elements)
+		{
+			if (element.Faces.TryGetValue(direction, out face))
+			{
+				textureId = ResolveTexture(face.Texture, model);
+				break;
+			}
+		}
+
+		if (string.IsNullOrWhiteSpace(textureId) || face is null)
+		{
+			return new Image<Rgba32>(size, size, Color.Transparent);
+		}
+
+		Image<Rgba32> texture;
+		if (face.TintIndex.HasValue)
+		{
+			var constantTint = TryGetConstantTint(textureId, blockName);
+			if (constantTint.HasValue)
+			{
+				texture = _textureRepository.GetTintedTexture(textureId, constantTint.Value, ConstantTintStrength);
+			}
+			else if (TryGetBiomeTintKind(textureId, blockName, out var biomeKind))
+			{
+				texture = GetBiomeTintedTexture(textureId, biomeKind);
+			}
+			else
+			{
+				var fallbackTint = GetColorFromBlockName(blockName) ?? GetColorFromBlockName(textureId);
+				texture = fallbackTint.HasValue
+					? _textureRepository.GetTintedTexture(textureId, fallbackTint.Value, 1f, ColorTintBlend)
+					: _textureRepository.GetTexture(textureId);
+			}
+		}
+		else
+		{
+			texture = _textureRepository.GetTexture(textureId);
+		}
+
+		var result = texture.Clone();
+
+		var normalizedRotation = ((options.Rotation % 360) + 360) % 360;
+		if (normalizedRotation != 0)
+		{
+			result.Mutate(ctx => ctx.Rotate(normalizedRotation));
+		}
+
+		if (result.Width != size || result.Height != size)
+		{
+			result.Mutate(ctx => ctx.Resize(size, size, KnownResamplers.NearestNeighbor));
+		}
+
+		return result;
 	}
 
 	public void Dispose()

@@ -21,6 +21,14 @@ public sealed class TexturePackRegistry
 
 	public static TexturePackRegistry Create() => new();
 
+	/// <summary>
+	/// Represents a failed texture pack registration attempt.
+	/// </summary>
+	/// <param name="Directory">The directory path that failed to register.</param>
+	/// <param name="Reason">A description of why registration failed.</param>
+	/// <param name="Exception">The exception that caused the failure, if any.</param>
+	public sealed record PackRegistrationFailure(string Directory, string Reason, Exception? Exception = null);
+
 	public RegisteredResourcePack RegisterPack(string directory)
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace(directory);
@@ -99,21 +107,95 @@ public sealed class TexturePackRegistry
 	}
 
 	/// <summary>
+	/// Attempts to register a texture pack from the specified directory without throwing exceptions.
+	/// </summary>
+	/// <param name="directory">Path to the texture pack directory.</param>
+	/// <param name="pack">When successful, the registered pack; otherwise null.</param>
+	/// <param name="failure">When unsuccessful, details about the failure; otherwise null.</param>
+	/// <returns>True if registration succeeded, false otherwise.</returns>
+	public bool TryRegisterPack(string directory, out RegisteredResourcePack? pack, out PackRegistrationFailure? failure)
+	{
+		pack = null;
+		failure = null;
+
+		if (string.IsNullOrWhiteSpace(directory))
+		{
+			failure = new PackRegistrationFailure(directory ?? string.Empty, "Directory path is null or empty.");
+			return false;
+		}
+
+		try
+		{
+			var fullPath = Path.GetFullPath(directory);
+			if (!Directory.Exists(fullPath))
+			{
+				failure = new PackRegistrationFailure(directory, $"Directory not found: '{fullPath}'.");
+				return false;
+			}
+
+			var metaPath = Path.Combine(fullPath, "meta.json");
+			if (!File.Exists(metaPath))
+			{
+				failure = new PackRegistrationFailure(directory, "meta.json file not found.");
+				return false;
+			}
+
+			pack = RegisterPack(directory);
+			return true;
+		}
+		catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
+		{
+			failure = new PackRegistrationFailure(directory, ex.Message, ex);
+			return false;
+		}
+	}
+
+	/// <summary>
 	/// Registers every texture pack located under the specified root directory.
-	/// Directories without a <c>meta.json</c> file are ignored.
+	/// Directories without a <c>meta.json</c> file are silently ignored.
+	/// Packs that fail to load are skipped without throwing exceptions.
 	/// </summary>
 	/// <param name="rootDirectory">Root directory containing one or more texture pack folders.</param>
 	/// <param name="searchRecursively">When true, searches all subdirectories; otherwise only immediate children.</param>
 	/// <returns>A list of packs that were successfully registered.</returns>
 	public IReadOnlyList<RegisteredResourcePack> RegisterAllPacks(string rootDirectory,
 		bool searchRecursively = false)
+		=> RegisterAllPacks(rootDirectory, searchRecursively, out _);
+
+	/// <summary>
+	/// Registers every texture pack located under the specified root directory.
+	/// Directories without a <c>meta.json</c> file are silently ignored.
+	/// Packs that fail to load are skipped and reported via <paramref name="failures"/>.
+	/// </summary>
+	/// <param name="rootDirectory">Root directory containing one or more texture pack folders.</param>
+	/// <param name="searchRecursively">When true, searches all subdirectories; otherwise only immediate children.</param>
+	/// <param name="failures">When the method returns, contains details about any packs that failed to register.</param>
+	/// <returns>A list of packs that were successfully registered.</returns>
+	public IReadOnlyList<RegisteredResourcePack> RegisterAllPacks(string rootDirectory,
+		bool searchRecursively, out IReadOnlyList<PackRegistrationFailure> failures)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(rootDirectory);
-		var fullRoot = Path.GetFullPath(rootDirectory);
+		var failureList = new List<PackRegistrationFailure>();
+		failures = failureList;
+
+		if (string.IsNullOrWhiteSpace(rootDirectory))
+		{
+			return [];
+		}
+
+		string fullRoot;
+		try
+		{
+			fullRoot = Path.GetFullPath(rootDirectory);
+		}
+		catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
+		{
+			failureList.Add(new PackRegistrationFailure(rootDirectory, $"Invalid root path: {ex.Message}", ex));
+			return [];
+		}
+
 		if (!Directory.Exists(fullRoot))
 		{
-			throw new DirectoryNotFoundException(
-				$"Texture pack root directory not found: '{rootDirectory}'.");
+			return [];
 		}
 
 		var results = new List<RegisteredResourcePack>();
@@ -121,20 +203,52 @@ public sealed class TexturePackRegistry
 
 		if (File.Exists(Path.Combine(fullRoot, "meta.json")))
 		{
-			results.Add(RegisterPack(fullRoot));
+			if (TryRegisterPack(fullRoot, out var rootPack, out var rootFailure))
+			{
+				results.Add(rootPack!);
+			}
+			else if (rootFailure is not null)
+			{
+				failureList.Add(rootFailure);
+			}
 		}
 
-		foreach (var candidate in Directory.EnumerateDirectories(fullRoot, "*", searchOption))
+		IEnumerable<string> candidates;
+		try
 		{
-			if (!File.Exists(Path.Combine(candidate, "meta.json")))
+			candidates = Directory.EnumerateDirectories(fullRoot, "*", searchOption);
+		}
+		catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+		{
+			failureList.Add(new PackRegistrationFailure(fullRoot, $"Unable to enumerate directories: {ex.Message}", ex));
+			return results;
+		}
+
+		foreach (var candidate in candidates)
+		{
+			try
 			{
+				if (!File.Exists(Path.Combine(candidate, "meta.json")))
+				{
+					continue;
+				}
+			}
+			catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+			{
+				failureList.Add(new PackRegistrationFailure(candidate, $"Unable to check for meta.json: {ex.Message}", ex));
 				continue;
 			}
 
-			var registered = RegisterPack(candidate);
-			if (!results.Contains(registered))
+			if (TryRegisterPack(candidate, out var pack, out var failure))
 			{
-				results.Add(registered);
+				if (pack is not null && !results.Contains(pack))
+				{
+					results.Add(pack);
+				}
+			}
+			else if (failure is not null)
+			{
+				failureList.Add(failure);
 			}
 		}
 

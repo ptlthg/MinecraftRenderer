@@ -1695,4 +1695,60 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 		       && Math.Abs(left.G - right.G) <= tolerance
 		       && Math.Abs(left.B - right.B) <= tolerance;
 	}
+
+	[Fact]
+	public void RenderBlockFaceReturnsCorrectSizeImage()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		var options = new MinecraftBlockRenderer.BlockFaceRenderOptions(Direction: BlockFaceDirection.Up, Size: 128);
+		using var image = renderer.RenderBlockFace("dirt", options);
+
+		Assert.Equal(128, image.Width);
+		Assert.Equal(128, image.Height);
+	}
+
+	[Fact]
+	public void RenderBlockFaceContainsOpaquePixels()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		var options = new MinecraftBlockRenderer.BlockFaceRenderOptions(Direction: BlockFaceDirection.North);
+		using var image = renderer.RenderBlockFace("stone", options);
+
+		Assert.True(HasOpaquePixels(image), "RenderBlockFace should produce opaque pixels for stone.");
+	}
+
+	[Fact]
+	public void RenderBlockFaceTopDifferentFromSideForGrassBlock()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		using var top = renderer.RenderBlockFace("grass_block", new(Direction: BlockFaceDirection.Up));
+		using var side = renderer.RenderBlockFace("grass_block", new(Direction: BlockFaceDirection.North));
+
+		Assert.False(ImagesAreIdentical(top, side),
+			"Grass block top face should be different from the side face.");
+	}
+
+	[Fact]
+	public void RenderBlockFaceDefaultSizeIs512()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		using var image = renderer.RenderBlockFace("cobblestone");
+
+		Assert.Equal(512, image.Width);
+		Assert.Equal(512, image.Height);
+	}
+
+	[Fact]
+	public void RenderBlockFaceRotationProducesDifferentImage()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+		var baseOptions = new MinecraftBlockRenderer.BlockFaceRenderOptions(Direction: BlockFaceDirection.Up, Size: 64);
+		var rotatedOptions = new MinecraftBlockRenderer.BlockFaceRenderOptions(Direction: BlockFaceDirection.Up, Size: 64, Rotation: 90);
+
+		using var original = renderer.RenderBlockFace("oak_log", baseOptions);
+		using var rotated = renderer.RenderBlockFace("oak_log", rotatedOptions);
+
+		Assert.False(ImagesAreIdentical(original, rotated),
+			"Rotated block face should be different from original.");
+	}
 }
