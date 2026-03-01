@@ -9,12 +9,12 @@ public static class FaceBakery
     // Mappings from Minecraft's FaceBakery.java
     public static readonly Dictionary<BlockFaceDirection, int[]> FaceVertexIndices = new()
     {
-        { BlockFaceDirection.South, [7, 6, 5, 4] },
-        { BlockFaceDirection.Up,    [3, 2, 6, 7] },
-        { BlockFaceDirection.North, [0, 1, 2, 3] },
-        { BlockFaceDirection.Down,  [4, 5, 1, 0] },
-        { BlockFaceDirection.West,  [3, 7, 4, 0] },
-        { BlockFaceDirection.East,  [6, 2, 1, 5] },
+        { BlockFaceDirection.Down,  [4, 0, 1, 5] },
+        { BlockFaceDirection.Up,    [3, 7, 6, 2] },
+        { BlockFaceDirection.North, [2, 1, 0, 3] },
+        { BlockFaceDirection.South, [7, 4, 5, 6] },
+        { BlockFaceDirection.West,  [3, 0, 4, 7] },
+        { BlockFaceDirection.East,  [6, 5, 1, 2] },
     };
 
     public static Vector4 DefaultFaceUv(Vector3 from, Vector3 to, BlockFaceDirection direction)

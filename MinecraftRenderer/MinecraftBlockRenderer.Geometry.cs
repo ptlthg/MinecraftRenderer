@@ -68,22 +68,23 @@ public sealed partial class MinecraftBlockRenderer
 
 			var faceUv = GetFaceUv(face, direction, element);
 
-			if (element.Rotation is not null && direction is BlockFaceDirection.Up or BlockFaceDirection.Down)
-			{
-				if (string.Equals(element.Rotation.Axis, "x", StringComparison.OrdinalIgnoreCase))
-				{
-					faceUv = faceUv with { X = faceUv.Z, Z = faceUv.X };
-				}
-
-				if (string.Equals(element.Rotation.Axis, "z", StringComparison.OrdinalIgnoreCase))
-				{
-					faceUv = faceUv with { Y = faceUv.W, W = faceUv.X };
-				}
-			}
-
-			var textureRect = ComputeTextureRectangle(faceUv, texture);
-
 			var uvMap = FaceBakery.CreateUvMap(faceUv, face.Rotation ?? 0);
+			var textureRect = ComputeTextureRectangle(uvMap, texture);
+
+			// The rasterizer expects UV coordinates in [0,1] relative to textureRect,
+			// but uvMap stores absolute [0,1] coordinates across the entire texture.
+			// Normalize the UVs so they map into the sub-region defined by textureRect.
+			var rectMinU = (float)textureRect.X / texture.Width;
+			var rectRangeU = (float)textureRect.Width / texture.Width;
+			var rectMinV = (float)textureRect.Y / texture.Height;
+			var rectRangeV = (float)textureRect.Height / texture.Height;
+			for (var i = 0; i < 4; i++)
+			{
+				uvMap[i] = new Vector2(
+					rectRangeU > 1e-6f ? (uvMap[i].X - rectMinU) / rectRangeU : 0f,
+					rectRangeV > 1e-6f ? (uvMap[i].Y - rectMinV) / rectRangeV : 0f
+				);
+			}
 
 			var indices = FaceBakery.FaceVertexIndices[direction];
 			var localFace = new Vector3[4];
@@ -215,28 +216,29 @@ public sealed partial class MinecraftBlockRenderer
 	{
 		if (face.Uv.HasValue)
 		{
-			// The JSON uv might be arbitrary coordinates, but we must make sure
-			// X/Y are min and Z/W are max to work nicely with our Quadrant math.
-			var uv = face.Uv.Value;
-			var minU = MathF.Min(uv.X, uv.Z);
-			var maxU = MathF.Max(uv.X, uv.Z);
-			var minV = MathF.Min(uv.Y, uv.W);
-			var maxV = MathF.Max(uv.Y, uv.W);
-			return new Vector4(minU, minV, maxU, maxV);
+			// Pass through raw JSON UV values. Minecraft does NOT sort to min/max —
+			// the order matters for UV mirroring (when u1 > u2), same for v.
+			return face.Uv.Value;
 		}
 
 		return FaceBakery.DefaultFaceUv(element.From, element.To, direction);
 	}
 
-	private static Rectangle ComputeTextureRectangle(Vector4 uv, Image<Rgba32> texture)
+	private static Rectangle ComputeTextureRectangle(Vector2[] uvMap, Image<Rgba32> texture)
 	{
-		var widthFactor = texture.Width / 16f;
-		var heightFactor = texture.Height / 16f;
+		var widthFactor = texture.Width;
+		var heightFactor = texture.Height;
 
-		var minX = (int)MathF.Round(MathF.Min(uv.X, uv.Z) * widthFactor);
-		var maxX = (int)MathF.Round(MathF.Max(uv.X, uv.Z) * widthFactor);
-		var minY = (int)MathF.Round(MathF.Min(uv.Y, uv.W) * heightFactor);
-		var maxY = (int)MathF.Round(MathF.Max(uv.Y, uv.W) * heightFactor);
+		// uvMap coordinates are [0.0, 1.0], meaning we multiply directly with the texture width/height.
+		var minU = MathF.Min(MathF.Min(uvMap[0].X, uvMap[1].X), MathF.Min(uvMap[2].X, uvMap[3].X));
+		var maxU = MathF.Max(MathF.Max(uvMap[0].X, uvMap[1].X), MathF.Max(uvMap[2].X, uvMap[3].X));
+		var minV = MathF.Min(MathF.Min(uvMap[0].Y, uvMap[1].Y), MathF.Min(uvMap[2].Y, uvMap[3].Y));
+		var maxV = MathF.Max(MathF.Max(uvMap[0].Y, uvMap[1].Y), MathF.Max(uvMap[2].Y, uvMap[3].Y));
+
+		var minX = (int)MathF.Round(minU * widthFactor);
+		var maxX = (int)MathF.Round(maxU * widthFactor);
+		var minY = (int)MathF.Round(minV * heightFactor);
+		var maxY = (int)MathF.Round(maxV * heightFactor);
 
 		minX = Math.Clamp(minX, 0, texture.Width - 1);
 		minY = Math.Clamp(minY, 0, texture.Height - 1);

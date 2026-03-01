@@ -19,16 +19,19 @@ public readonly record struct ItemTransform(Vector3 Rotation, Vector3 Translatio
         var rotationZ = isLeftHand ? -Rotation.Z : Rotation.Z;
 
         // Minecraft uses JOML under the hood, translating by (translation * 0.0625f)
-        // rotationXYZ (X, then Y, then Z). Then scaling.
+        // rotationXYZ applies intrinsic rotation X, then Y, then Z. In column vector math
+        // this is mathematically equal to Rz * Ry * Rx.
         var translationMatrix = Matrix4x4.CreateTranslation(translationX / 16f, Translation.Y / 16f, Translation.Z / 16f);
         
-        var rotationMatrix = Matrix4x4.CreateRotationX(Rotation.X * (MathF.PI / 180f))
+        var rotationMatrix = Matrix4x4.CreateRotationZ(rotationZ * (MathF.PI / 180f))
                            * Matrix4x4.CreateRotationY(rotationY * (MathF.PI / 180f))
-                           * Matrix4x4.CreateRotationZ(rotationZ * (MathF.PI / 180f));
+                           * Matrix4x4.CreateRotationX(Rotation.X * (MathF.PI / 180f));
                            
         var scaleMatrix = Matrix4x4.CreateScale(Scale);
 
-        // JOML's Matrix4f matches column-vector semantics (Scale * Rotation * Translation) for standard multiplication
+        // JOML poses apply transformations to pre-centered models.
+        // C# System.Numerics implies row-vectors, so applied LTR v * M:
+        // meaning to get Trans * Rot * Scale, we multiply Scale * Rotation * Translation
         return scaleMatrix * rotationMatrix * translationMatrix;
     }
 }

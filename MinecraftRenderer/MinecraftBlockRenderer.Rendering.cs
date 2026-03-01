@@ -185,7 +185,7 @@ public sealed partial class MinecraftBlockRenderer
 			}
 
 			var dot = Vector3.Dot(normal, cameraForward);
-			if (dot < -DotCullThreshold)
+			if (dot > DotCullThreshold)
 			{
 				triangles.RemoveAt(i);
 			}
