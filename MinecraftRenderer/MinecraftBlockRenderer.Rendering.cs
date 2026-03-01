@@ -476,7 +476,7 @@ public sealed partial class MinecraftBlockRenderer
 				}
 
 				var bufferIndex = rowOffset + x;
-				if (depth >= depthBuffer[bufferIndex] - depthTestEpsilon)
+				if (depth <= depthBuffer[bufferIndex] + depthTestEpsilon)
 				{
 					continue;
 				}
