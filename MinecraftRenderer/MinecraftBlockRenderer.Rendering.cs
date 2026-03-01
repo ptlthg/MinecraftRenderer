@@ -31,7 +31,7 @@ public sealed partial class MinecraftBlockRenderer
 
 	// A single, strong, directional light from the top-left-front. This does all the work.
 	// The flipped version, if the one above is backwards.
-	private static readonly Vector3 InventoryLightDirection = Vector3.Normalize(new Vector3(0.55f, -1f, 1.8f));
+	private static readonly Vector3 InventoryLightDirection = Vector3.Normalize(new Vector3(-0.55f, -1f, 1.8f));
 
 	private const float InventoryDiffuseStrength = 0.8f;
 	private const float InventoryAmbientStrength = 0.2f;

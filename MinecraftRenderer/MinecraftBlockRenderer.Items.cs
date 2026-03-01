@@ -156,6 +156,18 @@ public sealed partial class MinecraftBlockRenderer
 			var payload = descriptor[7..];
 			if (TryRenderEmbeddedTexture(payload, options, payload, out var customRendered))
 			{
+				var normalized = NormalizeItemTextureKey(payload);
+				var postScale = GetPostRenderScale(normalized) ?? GetPostRenderScale(payload);
+				if (postScale.HasValue)
+				{
+					ApplyCenteredScale(customRendered, postScale.Value);
+				}
+
+				if (ShouldAlignGuiItemToBottom(normalized))
+				{
+					AlignImageToBottom(customRendered);
+				}
+
 				return customRendered;
 			}
 
@@ -300,21 +312,23 @@ public sealed partial class MinecraftBlockRenderer
 			capture.ModelCandidates = modelCandidates;
 			capture.ResolvedModelName = resolvedModelName;
 		}
+
+		if (IsBannerItem(normalizedItemKey) || (resolvedModelName != null && IsBannerItem(resolvedModelName)))
+		{
+			options = options with { AdditionalScale = options.AdditionalScale * 0.8f };
+		}
+
 		if (options.OverrideGuiTransform is null && options.UseGuiTransform && model is not null)
 		{
 			var guiOverride = model.GetDisplayTransform("gui");
+
 			if (guiOverride is not null)
 			{
 				options = options with { OverrideGuiTransform = guiOverride };
 			}
 		}
 
-		if (options.UseGuiTransform && IsBannerItem(normalizedItemKey))
-		{
-			options = options with { OverrideGuiTransform = AdjustBannerGuiTransform(options.OverrideGuiTransform) };
-		}
-
-		postScale = GetPostRenderScale(normalizedItemKey);
+		postScale = GetPostRenderScale(normalizedItemKey) ?? GetPostRenderScale(resolvedModelName);
 
 		var shouldPreferHead = ShouldPreferPlayerHeadRenderer(itemName, model, modelCandidates, options,
 			out var preparedOptions);
@@ -2029,17 +2043,17 @@ public sealed partial class MinecraftBlockRenderer
 
 	private static void AdjustBedGuiTransform(Dictionary<string, TransformDefinition> display)
 	{
-		const float RotationAdjustment = -50f;
-		const float ScaleMultiplier = 0.9f;
+		const float rotationAdjustment = 180f;
+		const float scaleMultiplier = 0.9f;
 		var defaultScale = new[] { 0.48f, 0.48f, 0.48f };
-		var defaultTranslation = new[] { 2f, 2.5f, 0f };
+		var translationAdjustment = new[] { -2.5f, -2.75f, 0f };
 
 		if (!display.TryGetValue("gui", out var gui))
 		{
 			display["gui"] = new TransformDefinition
 			{
-				Rotation = new[] { 30f, 160f + RotationAdjustment, 0f },
-				Translation = (float[])defaultTranslation.Clone(),
+				Rotation = [30f, 160f + rotationAdjustment, 0f],
+				Translation = (float[])translationAdjustment.Clone(),
 				Scale = (float[])defaultScale.Clone()
 			};
 			return;
@@ -2047,12 +2061,12 @@ public sealed partial class MinecraftBlockRenderer
 
 		var rotationArray = gui.Rotation is null ? new float[3] : CloneVector(gui.Rotation, 3);
 		EnsureLength(ref rotationArray, 3);
-		rotationArray[1] = NormalizeRotation(rotationArray[1] + RotationAdjustment);
+		rotationArray[1] = NormalizeRotation(rotationArray[1] + rotationAdjustment);
 
 		float[] translationArray;
 		if (gui.Translation is null || gui.Translation.Length == 0)
 		{
-			translationArray = (float[])defaultTranslation.Clone();
+			translationArray = new float[3];
 		}
 		else
 		{
@@ -2060,6 +2074,10 @@ public sealed partial class MinecraftBlockRenderer
 		}
 
 		EnsureLength(ref translationArray, 3);
+		for (var i = 0; i < 3; i++)
+		{
+			translationArray[i] += translationAdjustment[i];
+		}
 
 		float[] scaleArray;
 		if (gui.Scale is null || gui.Scale.Length == 0)
@@ -2072,7 +2090,7 @@ public sealed partial class MinecraftBlockRenderer
 			EnsureLength(ref scaleArray, 3);
 			for (var i = 0; i < scaleArray.Length; i++)
 			{
-				scaleArray[i] *= ScaleMultiplier;
+				scaleArray[i] *= scaleMultiplier;
 			}
 		}
 
@@ -2081,36 +2099,6 @@ public sealed partial class MinecraftBlockRenderer
 			Rotation = rotationArray,
 			Translation = translationArray,
 			Scale = scaleArray
-		};
-	}
-
-	private static TransformDefinition AdjustBannerGuiTransform(TransformDefinition? original)
-	{
-		const float YawAdjustment = 215f;
-
-		var rotation = original?.Rotation is { Length: > 0 } rotationSource
-			? CloneVector(rotationSource, Math.Max(3, rotationSource.Length))
-			: new float[3];
-		EnsureLength(ref rotation, 3);
-		rotation[1] = NormalizeRotation(rotation[1] + YawAdjustment);
-
-		float[]? translation = null;
-		if (original?.Translation is { } translationSource)
-		{
-			translation = CloneVector(translationSource, Math.Max(3, translationSource.Length));
-		}
-
-		float[]? scale = null;
-		if (original?.Scale is { } scaleSource)
-		{
-			scale = CloneVector(scaleSource, Math.Max(3, scaleSource.Length));
-		}
-
-		return new TransformDefinition
-		{
-			Rotation = rotation,
-			Translation = translation,
-			Scale = scale
 		};
 	}
 
@@ -2720,11 +2708,6 @@ public sealed partial class MinecraftBlockRenderer
 			return 0.92f;
 		}
 
-		if (IsBannerItem(normalizedItemKey))
-		{
-			return 0.9f;
-		}
-
 		return null;
 	}
 
@@ -2732,8 +2715,18 @@ public sealed partial class MinecraftBlockRenderer
 		=> normalizedItemKey.EndsWith("_bed", StringComparison.OrdinalIgnoreCase)
 		   || string.Equals(normalizedItemKey, "bed", StringComparison.OrdinalIgnoreCase);
 
-	private static bool IsBannerItem(string normalizedItemKey)
+	private static bool IsBannerItem(string? normalizedItemKey)
 	{
+		if (string.IsNullOrWhiteSpace(normalizedItemKey))
+		{
+			return false;
+		}
+
+		if (normalizedItemKey.Contains("banner", StringComparison.OrdinalIgnoreCase))
+		{
+			return true;
+		}
+
 		foreach (var suffix in BannerSuffixes)
 		{
 			if (normalizedItemKey.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
@@ -2742,7 +2735,7 @@ public sealed partial class MinecraftBlockRenderer
 			}
 		}
 
-		return string.Equals(normalizedItemKey, "banner", StringComparison.OrdinalIgnoreCase);
+		return false;
 	}
 
 	private static void AlignImageToBottom(Image<Rgba32> image)
