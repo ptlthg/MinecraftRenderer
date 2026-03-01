@@ -58,23 +58,20 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		NbtCompound? CustomData = null,
 		NbtCompound? Profile = null)
 	{
-		public Color? GetLayerTint(int layerIndex)
-		{
-			if (AdditionalLayerTints is not null && AdditionalLayerTints.TryGetValue(layerIndex, out var explicitTint))
-			{
+		public Color? GetLayerTint(int layerIndex) {
+			if (AdditionalLayerTints is not null &&
+			    AdditionalLayerTints.TryGetValue(layerIndex, out var explicitTint)) {
 				return explicitTint;
 			}
 
-			if (layerIndex == 0 && Layer0Tint.HasValue)
-			{
+			if (layerIndex == 0 && Layer0Tint.HasValue) {
 				return Layer0Tint.Value;
 			}
 
 			return null;
 		}
 
-		public bool IsDefault()
-		{
+		public bool IsDefault() {
 			return Layer0Tint is null
 			       && (AdditionalLayerTints is null || AdditionalLayerTints.Count == 0)
 			       && !DisableDefaultLayer0Tint
@@ -123,8 +120,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 	private MinecraftBlockRenderer(BlockModelResolver modelResolver, TextureRepository textureRepository,
 		BlockRegistry blockRegistry, ItemRegistry? itemRegistry, string? assetsDirectory,
 		IReadOnlyList<OverlayRoot> baseOverlayRoots, TexturePackRegistry? packRegistry,
-		RenderPackContext packContext)
-	{
+		RenderPackContext packContext) {
 		_modelResolver = modelResolver;
 		_textureRepository = textureRepository;
 		_blockRegistry = blockRegistry;
@@ -136,8 +132,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		_packContext = packContext;
 	}
 
-	public static MinecraftBlockRenderer CreateFromDataDirectory(string dataDirectory)
-	{
+	public static MinecraftBlockRenderer CreateFromDataDirectory(string dataDirectory) {
 		ArgumentException.ThrowIfNullOrWhiteSpace(dataDirectory);
 
 		var modelsPath = Path.Combine(dataDirectory, "blocks_models.json");
@@ -145,15 +140,13 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		var textureContentPath = Path.Combine(dataDirectory, "texture_content.json");
 		var itemsPath = Path.Combine(dataDirectory, "items_textures.json");
 
-		if (File.Exists(modelsPath) && File.Exists(texturesPath))
-		{
+		if (File.Exists(modelsPath) && File.Exists(texturesPath)) {
 			var modelResolver = BlockModelResolver.LoadFromFile(modelsPath);
 			var blockRegistry = BlockRegistry.LoadFromFile(texturesPath);
 			var textureRepository = new TextureRepository(dataDirectory,
 				File.Exists(textureContentPath) ? textureContentPath : null);
 			ItemRegistry? itemRegistry = null;
-			if (File.Exists(itemsPath))
-			{
+			if (File.Exists(itemsPath)) {
 				itemRegistry = ItemRegistry.LoadFromFile(itemsPath);
 			}
 
@@ -162,8 +155,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 				Array.Empty<OverlayRoot>(), null, packContext);
 		}
 
-		if (IsMinecraftAssetsRoot(dataDirectory))
-		{
+		if (IsMinecraftAssetsRoot(dataDirectory)) {
 			return CreateFromMinecraftAssets(dataDirectory);
 		}
 
@@ -173,14 +165,12 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 
 	public static MinecraftBlockRenderer CreateFromMinecraftAssets(string assetsDirectory,
 		TexturePackRegistry? texturePackRegistry = null,
-		IReadOnlyList<string>? defaultPackIds = null)
-	{
+		IReadOnlyList<string>? defaultPackIds = null) {
 		ArgumentException.ThrowIfNullOrWhiteSpace(assetsDirectory);
 
 		var overlayRoots = DiscoverOverlayRoots(assetsDirectory);
 		TexturePackStack? defaultPackStack = null;
-		if (texturePackRegistry is not null && defaultPackIds is { Count: > 0 })
-		{
+		if (texturePackRegistry is not null && defaultPackIds is { Count: > 0 }) {
 			defaultPackStack = texturePackRegistry.BuildPackStack(defaultPackIds);
 		}
 
@@ -207,27 +197,22 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 			assetsDirectory, overlayRoots, texturePackRegistry, packContext);
 	}
 
-	private static IReadOnlyList<OverlayRoot> DiscoverOverlayRoots(string assetsDirectory)
-	{
+	private static IReadOnlyList<OverlayRoot> DiscoverOverlayRoots(string assetsDirectory) {
 		var overlays = new List<OverlayRoot>();
 		var assetRoot = Path.GetFullPath(assetsDirectory);
 		var parent = Directory.GetParent(assetRoot)?.FullName;
 
-		void TryAdd(string? candidate)
-		{
-			if (string.IsNullOrWhiteSpace(candidate))
-			{
+		void TryAdd(string? candidate) {
+			if (string.IsNullOrWhiteSpace(candidate)) {
 				return;
 			}
 
 			var fullPath = Path.GetFullPath(candidate);
-			if (!Directory.Exists(fullPath))
-			{
+			if (!Directory.Exists(fullPath)) {
 				return;
 			}
 
-			if (overlays.Any(root => string.Equals(root.Path, fullPath, StringComparison.OrdinalIgnoreCase)))
-			{
+			if (overlays.Any(root => string.Equals(root.Path, fullPath, StringComparison.OrdinalIgnoreCase))) {
 				return;
 			}
 
@@ -237,18 +222,15 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 
 		// Check for customdata next to the assembly (deployed with the library)
 		var assemblyLocation = typeof(MinecraftBlockRenderer).Assembly.Location;
-		if (!string.IsNullOrWhiteSpace(assemblyLocation))
-		{
+		if (!string.IsNullOrWhiteSpace(assemblyLocation)) {
 			var assemblyDir = Path.GetDirectoryName(assemblyLocation);
-			if (!string.IsNullOrWhiteSpace(assemblyDir))
-			{
+			if (!string.IsNullOrWhiteSpace(assemblyDir)) {
 				TryAdd(Path.Combine(assemblyDir, "customdata"));
 			}
 		}
 
 		// Check parent directory of assets for customdata
-		if (parent is not null)
-		{
+		if (parent is not null) {
 			TryAdd(Path.Combine(parent, "customdata"));
 		}
 
@@ -258,50 +240,40 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		return overlays;
 	}
 
-	private static string InitializePlayerSkinCacheDirectory(string? assetsDirectory)
-	{
+	private static string InitializePlayerSkinCacheDirectory(string? assetsDirectory) {
 		var candidates = new List<string>();
 
 		var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-		if (!string.IsNullOrWhiteSpace(localAppData))
-		{
+		if (!string.IsNullOrWhiteSpace(localAppData)) {
 			candidates.Add(Path.Combine(localAppData, "ptlthg-MinecraftRenderer", "PlayerSkins"));
 		}
 
-		if (!string.IsNullOrWhiteSpace(assetsDirectory))
-		{
-			try
-			{
+		if (!string.IsNullOrWhiteSpace(assetsDirectory)) {
+			try {
 				var assetRoot = Path.GetFullPath(assetsDirectory);
 				candidates.Add(Path.Combine(assetRoot, "cached_player_skins"));
 			}
-			catch
-			{
+			catch {
 				// Ignore invalid asset directory paths; fall back to other candidates.
 			}
 		}
 
-		if (!string.IsNullOrWhiteSpace(AppContext.BaseDirectory))
-		{
+		if (!string.IsNullOrWhiteSpace(AppContext.BaseDirectory)) {
 			candidates.Add(Path.Combine(AppContext.BaseDirectory, "player_skin_cache"));
 		}
 
 		candidates.Add(Path.Combine(Path.GetTempPath(), "ptlthg-MinecraftRenderer", "PlayerSkins"));
 
-		foreach (var candidate in candidates)
-		{
-			if (string.IsNullOrWhiteSpace(candidate))
-			{
+		foreach (var candidate in candidates) {
+			if (string.IsNullOrWhiteSpace(candidate)) {
 				continue;
 			}
 
-			try
-			{
+			try {
 				Directory.CreateDirectory(candidate);
 				return candidate;
 			}
-			catch
-			{
+			catch {
 				// Try the next candidate
 			}
 		}
@@ -309,10 +281,8 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		throw new InvalidOperationException("Unable to initialize player skin cache directory.");
 	}
 
-	private static bool IsMinecraftAssetsRoot(string path)
-	{
-		if (string.IsNullOrWhiteSpace(path))
-		{
+	private static bool IsMinecraftAssetsRoot(string path) {
+		if (string.IsNullOrWhiteSpace(path)) {
 			return false;
 		}
 
@@ -325,8 +295,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 
 	public IReadOnlyList<string> GetKnownItemNames() => _itemRegistry?.GetAllItemNames() ?? [];
 
-	public Image<Rgba32> RenderBlock(string blockName, BlockRenderOptions? options = null)
-	{
+	public Image<Rgba32> RenderBlock(string blockName, BlockRenderOptions? options = null) {
 		ArgumentException.ThrowIfNullOrWhiteSpace(blockName);
 		var effectiveOptions = options ?? BlockRenderOptions.Default;
 		var renderer = ResolveRendererForOptions(effectiveOptions, out var forwardedOptions);
@@ -339,23 +308,20 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 	/// <param name="blockName">The block name (e.g., "dirt", "grass_block").</param>
 	/// <param name="options">Optional render options including direction and rotation.</param>
 	/// <returns>An image of the block's face texture at the specified size.</returns>
-	public Image<Rgba32> RenderBlockFace(string blockName, BlockFaceRenderOptions? options = null)
-	{
+	public Image<Rgba32> RenderBlockFace(string blockName, BlockFaceRenderOptions? options = null) {
 		ArgumentException.ThrowIfNullOrWhiteSpace(blockName);
 		var effectiveOptions = options ?? BlockFaceRenderOptions.Default;
 		var renderer = ResolveRendererForPackIds(effectiveOptions.PackIds);
 		return renderer.RenderBlockFaceInternal(blockName, effectiveOptions);
 	}
 
-	public Image<Rgba32> RenderItem(string itemName, BlockRenderOptions? options = null)
-	{
+	public Image<Rgba32> RenderItem(string itemName, BlockRenderOptions? options = null) {
 		var effectiveOptions = options ?? BlockRenderOptions.Default;
 		var renderer = ResolveRendererForOptions(effectiveOptions, out var forwardedOptions);
 		return renderer.RenderGuiItemInternal(itemName, forwardedOptions);
 	}
 
-	public Image<Rgba32> RenderItem(string itemName, ItemRenderData itemData, BlockRenderOptions? options = null)
-	{
+	public Image<Rgba32> RenderItem(string itemName, ItemRenderData itemData, BlockRenderOptions? options = null) {
 		ArgumentNullException.ThrowIfNull(itemData);
 		var baseOptions = options ?? BlockRenderOptions.Default;
 		var effectiveOptions = baseOptions with { ItemData = itemData };
@@ -363,24 +329,21 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		return renderer.RenderGuiItemInternal(itemName, forwardedOptions);
 	}
 
-	public Image<Rgba32> RenderGuiItemFromTextureId(string textureId, BlockRenderOptions? options = null)
-	{
+	public Image<Rgba32> RenderGuiItemFromTextureId(string textureId, BlockRenderOptions? options = null) {
 		ArgumentException.ThrowIfNullOrWhiteSpace(textureId);
 		var effectiveOptions = options ?? BlockRenderOptions.Default;
 		var renderer = ResolveRendererForOptions(effectiveOptions, out var forwardedOptions);
 		return renderer.RenderGuiItemFromTextureIdInternal(textureId, forwardedOptions);
 	}
 
-	public Image<Rgba32> RenderItemFromNbt(NbtDocument document, BlockRenderOptions? options = null)
-	{
+	public Image<Rgba32> RenderItemFromNbt(NbtDocument document, BlockRenderOptions? options = null) {
 		ArgumentNullException.ThrowIfNull(document);
 		var compound = document.RootCompound
 		               ?? throw new ArgumentException("SNBT document must have a compound root.", nameof(document));
 		return RenderItemFromNbt(compound, options);
 	}
 
-	public Image<Rgba32> RenderItemFromNbt(NbtCompound compound, BlockRenderOptions? options = null)
-	{
+	public Image<Rgba32> RenderItemFromNbt(NbtCompound compound, BlockRenderOptions? options = null) {
 		ArgumentNullException.ThrowIfNull(compound);
 		var itemId = SnbtItemUtilities.TryGetItemId(compound)
 		             ?? throw new ArgumentException("SNBT item payload did not contain an item id.", nameof(compound));
@@ -392,16 +355,14 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 			: RenderItem(normalizedItemId, options);
 	}
 
-	public RenderedResource RenderItemFromNbtWithResourceId(NbtDocument document, BlockRenderOptions? options = null)
-	{
+	public RenderedResource RenderItemFromNbtWithResourceId(NbtDocument document, BlockRenderOptions? options = null) {
 		ArgumentNullException.ThrowIfNull(document);
 		var compound = document.RootCompound
 		               ?? throw new ArgumentException("SNBT document must have a compound root.", nameof(document));
 		return RenderItemFromNbtWithResourceId(compound, options);
 	}
 
-	public RenderedResource RenderItemFromNbtWithResourceId(NbtCompound compound, BlockRenderOptions? options = null)
-	{
+	public RenderedResource RenderItemFromNbtWithResourceId(NbtCompound compound, BlockRenderOptions? options = null) {
 		ArgumentNullException.ThrowIfNull(compound);
 		var itemId = SnbtItemUtilities.TryGetItemId(compound)
 		             ?? throw new ArgumentException("SNBT item payload did not contain an item id.", nameof(compound));
@@ -417,8 +378,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 	}
 
 	public AnimatedRenderedResource RenderAnimatedItemFromNbtWithResourceId(NbtDocument document,
-		BlockRenderOptions? options = null)
-	{
+		BlockRenderOptions? options = null) {
 		ArgumentNullException.ThrowIfNull(document);
 		var compound = document.RootCompound
 		               ?? throw new ArgumentException("SNBT document must have a compound root.", nameof(document));
@@ -426,8 +386,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 	}
 
 	public AnimatedRenderedResource RenderAnimatedItemFromNbtWithResourceId(NbtCompound compound,
-		BlockRenderOptions? options = null)
-	{
+		BlockRenderOptions? options = null) {
 		ArgumentNullException.ThrowIfNull(compound);
 		var itemId = SnbtItemUtilities.TryGetItemId(compound)
 		             ?? throw new ArgumentException("SNBT item payload did not contain an item id.", nameof(compound));
@@ -442,16 +401,14 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		return RenderAnimatedGuiItemWithResourceId(normalizedItemId, effectiveOptions);
 	}
 
-	public ResourceIdResult ComputeResourceIdFromNbt(NbtDocument document, BlockRenderOptions? options = null)
-	{
+	public ResourceIdResult ComputeResourceIdFromNbt(NbtDocument document, BlockRenderOptions? options = null) {
 		ArgumentNullException.ThrowIfNull(document);
 		var compound = document.RootCompound
 		               ?? throw new ArgumentException("SNBT document must have a compound root.", nameof(document));
 		return ComputeResourceIdFromNbt(compound, options);
 	}
 
-	public ResourceIdResult ComputeResourceIdFromNbt(NbtCompound compound, BlockRenderOptions? options = null)
-	{
+	public ResourceIdResult ComputeResourceIdFromNbt(NbtCompound compound, BlockRenderOptions? options = null) {
 		ArgumentNullException.ThrowIfNull(compound);
 		var itemId = SnbtItemUtilities.TryGetItemId(compound)
 		             ?? throw new ArgumentException("SNBT item payload did not contain an item id.", nameof(compound));
@@ -466,18 +423,15 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		return ComputeResourceId(normalizedItemId, effectiveOptions);
 	}
 
-	public static ItemRenderData? ExtractItemRenderDataFromNbt(NbtCompound compound)
-	{
+	public static ItemRenderData? ExtractItemRenderDataFromNbt(NbtCompound compound) {
 		ArgumentNullException.ThrowIfNull(compound);
 		return ExtractItemRenderDataFromComponents(compound);
 	}
 
-	private Image<Rgba32> RenderBlockInternal(string blockName, BlockRenderOptions options)
-	{
+	private Image<Rgba32> RenderBlockInternal(string blockName, BlockRenderOptions options) {
 		EnsureNotDisposed();
 		var modelName = blockName;
-		if (_blockRegistry.TryGetModel(blockName, out var mappedModel) && !string.IsNullOrWhiteSpace(mappedModel))
-		{
+		if (_blockRegistry.TryGetModel(blockName, out var mappedModel) && !string.IsNullOrWhiteSpace(mappedModel)) {
 			modelName = mappedModel;
 		}
 
@@ -485,16 +439,14 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		return RenderModel(model, options, blockName);
 	}
 
-	private Image<Rgba32> RenderBlockFaceInternal(string blockName, BlockFaceRenderOptions options)
-	{
+	private Image<Rgba32> RenderBlockFaceInternal(string blockName, BlockFaceRenderOptions options) {
 		EnsureNotDisposed();
 
 		var direction = options.Direction;
 		var size = options.Size;
 
 		var modelName = blockName;
-		if (_blockRegistry.TryGetModel(blockName, out var mappedModel) && !string.IsNullOrWhiteSpace(mappedModel))
-		{
+		if (_blockRegistry.TryGetModel(blockName, out var mappedModel) && !string.IsNullOrWhiteSpace(mappedModel)) {
 			modelName = mappedModel;
 		}
 
@@ -503,85 +455,70 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		string? textureId = null;
 		ModelFace? face = null;
 
-		foreach (var element in model.Elements)
-		{
-			if (element.Faces.TryGetValue(direction, out face))
-			{
+		foreach (var element in model.Elements) {
+			if (element.Faces.TryGetValue(direction, out face)) {
 				textureId = ResolveTexture(face.Texture, model);
 				break;
 			}
 		}
 
-		if (string.IsNullOrWhiteSpace(textureId) || face is null)
-		{
+		if (string.IsNullOrWhiteSpace(textureId) || face is null) {
 			return new Image<Rgba32>(size, size, Color.Transparent);
 		}
 
 		Image<Rgba32> texture;
-		if (face.TintIndex.HasValue)
-		{
+		if (face.TintIndex.HasValue) {
 			var constantTint = TryGetConstantTint(textureId, blockName);
-			if (constantTint.HasValue)
-			{
+			if (constantTint.HasValue) {
 				texture = _textureRepository.GetTintedTexture(textureId, constantTint.Value, ConstantTintStrength);
 			}
-			else if (TryGetBiomeTintKind(textureId, blockName, out var biomeKind))
-			{
+			else if (TryGetBiomeTintKind(textureId, blockName, out var biomeKind)) {
 				texture = GetBiomeTintedTexture(textureId, biomeKind);
 			}
-			else
-			{
+			else {
 				var fallbackTint = GetColorFromBlockName(blockName) ?? GetColorFromBlockName(textureId);
 				texture = fallbackTint.HasValue
 					? _textureRepository.GetTintedTexture(textureId, fallbackTint.Value, 1f, ColorTintBlend)
 					: _textureRepository.GetTexture(textureId);
 			}
 		}
-		else
-		{
+		else {
 			texture = _textureRepository.GetTexture(textureId);
 		}
 
 		var result = texture.Clone();
 
 		var normalizedRotation = ((options.Rotation % 360) + 360) % 360;
-		if (normalizedRotation != 0)
-		{
+		if (normalizedRotation != 0) {
 			result.Mutate(ctx => ctx.Rotate(normalizedRotation));
 		}
 
-		if (result.Width != size || result.Height != size)
-		{
+		if (result.Width != size || result.Height != size) {
 			result.Mutate(ctx => ctx.Resize(size, size, KnownResamplers.NearestNeighbor));
 		}
 
 		return result;
 	}
 
-	public void Dispose()
-	{
+	public void Dispose() {
 		if (_disposed) return;
 		_disposed = true;
 
-		foreach (var renderer in _packRendererCache.Values)
-		{
+		foreach (var renderer in _packRendererCache.Values) {
 			renderer.Dispose();
 		}
 
 		_packRendererCache.Clear();
 		_textureRepository.Dispose();
 
-		foreach (var image in _biomeTintedTextureCache.Values)
-		{
+		foreach (var image in _biomeTintedTextureCache.Values) {
 			image.Dispose();
 		}
 
 		_biomeTintedTextureCache.Clear();
 
-		foreach (var skin in _playerSkinCache.Values)
-		{
-			if (skin.IsValueCreated)
-			{
+		foreach (var skin in _playerSkinCache.Values) {
+			if (skin.IsValueCreated) {
 				skin.Value.Dispose();
 			}
 		}
@@ -589,16 +526,13 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		_playerSkinCache.Clear();
 	}
 
-	private void EnsureNotDisposed()
-	{
-		if (_disposed)
-		{
+	private void EnsureNotDisposed() {
+		if (_disposed) {
 			throw new ObjectDisposedException(nameof(MinecraftBlockRenderer));
 		}
 	}
 
-	private static readonly Dictionary<string, Color> ColorMap = new(StringComparer.OrdinalIgnoreCase)
-	{
+	private static readonly Dictionary<string, Color> ColorMap = new(StringComparer.OrdinalIgnoreCase) {
 		{ "white", new Color(new Rgb24(249, 255, 254)) },
 		{ "orange", new Color(new Rgb24(249, 128, 29)) },
 		{ "magenta", new Color(new Rgb24(199, 78, 189)) },
@@ -633,37 +567,30 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 	}
 
 	private static readonly Dictionary<BiomeTintKind, (float Temperature, float Downfall)> DefaultBiomeTintCoordinates =
-		new()
-		{
+		new() {
 			[BiomeTintKind.Grass] = (0.5f, 1.0f),
 			[BiomeTintKind.Foliage] = (0.5f, 1.0f),
 			[BiomeTintKind.DryFoliage] = (0.5f, 0.25f)
 		};
 
-	private static Color? GetColorFromBlockName(string? blockName)
-	{
-		if (string.IsNullOrWhiteSpace(blockName))
-		{
+	private static Color? GetColorFromBlockName(string? blockName) {
+		if (string.IsNullOrWhiteSpace(blockName)) {
 			return null;
 		}
 
 		var name = NormalizeResourceKey(blockName);
 		if (name.EndsWith("bundle", StringComparison.OrdinalIgnoreCase) ||
-		    name.Contains("_bundle", StringComparison.OrdinalIgnoreCase))
-		{
+		    name.Contains("_bundle", StringComparison.OrdinalIgnoreCase)) {
 			return null;
 		}
 
 		var constantColors = BiomeTints.ConstantColors;
-		if (constantColors.TryGetValue(name, out var constantColor))
-		{
+		if (constantColors.TryGetValue(name, out var constantColor)) {
 			return constantColor;
 		}
 
-		foreach (var (colorName, color) in ColorMap)
-		{
-			if (name.StartsWith(colorName))
-			{
+		foreach (var (colorName, color) in ColorMap) {
+			if (name.StartsWith(colorName)) {
 				return color;
 			}
 		}
@@ -671,11 +598,9 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		return null;
 	}
 
-	private static ItemRenderData? ExtractItemRenderDataFromComponents(NbtCompound root)
-	{
+	private static ItemRenderData? ExtractItemRenderDataFromComponents(NbtCompound root) {
 		var components = ResolveComponentsCompound(root);
-		if (components is null)
-		{
+		if (components is null) {
 			return null;
 		}
 
@@ -686,46 +611,38 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		NbtCompound? profile = null;
 
 		if (components.TryGetValue("minecraft:dyed_color", out var dyedTag) &&
-		    TryExtractColor(dyedTag, out var dyedColor))
-		{
+		    TryExtractColor(dyedTag, out var dyedColor)) {
 			layer0Tint = dyedColor;
 		}
 
 		if (components.TryGetValue("minecraft:custom_data", out var customDataTag) &&
 		    customDataTag is NbtCompound customCompound &&
-		    customCompound.Count > 0)
-		{
+		    customCompound.Count > 0) {
 			customData = customCompound;
 		}
 
 		if (components.TryGetValue("minecraft:profile", out var profileTag) &&
 		    profileTag is NbtCompound profileCompound &&
-		    profileCompound.Count > 0)
-		{
+		    profileCompound.Count > 0) {
 			profile = profileCompound;
 		}
 
 		if (layer0Tint.HasValue || additionalLayerTints is { Count: > 0 } || disableDefaultLayer0Tint ||
-		    customData is not null || profile is not null)
-		{
+		    customData is not null || profile is not null) {
 			return new ItemRenderData(layer0Tint, additionalLayerTints, disableDefaultLayer0Tint, customData, profile);
 		}
 
 		return null;
 	}
 
-	private static NbtCompound? ResolveComponentsCompound(NbtCompound root)
-	{
-		if (root.TryGetValue("components", out var componentsTag) && componentsTag is NbtCompound components)
-		{
+	private static NbtCompound? ResolveComponentsCompound(NbtCompound root) {
+		if (root.TryGetValue("components", out var componentsTag) && componentsTag is NbtCompound components) {
 			return components;
 		}
 
-		if (root.TryGetValue("tag", out var legacyTag) && legacyTag is NbtCompound legacyCompound)
-		{
+		if (root.TryGetValue("tag", out var legacyTag) && legacyTag is NbtCompound legacyCompound) {
 			var nested = ResolveComponentsCompound(legacyCompound);
-			if (nested is not null)
-			{
+			if (nested is not null) {
 				return nested;
 			}
 		}
@@ -733,35 +650,28 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		return null;
 	}
 
-	private static bool TryExtractColor(NbtTag tag, out Color color)
-	{
-		switch (tag)
-		{
+	private static bool TryExtractColor(NbtTag tag, out Color color) {
+		switch (tag) {
 			case NbtInt intTag:
 				color = ColorFromRgb(intTag.Value);
 				return true;
 			case NbtLong longTag:
 				color = ColorFromRgb(unchecked((int)longTag.Value));
 				return true;
-			case NbtCompound compound:
-			{
-				if (compound.TryGetValue("rgb", out var rgbTag) && TryExtractColor(rgbTag, out color))
-				{
+			case NbtCompound compound: {
+				if (compound.TryGetValue("rgb", out var rgbTag) && TryExtractColor(rgbTag, out color)) {
 					return true;
 				}
 
-				if (compound.TryGetValue("value", out var valueTag) && TryExtractColor(valueTag, out color))
-				{
+				if (compound.TryGetValue("value", out var valueTag) && TryExtractColor(valueTag, out color)) {
 					return true;
 				}
 
-				if (compound.TryGetValue("color", out var colorTag) && TryExtractColor(colorTag, out color))
-				{
+				if (compound.TryGetValue("color", out var colorTag) && TryExtractColor(colorTag, out color)) {
 					return true;
 				}
 
-				if (TryExtractChannelColor(compound, out color))
-				{
+				if (TryExtractChannelColor(compound, out color)) {
 					return true;
 				}
 
@@ -773,17 +683,14 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		return false;
 	}
 
-	private static bool TryExtractChannelColor(NbtCompound compound, out Color color)
-	{
+	private static bool TryExtractChannelColor(NbtCompound compound, out Color color) {
 		if (TryGetByte(compound, "red", out var r) && TryGetByte(compound, "green", out var g) &&
-		    TryGetByte(compound, "blue", out var b))
-		{
+		    TryGetByte(compound, "blue", out var b)) {
 			color = new Color(new Rgba32(r, g, b, 255));
 			return true;
 		}
 
-		if (TryGetByte(compound, "r", out r) && TryGetByte(compound, "g", out g) && TryGetByte(compound, "b", out b))
-		{
+		if (TryGetByte(compound, "r", out r) && TryGetByte(compound, "g", out g) && TryGetByte(compound, "b", out b)) {
 			color = new Color(new Rgba32(r, g, b, 255));
 			return true;
 		}
@@ -796,10 +703,8 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 	/// Checks if the given item ID supports the dyed_color component.
 	/// Only certain items like leather armor, shulker boxes, wolf armor, and banners support custom dyeing.
 	/// </summary>
-	private static bool TryGetByte(NbtCompound compound, string key, out byte value)
-	{
-		if (!compound.TryGetValue(key, out var tag))
-		{
+	private static bool TryGetByte(NbtCompound compound, string key, out byte value) {
+		if (!compound.TryGetValue(key, out var tag)) {
 			value = 0;
 			return false;
 		}
@@ -807,10 +712,8 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		return TryGetByte(tag, out value);
 	}
 
-	private static bool TryGetByte(NbtTag tag, out byte value)
-	{
-		switch (tag)
-		{
+	private static bool TryGetByte(NbtTag tag, out byte value) {
+		switch (tag) {
 			case NbtByte b:
 				value = unchecked((byte)b.Value);
 				return true;
@@ -826,8 +729,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		return false;
 	}
 
-	private static Color ColorFromRgb(int rgb)
-	{
+	private static Color ColorFromRgb(int rgb) {
 		var value = unchecked((uint)rgb);
 		var r = (byte)((value >> 16) & 0xFF);
 		var g = (byte)((value >> 8) & 0xFF);
@@ -835,24 +737,20 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		return new Color(new Rgba32(r, g, b, 255));
 	}
 
-	private Image<Rgba32> GetBiomeTintedTexture(string textureId, BiomeTintKind kind)
-	{
+	private Image<Rgba32> GetBiomeTintedTexture(string textureId, BiomeTintKind kind) {
 		var cacheKey = $"{NormalizeResourceKey(textureId)}|{kind}";
-		if (_biomeTintedTextureCache.TryGetValue(cacheKey, out var cached))
-		{
+		if (_biomeTintedTextureCache.TryGetValue(cacheKey, out var cached)) {
 			return cached;
 		}
 
-		var colormap = kind switch
-		{
+		var colormap = kind switch {
 			BiomeTintKind.Grass => _textureRepository.GrassColorMap,
 			BiomeTintKind.Foliage => _textureRepository.FoliageColorMap,
 			BiomeTintKind.DryFoliage => _textureRepository.DryFoliageColorMap,
 			_ => null
 		};
 
-		if (colormap is null)
-		{
+		if (colormap is null) {
 			return _textureRepository.GetTexture(textureId);
 		}
 
@@ -862,10 +760,8 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		return tinted;
 	}
 
-	private static Color SampleBiomeTintColor(Image<Rgba32> colormap, BiomeTintKind kind)
-	{
-		if (!DefaultBiomeTintCoordinates.TryGetValue(kind, out var coordinates))
-		{
+	private static Color SampleBiomeTintColor(Image<Rgba32> colormap, BiomeTintKind kind) {
+		if (!DefaultBiomeTintCoordinates.TryGetValue(kind, out var coordinates)) {
 			coordinates = (0.5f, 1.0f);
 		}
 
@@ -877,85 +773,69 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		return colormap[x, y];
 	}
 
-	private static string NormalizeResourceKey(string? identifier)
-	{
-		if (string.IsNullOrWhiteSpace(identifier))
-		{
+	private static string NormalizeResourceKey(string? identifier) {
+		if (string.IsNullOrWhiteSpace(identifier)) {
 			return string.Empty;
 		}
 
 		var normalized = identifier.Replace('\\', '/').Trim();
-		if (normalized.StartsWith('#'))
-		{
+		if (normalized.StartsWith('#')) {
 			return string.Empty;
 		}
 
 		var stateSeparator = normalized.IndexOf('[');
-		if (stateSeparator >= 0)
-		{
+		if (stateSeparator >= 0) {
 			normalized = normalized[..stateSeparator];
 		}
 
 		var colonIndex = normalized.IndexOf(':');
-		if (colonIndex >= 0)
-		{
+		if (colonIndex >= 0) {
 			normalized = normalized[(colonIndex + 1)..];
 		}
 
 		normalized = normalized.TrimStart('/');
-		if (normalized.StartsWith("textures/", StringComparison.OrdinalIgnoreCase))
-		{
+		if (normalized.StartsWith("textures/", StringComparison.OrdinalIgnoreCase)) {
 			normalized = normalized[9..];
 		}
 
-		if (normalized.StartsWith("models/", StringComparison.OrdinalIgnoreCase))
-		{
+		if (normalized.StartsWith("models/", StringComparison.OrdinalIgnoreCase)) {
 			normalized = normalized[7..];
 		}
 
-		if (normalized.StartsWith("block/", StringComparison.OrdinalIgnoreCase))
-		{
+		if (normalized.StartsWith("block/", StringComparison.OrdinalIgnoreCase)) {
 			normalized = normalized[6..];
 		}
-		else if (normalized.StartsWith("blocks/", StringComparison.OrdinalIgnoreCase))
-		{
+		else if (normalized.StartsWith("blocks/", StringComparison.OrdinalIgnoreCase)) {
 			normalized = normalized[7..];
 		}
-		else if (normalized.StartsWith("item/", StringComparison.OrdinalIgnoreCase))
-		{
+		else if (normalized.StartsWith("item/", StringComparison.OrdinalIgnoreCase)) {
 			normalized = normalized[5..];
 		}
-		else if (normalized.StartsWith("items/", StringComparison.OrdinalIgnoreCase))
-		{
+		else if (normalized.StartsWith("items/", StringComparison.OrdinalIgnoreCase)) {
 			normalized = normalized[6..];
 		}
 
 		normalized = normalized.Trim('/');
 		var slashIndex = normalized.LastIndexOf('/');
-		if (slashIndex >= 0)
-		{
+		if (slashIndex >= 0) {
 			normalized = normalized[(slashIndex + 1)..];
 		}
 
 		return normalized.ToLowerInvariant();
 	}
 
-	private static bool IsLikelyItemTexture(string? identifier)
-	{
-		if (string.IsNullOrWhiteSpace(identifier))
-		{
+	private static bool IsLikelyItemTexture(string? identifier) {
+		if (string.IsNullOrWhiteSpace(identifier)) {
 			return false;
 		}
 
 		var normalized = identifier.Replace('\\', '/');
 		if (normalized.StartsWith("item/", StringComparison.OrdinalIgnoreCase) ||
-		    normalized.StartsWith("items/", StringComparison.OrdinalIgnoreCase))
-		{
+		    normalized.StartsWith("items/", StringComparison.OrdinalIgnoreCase)) {
 			return true;
 		}
 
-		if (normalized.StartsWith("textures/item/", StringComparison.OrdinalIgnoreCase))
-		{
+		if (normalized.StartsWith("textures/item/", StringComparison.OrdinalIgnoreCase)) {
 			return true;
 		}
 
@@ -965,34 +845,29 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		       || normalized.Contains(":items/", StringComparison.OrdinalIgnoreCase);
 	}
 
-	private static bool TryGetBiomeTintKind(string textureId, string? blockName, out BiomeTintKind kind)
-	{
+	private static bool TryGetBiomeTintKind(string textureId, string? blockName, out BiomeTintKind kind) {
 		var config = BiomeTints;
 		var textureKey = NormalizeResourceKey(textureId);
 		var blockKey = NormalizeResourceKey(blockName);
 		var isItemTexture = IsLikelyItemTexture(textureId);
 
 		if (isItemTexture &&
-		    (IsInSet(config.ItemTintExclusions, textureKey) || IsInSet(config.ItemTintExclusions, blockKey)))
-		{
+		    (IsInSet(config.ItemTintExclusions, textureKey) || IsInSet(config.ItemTintExclusions, blockKey))) {
 			kind = default;
 			return false;
 		}
 
-		if (IsDry(config, textureKey) || IsDry(config, blockKey))
-		{
+		if (IsDry(config, textureKey) || IsDry(config, blockKey)) {
 			kind = BiomeTintKind.DryFoliage;
 			return true;
 		}
 
-		if (IsGrass(config, textureKey) || IsGrass(config, blockKey))
-		{
+		if (IsGrass(config, textureKey) || IsGrass(config, blockKey)) {
 			kind = BiomeTintKind.Grass;
 			return true;
 		}
 
-		if (IsFoliage(config, textureKey) || IsFoliage(config, blockKey))
-		{
+		if (IsFoliage(config, textureKey) || IsFoliage(config, blockKey)) {
 			kind = BiomeTintKind.Foliage;
 			return true;
 		}
@@ -1013,39 +888,31 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 			=> IsInSet(config.FoliageTextures, key) || IsInSet(config.FoliageBlocks, key);
 	}
 
-	private static Color? TryGetConstantTint(string textureId, string? blockName)
-	{
+	private static Color? TryGetConstantTint(string textureId, string? blockName) {
 		var textureKey = NormalizeResourceKey(textureId);
 		var constantColors = BiomeTints.ConstantColors;
-		if (constantColors.TryGetValue(textureKey, out var color))
-		{
+		if (constantColors.TryGetValue(textureKey, out var color)) {
 			return color;
 		}
 
 		var blockKey = NormalizeResourceKey(blockName);
-		if (constantColors.TryGetValue(blockKey, out color))
-		{
+		if (constantColors.TryGetValue(blockKey, out color)) {
 			return color;
 		}
 
 		return null;
 	}
 
-	private static Image<Rgba32> ApplyBiomeTint(Image<Rgba32> baseTexture, Color tintColor)
-	{
+	private static Image<Rgba32> ApplyBiomeTint(Image<Rgba32> baseTexture, Color tintColor) {
 		var tinted = baseTexture.Clone();
 		var tintVector = tintColor.ToPixel<Rgba32>().ToVector4();
 
-		tinted.ProcessPixelRows(accessor =>
-		{
-			for (var y = 0; y < accessor.Height; y++)
-			{
+		tinted.ProcessPixelRows(accessor => {
+			for (var y = 0; y < accessor.Height; y++) {
 				var row = accessor.GetRowSpan(y);
-				for (var x = 0; x < row.Length; x++)
-				{
+				for (var x = 0; x < row.Length; x++) {
 					var originalPixel = row[x];
-					if (originalPixel.A == 0)
-					{
+					if (originalPixel.A == 0) {
 						continue;
 					}
 

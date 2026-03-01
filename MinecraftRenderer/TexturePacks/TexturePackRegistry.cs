@@ -15,9 +15,7 @@ public sealed class TexturePackRegistry
 	private readonly ConcurrentDictionary<string, RegisteredResourcePack>
 		_packs = new(StringComparer.OrdinalIgnoreCase);
 
-	private TexturePackRegistry()
-	{
-	}
+	private TexturePackRegistry() { }
 
 	public static TexturePackRegistry Create() => new();
 
@@ -29,39 +27,33 @@ public sealed class TexturePackRegistry
 	/// <param name="Exception">The exception that caused the failure, if any.</param>
 	public sealed record PackRegistrationFailure(string Directory, string Reason, Exception? Exception = null);
 
-	public RegisteredResourcePack RegisterPack(string directory)
-	{
+	public RegisteredResourcePack RegisterPack(string directory) {
 		ArgumentException.ThrowIfNullOrWhiteSpace(directory);
 		var fullPath = Path.GetFullPath(directory);
-		if (!Directory.Exists(fullPath))
-		{
+		if (!Directory.Exists(fullPath)) {
 			throw new DirectoryNotFoundException($"Texture pack directory not found: '{directory}'.");
 		}
 
 		var metaPath = Path.Combine(fullPath, "meta.json");
-		if (!File.Exists(metaPath))
-		{
+		if (!File.Exists(metaPath)) {
 			throw new FileNotFoundException("Texture pack meta.json file not found", metaPath);
 		}
 
 		var metaDescriptor = LoadMeta(metaPath);
-		if (string.IsNullOrWhiteSpace(metaDescriptor.Id))
-		{
+		if (string.IsNullOrWhiteSpace(metaDescriptor.Id)) {
 			throw new InvalidOperationException(
 				$"Texture pack '{directory}' is missing a valid 'id' field in meta.json.");
 		}
 
 		var namespaceRoots = ResolveNamespaceRoots(fullPath);
-		if (!namespaceRoots.TryGetValue("minecraft", out var assetsPath))
-		{
+		if (!namespaceRoots.TryGetValue("minecraft", out var assetsPath)) {
 			throw new DirectoryNotFoundException(
 				$"Texture pack at '{fullPath}' does not contain an 'assets/minecraft' directory.");
 		}
 
 		var packMcMetaPath = Path.Combine(fullPath, "pack.mcmeta");
 		int? packFormat = null;
-		if (File.Exists(packMcMetaPath))
-		{
+		if (File.Exists(packMcMetaPath)) {
 			packFormat = ParsePackFormat(packMcMetaPath);
 		}
 
@@ -77,8 +69,7 @@ public sealed class TexturePackRegistry
 			metaDescriptor.Version ?? "0.0.0",
 			metaDescriptor.Description ?? string.Empty,
 			metaDescriptor.Authors ?? [],
-			metaDescriptor.DownloadUrl)
-		{
+			metaDescriptor.DownloadUrl) {
 			SupportsCit = supportsCit,
 			PackFormat = packFormat
 		};
@@ -97,8 +88,7 @@ public sealed class TexturePackRegistry
 			supportsCit,
 			fingerprint);
 
-		if (!_packs.TryAdd(resourceMeta.Id, registered))
-		{
+		if (!_packs.TryAdd(resourceMeta.Id, registered)) {
 			throw new InvalidOperationException(
 				$"A texture pack with id '{resourceMeta.Id}' has already been registered.");
 		}
@@ -113,29 +103,25 @@ public sealed class TexturePackRegistry
 	/// <param name="pack">When successful, the registered pack; otherwise null.</param>
 	/// <param name="failure">When unsuccessful, details about the failure; otherwise null.</param>
 	/// <returns>True if registration succeeded, false otherwise.</returns>
-	public bool TryRegisterPack(string directory, out RegisteredResourcePack? pack, out PackRegistrationFailure? failure)
-	{
+	public bool TryRegisterPack(string directory, out RegisteredResourcePack? pack,
+		out PackRegistrationFailure? failure) {
 		pack = null;
 		failure = null;
 
-		if (string.IsNullOrWhiteSpace(directory))
-		{
+		if (string.IsNullOrWhiteSpace(directory)) {
 			failure = new PackRegistrationFailure(directory ?? string.Empty, "Directory path is null or empty.");
 			return false;
 		}
 
-		try
-		{
+		try {
 			var fullPath = Path.GetFullPath(directory);
-			if (!Directory.Exists(fullPath))
-			{
+			if (!Directory.Exists(fullPath)) {
 				failure = new PackRegistrationFailure(directory, $"Directory not found: '{fullPath}'.");
 				return false;
 			}
 
 			var metaPath = Path.Combine(fullPath, "meta.json");
-			if (!File.Exists(metaPath))
-			{
+			if (!File.Exists(metaPath)) {
 				failure = new PackRegistrationFailure(directory, "meta.json file not found.");
 				return false;
 			}
@@ -143,8 +129,8 @@ public sealed class TexturePackRegistry
 			pack = RegisterPack(directory);
 			return true;
 		}
-		catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
-		{
+		catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException
+			                           or InvalidOperationException) {
 			failure = new PackRegistrationFailure(directory, ex.Message, ex);
 			return false;
 		}
@@ -172,82 +158,67 @@ public sealed class TexturePackRegistry
 	/// <param name="failures">When the method returns, contains details about any packs that failed to register.</param>
 	/// <returns>A list of packs that were successfully registered.</returns>
 	public IReadOnlyList<RegisteredResourcePack> RegisterAllPacks(string rootDirectory,
-		bool searchRecursively, out IReadOnlyList<PackRegistrationFailure> failures)
-	{
+		bool searchRecursively, out IReadOnlyList<PackRegistrationFailure> failures) {
 		var failureList = new List<PackRegistrationFailure>();
 		failures = failureList;
 
-		if (string.IsNullOrWhiteSpace(rootDirectory))
-		{
+		if (string.IsNullOrWhiteSpace(rootDirectory)) {
 			return [];
 		}
 
 		string fullRoot;
-		try
-		{
+		try {
 			fullRoot = Path.GetFullPath(rootDirectory);
 		}
-		catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
-		{
+		catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException) {
 			failureList.Add(new PackRegistrationFailure(rootDirectory, $"Invalid root path: {ex.Message}", ex));
 			return [];
 		}
 
-		if (!Directory.Exists(fullRoot))
-		{
+		if (!Directory.Exists(fullRoot)) {
 			return [];
 		}
 
 		var results = new List<RegisteredResourcePack>();
 		var searchOption = searchRecursively ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
 
-		if (File.Exists(Path.Combine(fullRoot, "meta.json")))
-		{
-			if (TryRegisterPack(fullRoot, out var rootPack, out var rootFailure))
-			{
+		if (File.Exists(Path.Combine(fullRoot, "meta.json"))) {
+			if (TryRegisterPack(fullRoot, out var rootPack, out var rootFailure)) {
 				results.Add(rootPack!);
 			}
-			else if (rootFailure is not null)
-			{
+			else if (rootFailure is not null) {
 				failureList.Add(rootFailure);
 			}
 		}
 
 		IEnumerable<string> candidates;
-		try
-		{
+		try {
 			candidates = Directory.EnumerateDirectories(fullRoot, "*", searchOption);
 		}
-		catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-		{
-			failureList.Add(new PackRegistrationFailure(fullRoot, $"Unable to enumerate directories: {ex.Message}", ex));
+		catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+			failureList.Add(new PackRegistrationFailure(fullRoot, $"Unable to enumerate directories: {ex.Message}",
+				ex));
 			return results;
 		}
 
-		foreach (var candidate in candidates)
-		{
-			try
-			{
-				if (!File.Exists(Path.Combine(candidate, "meta.json")))
-				{
+		foreach (var candidate in candidates) {
+			try {
+				if (!File.Exists(Path.Combine(candidate, "meta.json"))) {
 					continue;
 				}
 			}
-			catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-			{
-				failureList.Add(new PackRegistrationFailure(candidate, $"Unable to check for meta.json: {ex.Message}", ex));
+			catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+				failureList.Add(new PackRegistrationFailure(candidate, $"Unable to check for meta.json: {ex.Message}",
+					ex));
 				continue;
 			}
 
-			if (TryRegisterPack(candidate, out var pack, out var failure))
-			{
-				if (pack is not null && !results.Contains(pack))
-				{
+			if (TryRegisterPack(candidate, out var pack, out var failure)) {
+				if (pack is not null && !results.Contains(pack)) {
 					results.Add(pack);
 				}
 			}
-			else if (failure is not null)
-			{
+			else if (failure is not null) {
 				failureList.Add(failure);
 			}
 		}
@@ -265,20 +236,16 @@ public sealed class TexturePackRegistry
 	public bool TryGetPack(string id, out RegisteredResourcePack pack)
 		=> _packs.TryGetValue(id, out pack!);
 
-	public TexturePackStack BuildPackStack(IReadOnlyList<string> packIds)
-	{
+	public TexturePackStack BuildPackStack(IReadOnlyList<string> packIds) {
 		ArgumentNullException.ThrowIfNull(packIds);
-		if (packIds.Count == 0)
-		{
+		if (packIds.Count == 0) {
 			return new TexturePackStack(Array.Empty<RegisteredResourcePack>(), Array.Empty<PackOverlayRoot>(),
 				"vanilla");
 		}
 
 		var ordered = new List<RegisteredResourcePack>(packIds.Count);
-		foreach (var packId in packIds)
-		{
-			if (!_packs.TryGetValue(packId, out var pack))
-			{
+		foreach (var packId in packIds) {
+			if (!_packs.TryGetValue(packId, out var pack)) {
 				throw new KeyNotFoundException($"Unknown texture pack id '{packId}'.");
 			}
 
@@ -286,10 +253,8 @@ public sealed class TexturePackRegistry
 		}
 
 		var overlayRoots = new List<PackOverlayRoot>();
-		foreach (var pack in ordered)
-		{
-			foreach (var overlayPath in pack.EnumerateOverlayRootPaths())
-			{
+		foreach (var pack in ordered) {
+			foreach (var overlayPath in pack.EnumerateOverlayRootPaths()) {
 				overlayRoots.Add(new PackOverlayRoot(overlayPath, pack.Id));
 			}
 		}
@@ -300,50 +265,41 @@ public sealed class TexturePackRegistry
 		return new TexturePackStack(ordered, overlayRoots, stackFingerprint);
 	}
 
-	private static MetaDescriptor LoadMeta(string path)
-	{
+	private static MetaDescriptor LoadMeta(string path) {
 		using var stream = File.OpenRead(path);
-		var descriptor = JsonSerializer.Deserialize<MetaDescriptor>(stream, new JsonSerializerOptions
-		{
+		var descriptor = JsonSerializer.Deserialize<MetaDescriptor>(stream, new JsonSerializerOptions {
 			PropertyNameCaseInsensitive = true,
 			ReadCommentHandling = JsonCommentHandling.Skip
 		});
 
-		if (descriptor is null)
-		{
+		if (descriptor is null) {
 			throw new InvalidOperationException($"Failed to parse texture pack metadata from '{path}'.");
 		}
 
 		return descriptor;
 	}
 
-	private static IReadOnlyDictionary<string, string> ResolveNamespaceRoots(string root)
-	{
+	private static IReadOnlyDictionary<string, string> ResolveNamespaceRoots(string root) {
 		var assetsRoot = Path.Combine(root, "assets");
-		if (!Directory.Exists(assetsRoot))
-		{
+		if (!Directory.Exists(assetsRoot)) {
 			throw new DirectoryNotFoundException(
 				$"Texture pack at '{root}' does not contain an 'assets' directory.");
 		}
 
 		var namespaces = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-		foreach (var directory in Directory.EnumerateDirectories(assetsRoot, "*", SearchOption.TopDirectoryOnly))
-		{
+		foreach (var directory in Directory.EnumerateDirectories(assetsRoot, "*", SearchOption.TopDirectoryOnly)) {
 			var name = Path.GetFileName(directory);
-			if (string.IsNullOrWhiteSpace(name))
-			{
+			if (string.IsNullOrWhiteSpace(name)) {
 				continue;
 			}
 
 			var fullPath = Path.GetFullPath(directory);
-			if (!namespaces.ContainsKey(name))
-			{
+			if (!namespaces.ContainsKey(name)) {
 				namespaces.Add(name, fullPath);
 			}
 		}
 
-		if (!namespaces.TryGetValue("minecraft", out var minecraftPath))
-		{
+		if (!namespaces.TryGetValue("minecraft", out var minecraftPath)) {
 			throw new DirectoryNotFoundException(
 				$"Texture pack at '{root}' does not contain an 'assets/minecraft' directory.");
 		}
@@ -352,43 +308,34 @@ public sealed class TexturePackRegistry
 		return namespaces;
 	}
 
-	private static int? ParsePackFormat(string packMcMetaPath)
-	{
-		try
-		{
+	private static int? ParsePackFormat(string packMcMetaPath) {
+		try {
 			using var document = JsonDocument.Parse(File.ReadAllText(packMcMetaPath));
 			if (document.RootElement.TryGetProperty("pack", out var packElement) &&
 			    packElement.TryGetProperty("pack_format", out var formatElement) &&
-			    formatElement.ValueKind == JsonValueKind.Number)
-			{
+			    formatElement.ValueKind == JsonValueKind.Number) {
 				return formatElement.GetInt32();
 			}
 		}
-		catch (JsonException)
-		{
+		catch (JsonException) {
 			// Ignore malformed pack.mcmeta.
 		}
 
 		return null;
 	}
 
-	private static long CalculateDirectorySize(string path)
-	{
-		if (!Directory.Exists(path))
-		{
+	private static long CalculateDirectorySize(string path) {
+		if (!Directory.Exists(path)) {
 			return 0;
 		}
 
 		long total = 0;
-		foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
-		{
-			try
-			{
+		foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories)) {
+			try {
 				var info = new FileInfo(file);
 				total += info.Length;
 			}
-			catch (IOException)
-			{
+			catch (IOException) {
 				// Ignore files that disappear mid-enumeration.
 			}
 		}
@@ -396,8 +343,7 @@ public sealed class TexturePackRegistry
 		return total;
 	}
 
-	private static string ComputeFingerprint(string id, string version, DateTime lastWriteTimeUtc, long sizeBytes)
-	{
+	private static string ComputeFingerprint(string id, string version, DateTime lastWriteTimeUtc, long sizeBytes) {
 		var builder = new StringBuilder();
 		builder.Append(id);
 		builder.Append('|');
@@ -409,8 +355,7 @@ public sealed class TexturePackRegistry
 		return ComputeSha256(builder.ToString());
 	}
 
-	private static string ComputeSha256(string input)
-	{
+	private static string ComputeSha256(string input) {
 		using var sha = SHA256.Create();
 		var bytes = Encoding.UTF8.GetBytes(input);
 		var hash = sha.ComputeHash(bytes);

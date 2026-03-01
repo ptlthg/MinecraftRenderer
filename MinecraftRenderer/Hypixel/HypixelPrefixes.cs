@@ -5,9 +5,9 @@ namespace MinecraftRenderer.Hypixel;
 /// </summary>
 public static class HypixelPrefixes
 {
-    public const string Skyblock = "sb:";
-    public const string LegacySkyblock = "skyblock:";
+	public const string Skyblock = "sb:";
+	public const string LegacySkyblock = "skyblock:";
 
-    public const string Numeric = "mn:";
-    public const string LegacyNumeric = "minecraft.numeric:";
+	public const string Numeric = "mn:";
+	public const string LegacyNumeric = "minecraft.numeric:";
 }

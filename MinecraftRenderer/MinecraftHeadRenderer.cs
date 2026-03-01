@@ -182,7 +182,7 @@ public class MinecraftHeadRenderer
 
 		if (options.EnableAntiAliasing)
 		{
-			AntiAliasingHelper.ApplyFXAA(canvas);
+			AntiAliasingHelper.ApplyFxaa(canvas);
 		}
 
 		return canvas;

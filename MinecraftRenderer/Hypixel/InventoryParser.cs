@@ -15,8 +15,7 @@ public static class InventoryParser
 	/// </summary>
 	/// <param name="base64Data">Base64 string from Hypixel API.</param>
 	/// <returns>List of parsed items.</returns>
-	public static List<HypixelItemData> ParseInventory(string base64Data)
-	{
+	public static List<HypixelItemData> ParseInventory(string base64Data) {
 		var bytes = Convert.FromBase64String(base64Data);
 		using var stream = new MemoryStream(bytes);
 		var doc = NbtParser.ParseBinary(stream);
@@ -29,45 +28,38 @@ public static class InventoryParser
 	/// </summary>
 	/// <param name="root">Root NBT tag (compound or list).</param>
 	/// <returns>List of parsed items.</returns>
-	public static List<HypixelItemData> ParseInventory(NbtTag root)
-	{
+	public static List<HypixelItemData> ParseInventory(NbtTag root) {
 		return ExtractItems(root);
 	}
 
-	private static List<HypixelItemData> ExtractItems(NbtTag root)
-	{
+	private static List<HypixelItemData> ExtractItems(NbtTag root) {
 		var items = new List<HypixelItemData>();
 
 		// Try to find the item list - Hypixel uses various structures
 		NbtList? itemList = null;
 
-		if (root is NbtCompound compound)
-		{
+		if (root is NbtCompound compound) {
 			// Common patterns: nested under "i", "items", "inventory", or "data" key
 			itemList = compound.GetList("i")
 			           ?? compound.GetList("items")
 			           ?? compound.GetList("inventory")
 			           ?? compound.GetList("data");
 		}
-		else if (root is NbtList list)
-		{
+		else if (root is NbtList list) {
 			// Root is already a list
 			itemList = list;
 		}
 
-		if (itemList == null)
-		{
+		if (itemList == null) {
 			return items;
 		}
 
-		foreach (var element in itemList)
-		{
+		foreach (var element in itemList) {
 			if (element is not NbtCompound itemCompound)
 				continue;
 
 			var item = ParseItem(itemCompound);
-			if (item != null)
-			{
+			if (item != null) {
 				items.Add(item);
 			}
 		}
@@ -75,11 +67,9 @@ public static class InventoryParser
 		return items;
 	}
 
-	private static HypixelItemData? ParseItem(NbtCompound itemCompound)
-	{
+	private static HypixelItemData? ParseItem(NbtCompound itemCompound) {
 		// Skip empty slots
-		if (!itemCompound.ContainsKey("id") && !itemCompound.ContainsKey("ID"))
-		{
+		if (!itemCompound.ContainsKey("id") && !itemCompound.ContainsKey("ID")) {
 			return null;
 		}
 
@@ -87,12 +77,10 @@ public static class InventoryParser
 		string? itemIdTag = itemCompound.GetString("id") ?? itemCompound.GetString("ID");
 		short? numericId = null;
 
-		if (itemIdTag == null)
-		{
+		if (itemIdTag == null) {
 			// Try short for 1.8.9 numeric IDs
 			numericId = itemCompound.GetShort("id") ?? itemCompound.GetShort("ID");
-			if (numericId == null)
-			{
+			if (numericId == null) {
 				return null;
 			}
 
@@ -120,26 +108,22 @@ public static class InventoryParser
 		);
 	}
 
-	private static string NormalizeItemId(string rawId, NbtCompound itemCompound)
-	{
+	private static string NormalizeItemId(string rawId, NbtCompound itemCompound) {
 		// If it's already a namespaced ID, use it
-		if (rawId.Contains(':'))
-		{
+		if (rawId.Contains(':')) {
 			return rawId.ToLowerInvariant();
 		}
 
 		// For numeric IDs (1.8.9), we need to map to modern namespaced IDs
 		// This is a complex mapping - for now, treat as a Minecraft numeric ID
 		// The renderer will need to handle this mapping separately
-		if (short.TryParse(rawId, out var numericId))
-		{
+		if (short.TryParse(rawId, out var numericId)) {
 			// Common Skyblock items often have the actual ID in ExtraAttributes
 			var skyblockId = itemCompound.GetCompound("tag")
 				?.GetCompound("ExtraAttributes")
 				?.GetString("id");
 
-			if (!string.IsNullOrEmpty(skyblockId))
-			{
+			if (!string.IsNullOrEmpty(skyblockId)) {
 				// Return the Skyblock ID prefixed for later resolution
 				return $"{HypixelPrefixes.Skyblock}{skyblockId.ToLowerInvariant()}";
 			}

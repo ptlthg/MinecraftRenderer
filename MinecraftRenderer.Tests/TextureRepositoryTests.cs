@@ -227,7 +227,7 @@ public sealed class BillboardOrientationTests
 		var resolver = BlockModelResolver.LoadFromMinecraftAssets(AssetsDirectory);
 		var model = resolver.Resolve("dead_brain_coral_fan");
 
-		var createUvMapMethod = typeof(MinecraftRenderer.Geometry.FaceBakery)
+		var createUvMapMethod = typeof(MinecraftRenderer.Geometry.ModelFaceHelper)
 			                        .GetMethod("CreateUvMap",
 				                        System.Reflection.BindingFlags.Public |
 				                        System.Reflection.BindingFlags.Static)
@@ -289,7 +289,7 @@ public sealed class BillboardOrientationTests
 			                    .GetMethod("ApplyElementRotation",
 				                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
 		                    ?? throw new InvalidOperationException("ApplyElementRotation not found");
-		var faceVertexIndices = FaceBakery.FaceVertexIndices;
+		var faceVertexIndices = ModelFaceHelper.FaceVertexIndices;
 		var upIndices = faceVertexIndices[BlockFaceDirection.Up];
 
 		for (var elementIndex = 0; elementIndex < model.Elements.Count; elementIndex++)
@@ -340,7 +340,7 @@ public sealed class BillboardOrientationTests
 		var resolver = BlockModelResolver.LoadFromMinecraftAssets(AssetsDirectory);
 		var model = resolver.Resolve("tnt");
 
-		var createUvMapMethod = typeof(MinecraftRenderer.Geometry.FaceBakery)
+		var createUvMapMethod = typeof(MinecraftRenderer.Geometry.ModelFaceHelper)
 			                        .GetMethod("CreateUvMap",
 				                        System.Reflection.BindingFlags.Public |
 				                        System.Reflection.BindingFlags.Static)

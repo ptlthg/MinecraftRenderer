@@ -21,8 +21,7 @@ public static class NbtParser
 	/// <param name="stream"></param>
 	/// <param name="detectCompression"></param>
 	/// <returns></returns>
-	public static NbtDocument ParseBinary(Stream stream, bool detectCompression = true)
-	{
+	public static NbtDocument ParseBinary(Stream stream, bool detectCompression = true) {
 		ArgumentNullException.ThrowIfNull(stream);
 		var prepared = PrepareStream(stream, detectCompression);
 		var reader = new NbtBinaryReader(prepared);
@@ -34,8 +33,7 @@ public static class NbtParser
 	/// </summary>
 	/// <param name="data"></param>
 	/// <returns></returns>
-	public static NbtDocument ParseBinary(ReadOnlyMemory<byte> data)
-	{
+	public static NbtDocument ParseBinary(ReadOnlyMemory<byte> data) {
 		using var memory = new MemoryStream(data.ToArray(), writable: false);
 		return ParseBinary(memory, detectCompression: true);
 	}
@@ -45,39 +43,33 @@ public static class NbtParser
 	/// </summary>
 	/// <param name="text"></param>
 	/// <returns></returns>
-	public static NbtDocument ParseSnbt(string text)
-	{
+	public static NbtDocument ParseSnbt(string text) {
 		ArgumentException.ThrowIfNullOrWhiteSpace(text);
 		var parser = new SnbtParser(text);
 		var tag = parser.Parse();
 		return new NbtDocument(tag);
 	}
 
-	private static Stream PrepareStream(Stream stream, bool detectCompression)
-	{
+	private static Stream PrepareStream(Stream stream, bool detectCompression) {
 		var working = stream;
-		if (!stream.CanSeek)
-		{
+		if (!stream.CanSeek) {
 			var buffer = new MemoryStream();
 			stream.CopyTo(buffer);
 			buffer.Position = 0;
 			working = buffer;
 		}
-		else
-		{
+		else {
 			stream.Position = 0;
 		}
 
-		if (!detectCompression)
-		{
+		if (!detectCompression) {
 			return working;
 		}
 
 		Span<byte> header = stackalloc byte[2];
 		var read = working.Read(header);
 		working.Position = 0;
-		if (read == 2 && header[0] == 0x1F && header[1] == 0x8B)
-		{
+		if (read == 2 && header[0] == 0x1F && header[1] == 0x8B) {
 			using var gzip = new GZipStream(working, CompressionMode.Decompress, leaveOpen: true);
 			var decompressed = new MemoryStream();
 			gzip.CopyTo(decompressed);
@@ -92,11 +84,9 @@ public static class NbtParser
 	{
 		private readonly Stream _stream = stream ?? throw new ArgumentNullException(nameof(stream));
 
-		public NbtDocument ReadDocument()
-		{
+		public NbtDocument ReadDocument() {
 			var type = (NbtTagType)ReadByte();
-			if (type == NbtTagType.End)
-			{
+			if (type == NbtTagType.End) {
 				return new NbtDocument(new NbtCompound([]));
 			}
 
@@ -105,10 +95,8 @@ public static class NbtParser
 			return new NbtDocument(root);
 		}
 
-		private NbtTag ReadTagPayload(NbtTagType type)
-		{
-			switch (type)
-			{
+		private NbtTag ReadTagPayload(NbtTagType type) {
+			switch (type) {
 				case NbtTagType.Byte:
 					return new NbtByte((sbyte)_stream.ReadByteChecked());
 				case NbtTagType.Short:
@@ -140,14 +128,11 @@ public static class NbtParser
 			}
 		}
 
-		private NbtCompound ReadCompound()
-		{
+		private NbtCompound ReadCompound() {
 			var items = new List<KeyValuePair<string, NbtTag>>();
-			while (true)
-			{
+			while (true) {
 				var type = (NbtTagType)ReadByte();
-				if (type == NbtTagType.End)
-				{
+				if (type == NbtTagType.End) {
 					break;
 				}
 
@@ -159,29 +144,24 @@ public static class NbtParser
 			return new NbtCompound(items);
 		}
 
-		private NbtList ReadList()
-		{
+		private NbtList ReadList() {
 			var elementType = (NbtTagType)ReadByte();
 			var length = ReadInt32();
-			if (length < 0)
-			{
+			if (length < 0) {
 				throw new InvalidDataException("Encountered negative list length in NBT payload.");
 			}
 
 			var items = new List<NbtTag>(length);
-			for (var i = 0; i < length; i++)
-			{
+			for (var i = 0; i < length; i++) {
 				items.Add(ReadTagPayload(elementType));
 			}
 
 			return new NbtList(elementType, items);
 		}
 
-		private byte[] ReadByteArray()
-		{
+		private byte[] ReadByteArray() {
 			var length = ReadInt32();
-			if (length < 0)
-			{
+			if (length < 0) {
 				throw new InvalidDataException("Encountered negative byte array length in NBT payload.");
 			}
 
@@ -190,34 +170,28 @@ public static class NbtParser
 			return buffer;
 		}
 
-		private int[] ReadIntArray()
-		{
+		private int[] ReadIntArray() {
 			var length = ReadInt32();
-			if (length < 0)
-			{
+			if (length < 0) {
 				throw new InvalidDataException("Encountered negative int array length in NBT payload.");
 			}
 
 			var buffer = new int[length];
-			for (var i = 0; i < length; i++)
-			{
+			for (var i = 0; i < length; i++) {
 				buffer[i] = ReadInt32();
 			}
 
 			return buffer;
 		}
 
-		private long[] ReadLongArray()
-		{
+		private long[] ReadLongArray() {
 			var length = ReadInt32();
-			if (length < 0)
-			{
+			if (length < 0) {
 				throw new InvalidDataException("Encountered negative long array length in NBT payload.");
 			}
 
 			var buffer = new long[length];
-			for (var i = 0; i < length; i++)
-			{
+			for (var i = 0; i < length; i++) {
 				buffer[i] = ReadInt64();
 			}
 
@@ -226,56 +200,47 @@ public static class NbtParser
 
 		private byte ReadByte() => _stream.ReadByteChecked();
 
-		private short ReadInt16()
-		{
+		private short ReadInt16() {
 			Span<byte> buffer = stackalloc byte[2];
 			_stream.ReadExactly(buffer);
 			return BinaryPrimitives.ReadInt16BigEndian(buffer);
 		}
 
-		private int ReadInt32()
-		{
+		private int ReadInt32() {
 			Span<byte> buffer = stackalloc byte[4];
 			_stream.ReadExactly(buffer);
 			return BinaryPrimitives.ReadInt32BigEndian(buffer);
 		}
 
-		private long ReadInt64()
-		{
+		private long ReadInt64() {
 			Span<byte> buffer = stackalloc byte[8];
 			_stream.ReadExactly(buffer);
 			return BinaryPrimitives.ReadInt64BigEndian(buffer);
 		}
 
-		private float ReadSingle()
-		{
+		private float ReadSingle() {
 			Span<byte> buffer = stackalloc byte[4];
 			_stream.ReadExactly(buffer);
-			if (BitConverter.IsLittleEndian)
-			{
+			if (BitConverter.IsLittleEndian) {
 				buffer.Reverse();
 			}
 
 			return BitConverter.ToSingle(buffer);
 		}
 
-		private double ReadDouble()
-		{
+		private double ReadDouble() {
 			Span<byte> buffer = stackalloc byte[8];
 			_stream.ReadExactly(buffer);
-			if (BitConverter.IsLittleEndian)
-			{
+			if (BitConverter.IsLittleEndian) {
 				buffer.Reverse();
 			}
 
 			return BitConverter.ToDouble(buffer);
 		}
 
-		private string ReadString()
-		{
+		private string ReadString() {
 			var length = ReadInt16();
-			if (length <= 0)
-			{
+			if (length <= 0) {
 				return string.Empty;
 			}
 
@@ -290,22 +255,18 @@ public static class NbtParser
 		/// - Null character (U+0000) encoded as 0xC0 0x80
 		/// - Characters above U+FFFF use surrogate pairs
 		/// </summary>
-		private static string DecodeMutf8(byte[] bytes)
-		{
+		private static string DecodeMutf8(byte[] bytes) {
 			var chars = new char[bytes.Length]; // Upper bound
 			var charIndex = 0;
 
-			for (var i = 0; i < bytes.Length; i++)
-			{
+			for (var i = 0; i < bytes.Length; i++) {
 				var b1 = bytes[i];
 
-				if ((b1 & 0x80) == 0)
-				{
+				if ((b1 & 0x80) == 0) {
 					// Single-byte character (0xxxxxxx)
 					chars[charIndex++] = (char)b1;
 				}
-				else if ((b1 & 0xE0) == 0xC0)
-				{
+				else if ((b1 & 0xE0) == 0xC0) {
 					// Two-byte character (110xxxxx 10xxxxxx)
 					if (i + 1 >= bytes.Length)
 						throw new InvalidDataException("Truncated MUTF-8 sequence");
@@ -317,8 +278,7 @@ public static class NbtParser
 					var codePoint = ((b1 & 0x1F) << 6) | (b2 & 0x3F);
 					chars[charIndex++] = (char)codePoint;
 				}
-				else if ((b1 & 0xF0) == 0xE0)
-				{
+				else if ((b1 & 0xF0) == 0xE0) {
 					// Three-byte character (1110xxxx 10xxxxxx 10xxxxxx)
 					if (i + 2 >= bytes.Length)
 						throw new InvalidDataException("Truncated MUTF-8 sequence");
@@ -331,8 +291,7 @@ public static class NbtParser
 					var codePoint = ((b1 & 0x0F) << 12) | ((b2 & 0x3F) << 6) | (b3 & 0x3F);
 					chars[charIndex++] = (char)codePoint;
 				}
-				else
-				{
+				else {
 					// Invalid or unsupported sequence
 					throw new InvalidDataException($"Invalid MUTF-8 byte: 0x{b1:X2}");
 				}
@@ -346,50 +305,41 @@ public static class NbtParser
 	{
 		private int _index;
 
-		public NbtTag Parse()
-		{
+		public NbtTag Parse() {
 			SkipWhitespace();
 			var value = ParseValue();
 			SkipWhitespace();
-			if (!IsAtEnd)
-			{
+			if (!IsAtEnd) {
 				throw new FormatException("Unexpected characters after SNBT payload.");
 			}
 
 			return value;
 		}
 
-		private NbtTag ParseValue()
-		{
-			if (Match('{'))
-			{
+		private NbtTag ParseValue() {
+			if (Match('{')) {
 				return ParseCompound();
 			}
 
-			if (Match('['))
-			{
+			if (Match('[')) {
 				return ParseListOrArray();
 			}
 
-			if (Peek() == '\"' || Peek() == '\'')
-			{
+			if (Peek() == '\"' || Peek() == '\'') {
 				return new NbtString(ParseQuotedString());
 			}
 
 			return ParseScalar();
 		}
 
-		private NbtCompound ParseCompound()
-		{
+		private NbtCompound ParseCompound() {
 			var items = new List<KeyValuePair<string, NbtTag>>();
 			SkipWhitespace();
-			if (Match('}'))
-			{
+			if (Match('}')) {
 				return new NbtCompound(items);
 			}
 
-			while (true)
-			{
+			while (true) {
 				SkipWhitespace();
 				var key = ParseKey();
 				SkipWhitespace();
@@ -398,8 +348,7 @@ public static class NbtParser
 				var value = ParseValue();
 				items.Add(new KeyValuePair<string, NbtTag>(key, value));
 				SkipWhitespace();
-				if (Match('}'))
-				{
+				if (Match('}')) {
 					break;
 				}
 
@@ -409,34 +358,28 @@ public static class NbtParser
 			return new NbtCompound(items);
 		}
 
-		private NbtTag ParseListOrArray()
-		{
+		private NbtTag ParseListOrArray() {
 			SkipWhitespace();
 			if (!IsAtEnd &&
 			    (Peek() == 'B' || Peek() == 'b' || Peek() == 'I' || Peek() == 'i' || Peek() == 'L' || Peek() == 'l') &&
-			    LookAhead(1) == ';')
-			{
+			    LookAhead(1) == ';') {
 				var type = char.ToUpperInvariant(Advance());
 				Expect(';');
 				SkipWhitespace();
-				return type switch
-				{
-					'B' => ParseNumericArray(static tag => tag switch
-					{
+				return type switch {
+					'B' => ParseNumericArray(static tag => tag switch {
 						NbtByte nb => unchecked((byte)nb.Value),
 						NbtInt ni => unchecked((byte)ni.Value),
 						NbtLong nl => unchecked((byte)nl.Value),
 						_ => throw new FormatException("Invalid element type for byte array.")
 					}, values => new NbtByteArray(values.ToArray())),
-					'I' => ParseNumericArray(static tag => tag switch
-					{
+					'I' => ParseNumericArray(static tag => tag switch {
 						NbtInt ni => ni.Value,
 						NbtByte nb => nb.Value,
 						NbtLong nl => checked((int)nl.Value),
 						_ => throw new FormatException("Invalid element type for int array.")
 					}, values => new NbtIntArray(values.ToArray())),
-					'L' => ParseNumericArray(static tag => tag switch
-					{
+					'L' => ParseNumericArray(static tag => tag switch {
 						NbtLong nl => nl.Value,
 						NbtInt ni => ni.Value,
 						NbtByte nb => nb.Value,
@@ -448,24 +391,20 @@ public static class NbtParser
 
 			var items = new List<NbtTag>();
 			SkipWhitespace();
-			if (Match(']'))
-			{
+			if (Match(']')) {
 				return new NbtList(NbtTagType.End, items);
 			}
 
-			while (true)
-			{
+			while (true) {
 				SkipWhitespace();
 				var item = ParseValue();
-				if (items.Count > 0 && item.Type != items[0].Type)
-				{
+				if (items.Count > 0 && item.Type != items[0].Type) {
 					throw new FormatException("SNBT lists must contain elements of the same type.");
 				}
 
 				items.Add(item);
 				SkipWhitespace();
-				if (Match(']'))
-				{
+				if (Match(']')) {
 					break;
 				}
 
@@ -476,23 +415,19 @@ public static class NbtParser
 			return new NbtList(elementType, items);
 		}
 
-		private NbtTag ParseNumericArray<T>(Func<NbtTag, T> converter, Func<List<T>, NbtTag> factory)
-		{
+		private NbtTag ParseNumericArray<T>(Func<NbtTag, T> converter, Func<List<T>, NbtTag> factory) {
 			var values = new List<T>();
 			SkipWhitespace();
-			if (Match(']'))
-			{
+			if (Match(']')) {
 				return factory(values);
 			}
 
-			while (true)
-			{
+			while (true) {
 				SkipWhitespace();
 				var valueTag = ParseScalar();
 				values.Add(converter(valueTag));
 				SkipWhitespace();
-				if (Match(']'))
-				{
+				if (Match(']')) {
 					break;
 				}
 
@@ -502,23 +437,18 @@ public static class NbtParser
 			return factory(values);
 		}
 
-		private string ParseQuotedString()
-		{
+		private string ParseQuotedString() {
 			var quote = Advance();
 			var builder = new StringBuilder();
-			while (!IsAtEnd)
-			{
+			while (!IsAtEnd) {
 				var c = Advance();
-				if (c == quote)
-				{
+				if (c == quote) {
 					break;
 				}
 
-				if (c == '\\' && !IsAtEnd)
-				{
+				if (c == '\\' && !IsAtEnd) {
 					var escape = Advance();
-					builder.Append(escape switch
-					{
+					builder.Append(escape switch {
 						'\"' => '\"',
 						'\'' => '\'',
 						'\\' => '\\',
@@ -537,19 +467,15 @@ public static class NbtParser
 			return builder.ToString();
 		}
 
-		private string ParseKey()
-		{
-			if (Peek() == '\"' || Peek() == '\'')
-			{
+		private string ParseKey() {
+			if (Peek() == '\"' || Peek() == '\'') {
 				return ParseQuotedString();
 			}
 
 			var start = _index;
-			while (!IsAtEnd)
-			{
+			while (!IsAtEnd) {
 				var c = Peek();
-				if (char.IsWhiteSpace(c) || c == ':' || c == '}' || c == ',')
-				{
+				if (char.IsWhiteSpace(c) || c == ':' || c == '}' || c == ',') {
 					break;
 				}
 
@@ -559,36 +485,29 @@ public static class NbtParser
 			return text.Substring(start, _index - start);
 		}
 
-		private NbtTag ParseScalar()
-		{
+		private NbtTag ParseScalar() {
 			var token = ReadToken();
-			if (token.Length == 0)
-			{
+			if (token.Length == 0) {
 				throw new FormatException("Unexpected empty token in SNBT payload.");
 			}
 
-			if (string.Equals(token, "true", StringComparison.OrdinalIgnoreCase))
-			{
+			if (string.Equals(token, "true", StringComparison.OrdinalIgnoreCase)) {
 				return new NbtByte(1);
 			}
 
-			if (string.Equals(token, "false", StringComparison.OrdinalIgnoreCase))
-			{
+			if (string.Equals(token, "false", StringComparison.OrdinalIgnoreCase)) {
 				return new NbtByte(0);
 			}
 
 			var suffix = char.ToLowerInvariant(token[^1]);
 
-			try
-			{
+			try {
 				string numberPart;
-				switch (suffix)
-				{
+				switch (suffix) {
 					case 'b':
 						numberPart = token[..^1];
 						if (sbyte.TryParse(numberPart, NumberStyles.Integer, CultureInfo.InvariantCulture,
-							    out var byteValue))
-						{
+							    out var byteValue)) {
 							return new NbtByte(byteValue);
 						}
 
@@ -596,8 +515,7 @@ public static class NbtParser
 					case 's':
 						numberPart = token[..^1];
 						if (short.TryParse(numberPart, NumberStyles.Integer, CultureInfo.InvariantCulture,
-							    out var shortValue))
-						{
+							    out var shortValue)) {
 							return new NbtShort(shortValue);
 						}
 
@@ -605,8 +523,7 @@ public static class NbtParser
 					case 'l':
 						numberPart = token[..^1];
 						if (long.TryParse(numberPart, NumberStyles.Integer, CultureInfo.InvariantCulture,
-							    out var longValue))
-						{
+							    out var longValue)) {
 							return new NbtLong(longValue);
 						}
 
@@ -614,8 +531,7 @@ public static class NbtParser
 					case 'f':
 						numberPart = token[..^1];
 						if (float.TryParse(numberPart, NumberStyles.Float, CultureInfo.InvariantCulture,
-							    out var floatValue))
-						{
+							    out var floatValue)) {
 							return new NbtFloat(floatValue);
 						}
 
@@ -623,51 +539,43 @@ public static class NbtParser
 					case 'd':
 						numberPart = token[..^1];
 						if (double.TryParse(numberPart, NumberStyles.Float, CultureInfo.InvariantCulture,
-							    out var doubleValue))
-						{
+							    out var doubleValue)) {
 							return new NbtDouble(doubleValue);
 						}
 
 						break;
 				}
 
-				if (suffix is 'b' or 's' or 'l' or 'f' or 'd')
-				{
+				if (suffix is 'b' or 's' or 'l' or 'f' or 'd') {
 					return new NbtString(token);
 				}
 
-				if (token.Contains('.') || token.Contains('e', StringComparison.OrdinalIgnoreCase))
-				{
-					if (double.TryParse(token, NumberStyles.Float, CultureInfo.InvariantCulture, out var doubleDefault))
-					{
+				if (token.Contains('.') || token.Contains('e', StringComparison.OrdinalIgnoreCase)) {
+					if (double.TryParse(token, NumberStyles.Float, CultureInfo.InvariantCulture,
+						    out var doubleDefault)) {
 						return new NbtDouble(doubleDefault);
 					}
 				}
-				else if (int.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var intValue))
-				{
+				else if (int.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var intValue)) {
 					return new NbtInt(intValue);
 				}
-				else if (long.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out var fallbackLong))
-				{
+				else if (long.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture,
+					         out var fallbackLong)) {
 					return new NbtLong(fallbackLong);
 				}
 			}
-			catch (FormatException)
-			{
+			catch (FormatException) {
 				// Fallback to string literal when parsing fails.
 			}
 
 			return new NbtString(token);
 		}
 
-		private string ReadToken()
-		{
+		private string ReadToken() {
 			var start = _index;
-			while (!IsAtEnd)
-			{
+			while (!IsAtEnd) {
 				var c = Peek();
-				if (char.IsWhiteSpace(c) || c == ',' || c == ']' || c == '}' || c == ':')
-				{
+				if (char.IsWhiteSpace(c) || c == ',' || c == ']' || c == '}' || c == ':') {
 					break;
 				}
 
@@ -677,10 +585,8 @@ public static class NbtParser
 			return text.Substring(start, _index - start);
 		}
 
-		private bool Match(char expected)
-		{
-			if (IsAtEnd || Peek() != expected)
-			{
+		private bool Match(char expected) {
+			if (IsAtEnd || Peek() != expected) {
 				return false;
 			}
 
@@ -688,49 +594,39 @@ public static class NbtParser
 			return true;
 		}
 
-		private void Expect(char expected)
-		{
-			if (!Match(expected))
-			{
+		private void Expect(char expected) {
+			if (!Match(expected)) {
 				throw new FormatException($"Expected '{expected}' in SNBT payload.");
 			}
 		}
 
-		private char Peek()
-		{
-			if (IsAtEnd)
-			{
+		private char Peek() {
+			if (IsAtEnd) {
 				return '\0';
 			}
 
 			return text[_index];
 		}
 
-		private char LookAhead(int offset)
-		{
+		private char LookAhead(int offset) {
 			var position = _index + offset;
-			if (position >= text.Length)
-			{
+			if (position >= text.Length) {
 				return '\0';
 			}
 
 			return text[position];
 		}
 
-		private char Advance()
-		{
-			if (IsAtEnd)
-			{
+		private char Advance() {
+			if (IsAtEnd) {
 				return '\0';
 			}
 
 			return text[_index++];
 		}
 
-		private void SkipWhitespace()
-		{
-			while (!IsAtEnd && char.IsWhiteSpace(Peek()))
-			{
+		private void SkipWhitespace() {
+			while (!IsAtEnd && char.IsWhiteSpace(Peek())) {
 				_index++;
 			}
 		}
@@ -741,15 +637,12 @@ public static class NbtParser
 
 internal static class StreamExtensions
 {
-	public static void ReadExactly(this Stream stream, Span<byte> buffer)
-	{
+	public static void ReadExactly(this Stream stream, Span<byte> buffer) {
 		var remaining = buffer.Length;
-		while (remaining > 0)
-		{
+		while (remaining > 0) {
 			var slice = buffer.Slice(buffer.Length - remaining);
 			var read = stream.Read(slice);
-			if (read <= 0)
-			{
+			if (read <= 0) {
 				throw new EndOfStreamException("Unexpected end of stream while reading NBT payload.");
 			}
 
@@ -757,11 +650,9 @@ internal static class StreamExtensions
 		}
 	}
 
-	public static byte ReadByteChecked(this Stream stream)
-	{
+	public static byte ReadByteChecked(this Stream stream) {
 		var value = stream.ReadByte();
-		if (value < 0)
-		{
+		if (value < 0) {
 			throw new EndOfStreamException("Unexpected end of stream while reading NBT payload.");
 		}
 

@@ -159,7 +159,7 @@ public sealed partial class MinecraftBlockRenderer
 
 		if (options.EnableAntiAliasing)
 		{
-			AntiAliasingHelper.ApplyFXAA(canvas);
+			AntiAliasingHelper.ApplyFxaa(canvas);
 		}
 
 		return canvas;

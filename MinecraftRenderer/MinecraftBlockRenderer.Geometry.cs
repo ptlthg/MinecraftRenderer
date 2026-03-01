@@ -5,20 +5,16 @@ using System.Collections.Generic;
 using System.Numerics;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
-
 using MinecraftRenderer.Geometry;
 
 public sealed partial class MinecraftBlockRenderer
 {
-
 	private List<VisibleTriangle> BuildTriangles(BlockModelInstance model, Matrix4x4 transform,
 		bool applyInventoryLighting,
-		string? blockName = null)
-	{
+		string? blockName = null) {
 		var triangles = new List<VisibleTriangle>(model.Elements.Count * 12);
 
-		for (var elementIndex = 0; elementIndex < model.Elements.Count; elementIndex++)
-		{
+		for (var elementIndex = 0; elementIndex < model.Elements.Count; elementIndex++) {
 			var element = model.Elements[elementIndex];
 			var elementTriangles = BuildTrianglesForElement(model, element, transform, elementIndex,
 				applyInventoryLighting, blockName);
@@ -29,46 +25,39 @@ public sealed partial class MinecraftBlockRenderer
 	}
 
 	private List<VisibleTriangle> BuildTrianglesForElement(BlockModelInstance model, ModelElement element,
-		Matrix4x4 transform, int elementIndex, bool applyInventoryLighting, string? blockName)
-	{
+		Matrix4x4 transform, int elementIndex, bool applyInventoryLighting, string? blockName) {
 		var vertices = BuildElementVertices(element);
 		ApplyElementRotation(element, vertices);
 		var results = new List<VisibleTriangle>(element.Faces.Count * 2);
 
-		foreach (var (direction, face) in element.Faces)
-		{
+		foreach (var (direction, face) in element.Faces) {
 			var textureId = ResolveTexture(face.Texture, model);
 			Image<Rgba32> texture;
 
 			var renderPriority = face.TintIndex.HasValue ? 1 : 0;
 
-			if (face.TintIndex.HasValue)
-			{
+			if (face.TintIndex.HasValue) {
 				var constantTint = TryGetConstantTint(textureId, blockName);
-				if (constantTint.HasValue)
-				{
+				if (constantTint.HasValue) {
 					texture = _textureRepository.GetTintedTexture(textureId, constantTint.Value, ConstantTintStrength);
 				}
-				else if (TryGetBiomeTintKind(textureId, blockName, out var biomeKind))
-				{
+				else if (TryGetBiomeTintKind(textureId, blockName, out var biomeKind)) {
 					texture = GetBiomeTintedTexture(textureId, biomeKind);
 				}
-				else
-				{
+				else {
 					var fallbackTint = GetColorFromBlockName(blockName) ?? GetColorFromBlockName(textureId);
 					texture = fallbackTint.HasValue
 						? _textureRepository.GetTintedTexture(textureId, fallbackTint.Value, 1f, ColorTintBlend)
 						: _textureRepository.GetTexture(textureId);
 				}
 			}
-			else
-			{
+			else {
 				texture = _textureRepository.GetTexture(textureId);
 			}
 
 			var faceUv = GetFaceUv(face, direction, element);
 
-			var uvMap = FaceBakery.CreateUvMap(faceUv, face.Rotation ?? 0);
+			var uvMap = ModelFaceHelper.CreateUvMap(faceUv, face.Rotation ?? 0);
 			var textureRect = ComputeTextureRectangle(uvMap, texture);
 
 			// The rasterizer expects UV coordinates in [0,1] relative to textureRect,
@@ -78,24 +67,21 @@ public sealed partial class MinecraftBlockRenderer
 			var rectRangeU = (float)textureRect.Width / texture.Width;
 			var rectMinV = (float)textureRect.Y / texture.Height;
 			var rectRangeV = (float)textureRect.Height / texture.Height;
-			for (var i = 0; i < 4; i++)
-			{
+			for (var i = 0; i < 4; i++) {
 				uvMap[i] = new Vector2(
 					rectRangeU > 1e-6f ? (uvMap[i].X - rectMinU) / rectRangeU : 0f,
 					rectRangeV > 1e-6f ? (uvMap[i].Y - rectMinV) / rectRangeV : 0f
 				);
 			}
 
-			var indices = FaceBakery.FaceVertexIndices[direction];
+			var indices = ModelFaceHelper.FaceVertexIndices[direction];
 			var localFace = new Vector3[4];
-			for (var i = 0; i < 4; i++)
-			{
+			for (var i = 0; i < 4; i++) {
 				localFace[i] = vertices[indices[i]];
 			}
 
 			var transformed = new Vector3[4];
-			for (var i = 0; i < 4; i++)
-			{
+			for (var i = 0; i < 4; i++) {
 				transformed[i] = Vector3.Transform(localFace[i], transform);
 			}
 
@@ -139,8 +125,7 @@ public sealed partial class MinecraftBlockRenderer
 		return results;
 	}
 
-	private static Vector3[] BuildElementVertices(ModelElement element)
-	{
+	private static Vector3[] BuildElementVertices(ModelElement element) {
 		var min = element.From;
 		var max = element.To;
 
@@ -151,8 +136,7 @@ public sealed partial class MinecraftBlockRenderer
 		var ty = NormalizeComponent(max.Y);
 		var tz = NormalizeComponent(max.Z);
 
-		return
-		[
+		return [
 			new Vector3(fx, fy, fz),
 			new Vector3(tx, fy, fz),
 			new Vector3(tx, ty, fz),
@@ -166,15 +150,12 @@ public sealed partial class MinecraftBlockRenderer
 
 	private static float NormalizeComponent(float value) => value / 16f - 0.5f;
 
-	private static void ApplyElementRotation(ModelElement element, Vector3[] vertices)
-	{
-		if (element.Rotation is null)
-		{
+	private static void ApplyElementRotation(ModelElement element, Vector3[] vertices) {
+		if (element.Rotation is null) {
 			return;
 		}
 
-		var axis = element.Rotation.Axis switch
-		{
+		var axis = element.Rotation.Axis switch {
 			"x" => Vector3.UnitX,
 			"z" => Vector3.UnitZ,
 			_ => Vector3.UnitY
@@ -204,28 +185,24 @@ public sealed partial class MinecraftBlockRenderer
 		// }
 
 
-		for (var i = 0; i < vertices.Length; i++)
-		{
+		for (var i = 0; i < vertices.Length; i++) {
 			var relative = vertices[i] - pivot;
 			relative = Vector3.Transform(relative, rotationMatrix);
 			vertices[i] = relative + pivot;
 		}
 	}
 
-	private static Vector4 GetFaceUv(ModelFace face, BlockFaceDirection direction, ModelElement element)
-	{
-		if (face.Uv.HasValue)
-		{
+	private static Vector4 GetFaceUv(ModelFace face, BlockFaceDirection direction, ModelElement element) {
+		if (face.Uv.HasValue) {
 			// Pass through raw JSON UV values. Minecraft does NOT sort to min/max —
 			// the order matters for UV mirroring (when u1 > u2), same for v.
 			return face.Uv.Value;
 		}
 
-		return FaceBakery.DefaultFaceUv(element.From, element.To, direction);
+		return ModelFaceHelper.DefaultFaceUv(element.From, element.To, direction);
 	}
 
-	private static Rectangle ComputeTextureRectangle(Vector2[] uvMap, Image<Rgba32> texture)
-	{
+	private static Rectangle ComputeTextureRectangle(Vector2[] uvMap, Image<Rgba32> texture) {
 		var widthFactor = texture.Width;
 		var heightFactor = texture.Height;
 
@@ -247,5 +224,4 @@ public sealed partial class MinecraftBlockRenderer
 
 		return new Rectangle(minX, minY, maxX - minX, maxY - minY);
 	}
-
 }

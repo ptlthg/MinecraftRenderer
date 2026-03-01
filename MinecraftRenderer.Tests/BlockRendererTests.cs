@@ -979,7 +979,7 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 	[Fact]
 	public void CubeFaceUvsAreOrientedCorrectly()
 	{
-		var createUvMap = typeof(MinecraftRenderer.Geometry.FaceBakery)
+		var createUvMap = typeof(MinecraftRenderer.Geometry.ModelFaceHelper)
 			                  .GetMethod("CreateUvMap", BindingFlags.Public | BindingFlags.Static)
 		                  ?? throw new InvalidOperationException("CreateUvMap method not found");
 
@@ -992,7 +992,7 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 
 		foreach (BlockFaceDirection dir in Enum.GetValues<BlockFaceDirection>())
 		{
-			var uv = MinecraftRenderer.Geometry.FaceBakery.DefaultFaceUv(element.From, element.To, dir);
+			var uv = MinecraftRenderer.Geometry.ModelFaceHelper.DefaultFaceUv(element.From, element.To, dir);
 			var map = Map(dir, uv);
 
 			Assert.True(map[0].X < map[2].X, $"{dir}: UV0 (minU) should have smaller U than UV2 (maxU).");

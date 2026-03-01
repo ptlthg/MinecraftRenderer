@@ -13,10 +13,8 @@ public static class NbtExtensions
 	/// <param name="compound"></param>
 	/// <param name="key"></param>
 	/// <returns></returns>
-	public static string? GetString(this NbtCompound compound, string key)
-	{
-		if (compound.TryGetValue(key, out var tag) && tag is NbtString str)
-		{
+	public static string? GetString(this NbtCompound compound, string key) {
+		if (compound.TryGetValue(key, out var tag) && tag is NbtString str) {
 			return str.Value;
 		}
 
@@ -29,10 +27,8 @@ public static class NbtExtensions
 	/// <param name="compound"></param>
 	/// <param name="key"></param>
 	/// <returns></returns>
-	public static byte? GetByte(this NbtCompound compound, string key)
-	{
-		if (compound.TryGetValue(key, out var tag) && tag is NbtByte b)
-		{
+	public static byte? GetByte(this NbtCompound compound, string key) {
+		if (compound.TryGetValue(key, out var tag) && tag is NbtByte b) {
 			return (byte)b.Value;
 		}
 
@@ -45,10 +41,8 @@ public static class NbtExtensions
 	/// <param name="compound"></param>
 	/// <param name="key"></param>
 	/// <returns></returns>
-	public static short? GetShort(this NbtCompound compound, string key)
-	{
-		if (compound.TryGetValue(key, out var tag) && tag is NbtShort s)
-		{
+	public static short? GetShort(this NbtCompound compound, string key) {
+		if (compound.TryGetValue(key, out var tag) && tag is NbtShort s) {
 			return s.Value;
 		}
 
@@ -61,10 +55,8 @@ public static class NbtExtensions
 	/// <param name="compound"></param>
 	/// <param name="key"></param>
 	/// <returns></returns>
-	public static int? GetInt(this NbtCompound compound, string key)
-	{
-		if (compound.TryGetValue(key, out var tag) && tag is NbtInt i)
-		{
+	public static int? GetInt(this NbtCompound compound, string key) {
+		if (compound.TryGetValue(key, out var tag) && tag is NbtInt i) {
 			return i.Value;
 		}
 
@@ -77,10 +69,8 @@ public static class NbtExtensions
 	/// <param name="compound"></param>
 	/// <param name="key"></param>
 	/// <returns></returns>
-	public static long? GetLong(this NbtCompound compound, string key)
-	{
-		if (compound.TryGetValue(key, out var tag) && tag is NbtLong l)
-		{
+	public static long? GetLong(this NbtCompound compound, string key) {
+		if (compound.TryGetValue(key, out var tag) && tag is NbtLong l) {
 			return l.Value;
 		}
 
@@ -93,10 +83,8 @@ public static class NbtExtensions
 	/// <param name="compound"></param>
 	/// <param name="key"></param>
 	/// <returns></returns>
-	public static float? GetFloat(this NbtCompound compound, string key)
-	{
-		if (compound.TryGetValue(key, out var tag) && tag is NbtFloat f)
-		{
+	public static float? GetFloat(this NbtCompound compound, string key) {
+		if (compound.TryGetValue(key, out var tag) && tag is NbtFloat f) {
 			return f.Value;
 		}
 
@@ -109,10 +97,8 @@ public static class NbtExtensions
 	/// <param name="compound"></param>
 	/// <param name="key"></param>
 	/// <returns></returns>
-	public static double? GetDouble(this NbtCompound compound, string key)
-	{
-		if (compound.TryGetValue(key, out var tag) && tag is NbtDouble d)
-		{
+	public static double? GetDouble(this NbtCompound compound, string key) {
+		if (compound.TryGetValue(key, out var tag) && tag is NbtDouble d) {
 			return d.Value;
 		}
 
@@ -125,10 +111,8 @@ public static class NbtExtensions
 	/// <param name="compound"></param>
 	/// <param name="key"></param>
 	/// <returns></returns>
-	public static NbtCompound? GetCompound(this NbtCompound compound, string key)
-	{
-		if (compound.TryGetValue(key, out var tag) && tag is NbtCompound c)
-		{
+	public static NbtCompound? GetCompound(this NbtCompound compound, string key) {
+		if (compound.TryGetValue(key, out var tag) && tag is NbtCompound c) {
 			return c;
 		}
 
@@ -141,10 +125,8 @@ public static class NbtExtensions
 	/// <param name="compound"></param>
 	/// <param name="key"></param>
 	/// <returns></returns>
-	public static NbtList? GetList(this NbtCompound compound, string key)
-	{
-		if (compound.TryGetValue(key, out var tag) && tag is NbtList list)
-		{
+	public static NbtList? GetList(this NbtCompound compound, string key) {
+		if (compound.TryGetValue(key, out var tag) && tag is NbtList list) {
 			return list;
 		}
 
@@ -157,10 +139,8 @@ public static class NbtExtensions
 	/// <param name="compound"></param>
 	/// <param name="key"></param>
 	/// <returns></returns>
-	public static byte[]? GetByteArray(this NbtCompound compound, string key)
-	{
-		if (compound.TryGetValue(key, out var tag) && tag is NbtByteArray arr)
-		{
+	public static byte[]? GetByteArray(this NbtCompound compound, string key) {
+		if (compound.TryGetValue(key, out var tag) && tag is NbtByteArray arr) {
 			return arr.Values;
 		}
 
@@ -173,10 +153,8 @@ public static class NbtExtensions
 	/// <param name="compound"></param>
 	/// <param name="key"></param>
 	/// <returns></returns>
-	public static int[]? GetIntArray(this NbtCompound compound, string key)
-	{
-		if (compound.TryGetValue(key, out var tag) && tag is NbtIntArray arr)
-		{
+	public static int[]? GetIntArray(this NbtCompound compound, string key) {
+		if (compound.TryGetValue(key, out var tag) && tag is NbtIntArray arr) {
 			return arr.Values;
 		}
 
@@ -189,16 +167,14 @@ public static class NbtExtensions
 	/// <param name="compound"></param>
 	/// <param name="key"></param>
 	/// <returns></returns>
-	public static long[]? GetLongArray(this NbtCompound compound, string key)
-	{
-		if (compound.TryGetValue(key, out var tag) && tag is NbtLongArray arr)
-		{
+	public static long[]? GetLongArray(this NbtCompound compound, string key) {
+		if (compound.TryGetValue(key, out var tag) && tag is NbtLongArray arr) {
 			return arr.Values;
 		}
 
 		return null;
 	}
-	
+
 	/// <summary>
 	/// Create a new NbtCompound with a profile component added.
 	/// This creates the minecraft:profile component structure expected by the skull rendering pipeline.
@@ -218,20 +194,18 @@ public static class NbtExtensions
 	/// var withProfile = root.WithProfileComponent("ewogICJ0aW1lc3RhbXAiIDogMTYzMzQ2NzI4MiwKICAicHJvZmlsZUlkIiA6ICI0MTNkMTdkMzMyODQ0OTYwYTExNWU2ZjYzNmE0ZDcyYyIsCiAgInByb2ZpbGVOYW1lIiA6ICJNaW5lY3JhZnRTa2luIiwKICAidGV4dHVyZXMiIDogewogICAgIlNLSU4iIDogewogICAgICAidXJsIiA6ICJodHRwOi8vdGV4dHVyZXMubWluZWNyYWZ0Lm5ldC90ZXh0dXJlLzE0ZjZhYjdkMWQyOGJkZTY1OTZiZjdkNGU5ZjlmMGI0ZjFlNWY5MTdkNTI1MjQ0ODJlZWM4ODFlYWM4YTZjNTEiCiAgICB9CiAgfQp9");
 	/// </code>
 	/// </example>
-	public static NbtCompound WithProfileComponent(this NbtCompound compound, string profileValue, string? signature = null)
-	{
+	public static NbtCompound WithProfileComponent(this NbtCompound compound, string profileValue,
+		string? signature = null) {
 		ArgumentNullException.ThrowIfNull(compound);
 		ArgumentException.ThrowIfNullOrWhiteSpace(profileValue);
 
 		// Build the property compound
-		var propertyEntries = new List<KeyValuePair<string, NbtTag>>
-		{
+		var propertyEntries = new List<KeyValuePair<string, NbtTag>> {
 			new("name", new NbtString("textures")),
 			new("value", new NbtString(profileValue))
 		};
 
-		if (!string.IsNullOrWhiteSpace(signature))
-		{
+		if (!string.IsNullOrWhiteSpace(signature)) {
 			propertyEntries.Add(new KeyValuePair<string, NbtTag>("signature", new NbtString(signature)));
 		}
 
@@ -249,16 +223,15 @@ public static class NbtExtensions
 		NbtCompound components;
 		IEnumerable<KeyValuePair<string, NbtTag>> otherRootEntries;
 
-		if (compound.TryGetValue("components", out var componentsTag) && componentsTag is NbtCompound existingComponents)
-		{
+		if (compound.TryGetValue("components", out var componentsTag) &&
+		    componentsTag is NbtCompound existingComponents) {
 			// Components exist, add profile to them
 			components = new NbtCompound(existingComponents.Concat([
 				new KeyValuePair<string, NbtTag>("minecraft:profile", profileCompound)
 			]));
 			otherRootEntries = compound.Where(kvp => kvp.Key != "components");
 		}
-		else
-		{
+		else {
 			// No components, create new one with just the profile
 			components = new NbtCompound([
 				new KeyValuePair<string, NbtTag>("minecraft:profile", profileCompound)

@@ -26,8 +26,7 @@ public sealed partial class MinecraftBlockRenderer
 
 	public sealed class RenderedResource : IDisposable
 	{
-		public RenderedResource(Image<Rgba32> image, ResourceIdResult resourceId)
-		{
+		public RenderedResource(Image<Rgba32> image, ResourceIdResult resourceId) {
 			Image = image ?? throw new ArgumentNullException(nameof(image));
 			ResourceId = resourceId ?? throw new ArgumentNullException(nameof(resourceId));
 		}
@@ -35,8 +34,7 @@ public sealed partial class MinecraftBlockRenderer
 		public Image<Rgba32> Image { get; }
 		public ResourceIdResult ResourceId { get; }
 
-		public void Dispose()
-		{
+		public void Dispose() {
 			Image.Dispose();
 		}
 	}
@@ -45,8 +43,7 @@ public sealed partial class MinecraftBlockRenderer
 	{
 		public sealed class AnimationFrame : IDisposable
 		{
-			internal AnimationFrame(Image<Rgba32> image, int durationMs)
-			{
+			internal AnimationFrame(Image<Rgba32> image, int durationMs) {
 				Image = image ?? throw new ArgumentNullException(nameof(image));
 				DurationMs = durationMs;
 			}
@@ -54,18 +51,15 @@ public sealed partial class MinecraftBlockRenderer
 			public Image<Rgba32> Image { get; }
 			public int DurationMs { get; }
 
-			public void Dispose()
-			{
+			public void Dispose() {
 				Image.Dispose();
 			}
 		}
 
-		public AnimatedRenderedResource(ResourceIdResult resourceId, IReadOnlyList<AnimationFrame> frames)
-		{
+		public AnimatedRenderedResource(ResourceIdResult resourceId, IReadOnlyList<AnimationFrame> frames) {
 			ResourceId = resourceId ?? throw new ArgumentNullException(nameof(resourceId));
 			Frames = frames ?? throw new ArgumentNullException(nameof(frames));
-			if (Frames.Count == 0)
-			{
+			if (Frames.Count == 0) {
 				throw new ArgumentException("At least one animation frame is required.", nameof(frames));
 			}
 		}
@@ -73,8 +67,7 @@ public sealed partial class MinecraftBlockRenderer
 		public ResourceIdResult ResourceId { get; }
 		public IReadOnlyList<AnimationFrame> Frames { get; }
 
-		public void SaveAsGif(string path)
-		{
+		public void SaveAsGif(string path) {
 			ArgumentException.ThrowIfNullOrWhiteSpace(path);
 			using var image = CloneAsAnimatedImage(ApplyGifMetadata);
 			var metadata = image.Metadata.GetGifMetadata();
@@ -82,18 +75,17 @@ public sealed partial class MinecraftBlockRenderer
 			image.Save(path, new GifEncoder());
 		}
 
-		public async Task SaveAsGifAsync(string path, CancellationToken cancellationToken = default)
-		{
+		public async Task SaveAsGifAsync(string path, CancellationToken cancellationToken = default) {
 			ArgumentException.ThrowIfNullOrWhiteSpace(path);
 			using var image = CloneAsAnimatedImage(ApplyGifMetadata);
 			var metadata = image.Metadata.GetGifMetadata();
 			metadata.RepeatCount = 0;
-			await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true);
+			await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 4096,
+				useAsync: true);
 			await image.SaveAsync(stream, new GifEncoder(), cancellationToken).ConfigureAwait(false);
 		}
 
-		public void SaveAsAnimatedPng(string path)
-		{
+		public void SaveAsAnimatedPng(string path) {
 			ArgumentException.ThrowIfNullOrWhiteSpace(path);
 			using var image = CloneAsAnimatedImage(ApplyPngMetadata);
 			var metadata = image.Metadata.GetPngMetadata();
@@ -102,25 +94,23 @@ public sealed partial class MinecraftBlockRenderer
 			image.Save(path, new PngEncoder());
 		}
 
-		public async Task SaveAsAnimatedPngAsync(string path, CancellationToken cancellationToken = default)
-		{
+		public async Task SaveAsAnimatedPngAsync(string path, CancellationToken cancellationToken = default) {
 			ArgumentException.ThrowIfNullOrWhiteSpace(path);
 			using var image = CloneAsAnimatedImage(ApplyPngMetadata);
 			var metadata = image.Metadata.GetPngMetadata();
 			metadata.AnimateRootFrame = true;
 			metadata.RepeatCount = 0;
-			await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true);
+			await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 4096,
+				useAsync: true);
 			await image.SaveAsync(stream, new PngEncoder(), cancellationToken).ConfigureAwait(false);
 		}
 
-		public void SaveAsWebp(string path)
-		{
+		public void SaveAsWebp(string path) {
 			ArgumentException.ThrowIfNullOrWhiteSpace(path);
 			using var image = CloneAsAnimatedImage(ApplyWebpMetadata);
 			var metadata = image.Metadata.GetWebpMetadata();
 			metadata.RepeatCount = 0;
-			var encoder = new WebpEncoder
-			{
+			var encoder = new WebpEncoder {
 				FileFormat = WebpFileFormatType.Lossless,
 				Quality = 100,
 				Method = WebpEncodingMethod.BestQuality,
@@ -129,36 +119,33 @@ public sealed partial class MinecraftBlockRenderer
 			image.Save(path, encoder);
 		}
 
-		public async Task SaveAsWebpAsync(string path, CancellationToken cancellationToken = default)
-		{
+		public async Task SaveAsWebpAsync(string path, CancellationToken cancellationToken = default) {
 			ArgumentException.ThrowIfNullOrWhiteSpace(path);
 			using var image = CloneAsAnimatedImage(ApplyWebpMetadata);
 			var metadata = image.Metadata.GetWebpMetadata();
 			metadata.RepeatCount = 0;
-			var encoder = new WebpEncoder
-			{
+			var encoder = new WebpEncoder {
 				FileFormat = WebpFileFormatType.Lossless,
 				Quality = 100,
 				Method = WebpEncodingMethod.BestQuality,
 				TransparentColorMode = WebpTransparentColorMode.Preserve
 			};
-			await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true);
+			await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 4096,
+				useAsync: true);
 			await image.SaveAsync(stream, encoder, cancellationToken).ConfigureAwait(false);
 		}
 
 		public Image<Rgba32> CloneAsAnimatedImage()
 			=> CloneAsAnimatedImage(null);
 
-		public Image<Rgba32> CloneAsAnimatedImage(Action<ImageFrame<Rgba32>, AnimationFrame>? configureFrame)
-		{
+		public Image<Rgba32> CloneAsAnimatedImage(Action<ImageFrame<Rgba32>, AnimationFrame>? configureFrame) {
 			var baseImage = Frames[0].Image.Clone();
 			ApplyDefaultImageMetadata(baseImage);
 
 			ApplyDefaultFrameMetadata(baseImage.Frames.RootFrame, Frames[0]);
 			configureFrame?.Invoke(baseImage.Frames.RootFrame, Frames[0]);
 
-			for (var i = 1; i < Frames.Count; i++)
-			{
+			for (var i = 1; i < Frames.Count; i++) {
 				var clone = Frames[i].Image.Clone();
 				baseImage.Frames.AddFrame(clone.Frames.RootFrame);
 				clone.Dispose();
@@ -170,8 +157,7 @@ public sealed partial class MinecraftBlockRenderer
 			return baseImage;
 		}
 
-		private static void ApplyDefaultImageMetadata(Image<Rgba32> image)
-		{
+		private static void ApplyDefaultImageMetadata(Image<Rgba32> image) {
 			var gifMetadata = image.Metadata.GetGifMetadata();
 			gifMetadata.RepeatCount = 0;
 
@@ -183,8 +169,7 @@ public sealed partial class MinecraftBlockRenderer
 			webpMetadata.RepeatCount = 0;
 		}
 
-		private static void ApplyDefaultFrameMetadata(ImageFrame<Rgba32> frame, AnimationFrame source)
-		{
+		private static void ApplyDefaultFrameMetadata(ImageFrame<Rgba32> frame, AnimationFrame source) {
 			var frameDelayTicks = Math.Max(1, (int)Math.Round(source.DurationMs / 10f));
 			var gifMetadata = frame.Metadata.GetGifMetadata();
 			gifMetadata.DisposalMethod = GifDisposalMethod.RestoreToBackground;
@@ -199,31 +184,26 @@ public sealed partial class MinecraftBlockRenderer
 			webpMetadata.FrameDelay = (uint)Math.Max(1, source.DurationMs);
 		}
 
-		private static void ApplyGifMetadata(ImageFrame<Rgba32> frame, AnimationFrame source)
-		{
+		private static void ApplyGifMetadata(ImageFrame<Rgba32> frame, AnimationFrame source) {
 			var gifMetadata = frame.Metadata.GetGifMetadata();
 			gifMetadata.DisposalMethod = GifDisposalMethod.RestoreToBackground;
 			gifMetadata.FrameDelay = Math.Max(1, (int)Math.Round(source.DurationMs / 10f));
 		}
 
-		private static void ApplyPngMetadata(ImageFrame<Rgba32> frame, AnimationFrame source)
-		{
+		private static void ApplyPngMetadata(ImageFrame<Rgba32> frame, AnimationFrame source) {
 			var pngMetadata = frame.Metadata.GetPngMetadata();
 			pngMetadata.DisposalMethod = PngDisposalMethod.RestoreToBackground;
 			pngMetadata.FrameDelay = Rational.FromDouble(Math.Max(1, (int)Math.Round(source.DurationMs / 10f)));
 		}
 
-		private static void ApplyWebpMetadata(ImageFrame<Rgba32> frame, AnimationFrame source)
-		{
+		private static void ApplyWebpMetadata(ImageFrame<Rgba32> frame, AnimationFrame source) {
 			var webpMetadata = frame.Metadata.GetWebpMetadata();
 			webpMetadata.DisposalMethod = WebpDisposalMethod.RestoreToBackground;
-			webpMetadata.FrameDelay = (uint) Math.Max(1, source.DurationMs);
+			webpMetadata.FrameDelay = (uint)Math.Max(1, source.DurationMs);
 		}
 
-		public void Dispose()
-		{
-			foreach (var frame in Frames)
-			{
+		public void Dispose() {
+			foreach (var frame in Frames) {
 				frame.Dispose();
 			}
 		}
@@ -235,16 +215,13 @@ public sealed partial class MinecraftBlockRenderer
 		typeof(MinecraftBlockRenderer).Assembly.GetName().Version?.ToString() ?? "0";
 
 	private MinecraftBlockRenderer ResolveRendererForOptions(BlockRenderOptions options,
-		out BlockRenderOptions forwardedOptions)
-	{
-		if (_packRegistry is null || options.PackIds is null || options.PackIds.Count == 0)
-		{
+		out BlockRenderOptions forwardedOptions) {
+		if (_packRegistry is null || options.PackIds is null || options.PackIds.Count == 0) {
 			forwardedOptions = options;
 			return this;
 		}
 
-		if (_packContext.PackIds.Count > 0 && PackSequencesEqual(options.PackIds, _packContext.PackIds))
-		{
+		if (_packContext.PackIds.Count > 0 && PackSequencesEqual(options.PackIds, _packContext.PackIds)) {
 			forwardedOptions = options with { PackIds = null };
 			return this;
 		}
@@ -254,32 +231,25 @@ public sealed partial class MinecraftBlockRenderer
 		return renderer;
 	}
 
-	private MinecraftBlockRenderer ResolveRendererForPackIds(IReadOnlyList<string>? packIds)
-	{
-		if (_packRegistry is null || packIds is null || packIds.Count == 0)
-		{
+	private MinecraftBlockRenderer ResolveRendererForPackIds(IReadOnlyList<string>? packIds) {
+		if (_packRegistry is null || packIds is null || packIds.Count == 0) {
 			return this;
 		}
 
-		if (_packContext.PackIds.Count > 0 && PackSequencesEqual(packIds, _packContext.PackIds))
-		{
+		if (_packContext.PackIds.Count > 0 && PackSequencesEqual(packIds, _packContext.PackIds)) {
 			return this;
 		}
 
 		return GetRendererForPackStack(packIds);
 	}
 
-	private bool PackSequencesEqual(IReadOnlyList<string> candidate, IReadOnlyList<string> baseline)
-	{
-		if (candidate.Count != baseline.Count)
-		{
+	private bool PackSequencesEqual(IReadOnlyList<string> candidate, IReadOnlyList<string> baseline) {
+		if (candidate.Count != baseline.Count) {
 			return false;
 		}
 
-		for (var i = 0; i < candidate.Count; i++)
-		{
-			if (!string.Equals(candidate[i], baseline[i], StringComparison.OrdinalIgnoreCase))
-			{
+		for (var i = 0; i < candidate.Count; i++) {
+			if (!string.Equals(candidate[i], baseline[i], StringComparison.OrdinalIgnoreCase)) {
 				return false;
 			}
 		}
@@ -287,16 +257,13 @@ public sealed partial class MinecraftBlockRenderer
 		return true;
 	}
 
-	private MinecraftBlockRenderer GetRendererForPackStack(IReadOnlyList<string> packIds)
-	{
-		if (_packRegistry is null)
-		{
+	private MinecraftBlockRenderer GetRendererForPackStack(IReadOnlyList<string> packIds) {
+		if (_packRegistry is null) {
 			throw new InvalidOperationException(
 				"This renderer was created without a texture pack registry and cannot resolve pack combinations.");
 		}
 
-		if (string.IsNullOrWhiteSpace(_assetsDirectory))
-		{
+		if (string.IsNullOrWhiteSpace(_assetsDirectory)) {
 			throw new InvalidOperationException(
 				"Texture pack rendering requires a renderer created from Minecraft assets (not aggregated data files).");
 		}
@@ -315,17 +282,13 @@ public sealed partial class MinecraftBlockRenderer
 	/// <exception cref="InvalidOperationException">
 	/// Thrown when this renderer doesn't have an associated texture pack registry and a non-empty pack stack is provided.
 	/// </exception>
-	public void PreloadTexturePackStacks(IEnumerable<IReadOnlyList<string>> packStacks)
-	{
+	public void PreloadTexturePackStacks(IEnumerable<IReadOnlyList<string>> packStacks) {
 		EnsureNotDisposed();
 		ArgumentNullException.ThrowIfNull(packStacks);
 
-		if (_packRegistry is null)
-		{
-			foreach (var stack in packStacks)
-			{
-				if (stack is { Count: > 0 })
-				{
+		if (_packRegistry is null) {
+			foreach (var stack in packStacks) {
+				if (stack is { Count: > 0 }) {
 					throw new InvalidOperationException(
 						"This renderer was created without a texture pack registry and cannot preload pack combinations.");
 				}
@@ -335,16 +298,13 @@ public sealed partial class MinecraftBlockRenderer
 		}
 
 		var seenStacks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-		foreach (var packIds in packStacks)
-		{
-			if (packIds is null || packIds.Count == 0)
-			{
+		foreach (var packIds in packStacks) {
+			if (packIds is null || packIds.Count == 0) {
 				continue;
 			}
 
 			var stack = _packRegistry.BuildPackStack(packIds);
-			if (!seenStacks.Add(stack.Fingerprint))
-			{
+			if (!seenStacks.Add(stack.Fingerprint)) {
 				continue;
 			}
 
@@ -356,52 +316,41 @@ public sealed partial class MinecraftBlockRenderer
 	/// Preloads renderers for all registered texture packs, optionally including the renderer's default pack stack.
 	/// </summary>
 	/// <param name="includeDefaultPackStack">When true, also preloads the renderer for the default pack stack.</param>
-	public void PreloadRegisteredPacks(bool includeDefaultPackStack = true)
-	{
+	public void PreloadRegisteredPacks(bool includeDefaultPackStack = true) {
 		EnsureNotDisposed();
 
 		var stacksToPreload = new List<IReadOnlyList<string>>();
-		if (includeDefaultPackStack && _packContext.PackIds.Count > 0)
-		{
+		if (includeDefaultPackStack && _packContext.PackIds.Count > 0) {
 			stacksToPreload.Add(_packContext.PackIds.ToArray());
 		}
 
-		if (_packRegistry is null)
-		{
+		if (_packRegistry is null) {
 			return;
 		}
 
-		foreach (var pack in _packRegistry.GetRegisteredPacks())
-		{
+		foreach (var pack in _packRegistry.GetRegisteredPacks()) {
 			stacksToPreload.Add(new[] { pack.Id });
 		}
 
 		PreloadTexturePackStacks(stacksToPreload);
 	}
 
-	public Image<Rgba32>? GetTexturePackIcon(string packId)
-	{
+	public Image<Rgba32>? GetTexturePackIcon(string packId) {
 		ArgumentException.ThrowIfNullOrWhiteSpace(packId);
 		EnsureNotDisposed();
 
-		if (string.Equals(packId, VanillaPackId, StringComparison.OrdinalIgnoreCase))
-		{
+		if (string.Equals(packId, VanillaPackId, StringComparison.OrdinalIgnoreCase)) {
 			var vanillaRoot = _packContext.AssetsRoot;
-			if (!string.IsNullOrWhiteSpace(vanillaRoot))
-			{
+			if (!string.IsNullOrWhiteSpace(vanillaRoot)) {
 				var vanillaIconPath = Path.Combine(vanillaRoot, "pack.png");
-				if (File.Exists(vanillaIconPath))
-				{
-					try
-					{
+				if (File.Exists(vanillaIconPath)) {
+					try {
 						return Image.Load<Rgba32>(vanillaIconPath);
 					}
-					catch (ImageFormatException)
-					{
+					catch (ImageFormatException) {
 						return null;
 					}
-					catch (NotSupportedException)
-					{
+					catch (NotSupportedException) {
 						return null;
 					}
 				}
@@ -410,33 +359,27 @@ public sealed partial class MinecraftBlockRenderer
 			return null;
 		}
 
-		if (!TryResolveRegisteredPack(packId, out var pack))
-		{
+		if (!TryResolveRegisteredPack(packId, out var pack)) {
 			return null;
 		}
 
 		var iconPath = Path.Combine(pack.RootPath, "pack.png");
-		if (!File.Exists(iconPath))
-		{
+		if (!File.Exists(iconPath)) {
 			return null;
 		}
 
-		try
-		{
+		try {
 			return Image.Load<Rgba32>(iconPath);
 		}
-		catch (ImageFormatException)
-		{
+		catch (ImageFormatException) {
 			return null;
 		}
-		catch (NotSupportedException)
-		{
+		catch (NotSupportedException) {
 			return null;
 		}
 	}
 
-	private MinecraftBlockRenderer CreatePackRenderer(TexturePackStack packStack)
-	{
+	private MinecraftBlockRenderer CreatePackRenderer(TexturePackStack packStack) {
 		var packContext = RenderPackContext.Create(_assetsDirectory, _baseOverlayRoots, packStack);
 		var overlayPaths = packContext.OverlayRoots
 			.Select(static root => root.Path)
@@ -460,17 +403,13 @@ public sealed partial class MinecraftBlockRenderer
 			_baseOverlayRoots, null, packContext);
 	}
 
-	private bool TryResolveRegisteredPack(string packId, out RegisteredResourcePack pack)
-	{
-		if (_packRegistry is not null && _packRegistry.TryGetPack(packId, out pack))
-		{
+	private bool TryResolveRegisteredPack(string packId, out RegisteredResourcePack pack) {
+		if (_packRegistry is not null && _packRegistry.TryGetPack(packId, out pack)) {
 			return true;
 		}
 
-		foreach (var candidate in _packContext.Packs)
-		{
-			if (string.Equals(candidate.Id, packId, StringComparison.OrdinalIgnoreCase))
-			{
+		foreach (var candidate in _packContext.Packs) {
+			if (string.Equals(candidate.Id, packId, StringComparison.OrdinalIgnoreCase)) {
 				pack = candidate;
 				return true;
 			}
@@ -480,8 +419,7 @@ public sealed partial class MinecraftBlockRenderer
 		return false;
 	}
 
-	public ResourceIdResult ComputeResourceId(string target, BlockRenderOptions? options = null)
-	{
+	public ResourceIdResult ComputeResourceId(string target, BlockRenderOptions? options = null) {
 		ArgumentException.ThrowIfNullOrWhiteSpace(target);
 		var effectiveOptions = options ?? BlockRenderOptions.Default;
 		var renderer = ResolveRendererForOptions(effectiveOptions, out var forwardedOptions);
@@ -489,15 +427,13 @@ public sealed partial class MinecraftBlockRenderer
 	}
 
 	private ResourceIdResult ComputeResourceIdInternal(string target, BlockRenderOptions options,
-		ItemModelResolution? preResolvedItem = null)
-	{
+		ItemModelResolution? preResolvedItem = null) {
 		EnsureNotDisposed();
 
 		var normalizedTarget = target.Trim();
 		var lookupTarget = normalizedTarget;
 		var namespaceSeparator = lookupTarget.IndexOf(':');
-		if (namespaceSeparator >= 0)
-		{
+		if (namespaceSeparator >= 0) {
 			lookupTarget = lookupTarget[(namespaceSeparator + 1)..];
 		}
 
@@ -510,27 +446,23 @@ public sealed partial class MinecraftBlockRenderer
 		var hasItemRegistry = _itemRegistry is not null;
 		var hasItemInfo = hasItemRegistry && _itemRegistry!.TryGetInfo(lookupTarget, out itemInfo);
 		if (preResolvedItem is not null &&
-		    string.Equals(preResolvedItem.LookupTarget, lookupTarget, StringComparison.OrdinalIgnoreCase))
-		{
-			if (preResolvedItem.ItemInfo is not null)
-			{
+		    string.Equals(preResolvedItem.LookupTarget, lookupTarget, StringComparison.OrdinalIgnoreCase)) {
+			if (preResolvedItem.ItemInfo is not null) {
 				itemInfo = preResolvedItem.ItemInfo;
 				hasItemInfo = true;
 			}
 		}
+
 		var shouldTreatAsItem = hasItemRegistry && (hasItemInfo || options.ItemData is not null);
 
-		void ProcessItem(ItemRegistry.ItemInfo? info)
-		{
-			if (_itemRegistry is null)
-			{
+		void ProcessItem(ItemRegistry.ItemInfo? info) {
+			if (_itemRegistry is null) {
 				variantKey = $"literal:{normalizedTarget}";
 				return;
 			}
 
 			string? referenceModel = null;
-			if (_itemRegistry.TryGetModel(lookupTarget, out var itemModel) && !string.IsNullOrWhiteSpace(itemModel))
-			{
+			if (_itemRegistry.TryGetModel(lookupTarget, out var itemModel) && !string.IsNullOrWhiteSpace(itemModel)) {
 				referenceModel = NormalizeModelIdentifier(itemModel);
 			}
 
@@ -540,40 +472,33 @@ public sealed partial class MinecraftBlockRenderer
 			string? resolvedModelName = null;
 
 			if (preResolvedItem is not null &&
-			    string.Equals(preResolvedItem.LookupTarget, lookupTarget, StringComparison.OrdinalIgnoreCase))
-			{
+			    string.Equals(preResolvedItem.LookupTarget, lookupTarget, StringComparison.OrdinalIgnoreCase)) {
 				effectiveModel = preResolvedItem.Model;
 				modelCandidates = preResolvedItem.ModelCandidates;
 				resolvedModelName = preResolvedItem.ResolvedModelName;
-				if (preResolvedItem.ItemInfo is not null)
-				{
+				if (preResolvedItem.ItemInfo is not null) {
 					info = preResolvedItem.ItemInfo;
 				}
 			}
-			else
-			{
+			else {
 				// Always use ResolveItemModel for consistent resolution logic
 				// (it handles selectors, Firmament models, and all other item model types)
 				(effectiveModel, modelCandidates, resolvedModelName) = ResolveItemModel(lookupTarget, info, options);
 			}
+
 			effectiveModelIdentifier = resolvedModelName ?? effectiveModel?.Name;
 
-			if (effectiveModel is null && !string.IsNullOrWhiteSpace(resolvedModelName))
-			{
+			if (effectiveModel is null && !string.IsNullOrWhiteSpace(resolvedModelName)) {
 				effectiveModel = ResolveModelOrNull(resolvedModelName);
-				if (effectiveModel is not null && string.IsNullOrWhiteSpace(effectiveModelIdentifier))
-				{
+				if (effectiveModel is not null && string.IsNullOrWhiteSpace(effectiveModelIdentifier)) {
 					effectiveModelIdentifier = resolvedModelName;
 				}
 			}
 
-			if (effectiveModel is null && modelCandidates is not null)
-			{
-				foreach (var candidate in modelCandidates)
-				{
+			if (effectiveModel is null && modelCandidates is not null) {
+				foreach (var candidate in modelCandidates) {
 					var candidateModel = ResolveModelOrNull(candidate);
-					if (candidateModel is null)
-					{
+					if (candidateModel is null) {
 						continue;
 					}
 
@@ -583,37 +508,31 @@ public sealed partial class MinecraftBlockRenderer
 				}
 			}
 
-			if (effectiveModel is not null)
-			{
+			if (effectiveModel is not null) {
 				var identifier = NormalizeModelIdentifier(effectiveModelIdentifier ?? effectiveModel.Name);
 				primaryModelIdentifier = identifier;
 				modelPath = identifier;
 				referenceModel = identifier;
-				foreach (var texture in CollectResolvedTextures(effectiveModel))
-				{
+				foreach (var texture in CollectResolvedTextures(effectiveModel)) {
 					resolvedTextures.Add(texture);
 				}
 			}
-			else if (info?.Texture is not null)
-			{
+			else if (info?.Texture is not null) {
 				resolvedTextures.Add(info.Texture);
 			}
 
 			if (options.ItemData?.CustomData is not null &&
-			    TryGetHeadTextureOverride(options.ItemData.CustomData, out var headTexture))
-			{
+			    TryGetHeadTextureOverride(options.ItemData.CustomData, out var headTexture)) {
 				resolvedTextures.Add(headTexture);
 			}
 
 			// Also check for player head profile-based skin textures
 			if (options.ItemData?.Profile is not null &&
-			    TryExtractProfileTextureId(options.ItemData.Profile, out var profileTexture))
-			{
+			    TryExtractProfileTextureId(options.ItemData.Profile, out var profileTexture)) {
 				resolvedTextures.Add(profileTexture);
 			}
 
-			if (resolvedTextures.Count == 0 && referenceModel is not null)
-			{
+			if (resolvedTextures.Count == 0 && referenceModel is not null) {
 				resolvedTextures.Add(referenceModel);
 			}
 
@@ -622,37 +541,31 @@ public sealed partial class MinecraftBlockRenderer
 			variantKey = $"item:{normalizedTarget}:{modelPath}:{JoinTextures(resolvedTextures)}:{itemDataKey}";
 		}
 
-		if (shouldTreatAsItem)
-		{
+		if (shouldTreatAsItem) {
 			ProcessItem(itemInfo);
 		}
 		else if (_blockRegistry.TryGetModel(lookupTarget, out var blockModelPath) &&
-		         !string.IsNullOrWhiteSpace(blockModelPath))
-		{
+		         !string.IsNullOrWhiteSpace(blockModelPath)) {
 			modelPath = blockModelPath;
 			var model = _modelResolver.Resolve(blockModelPath);
 			modelPath = model.Name;
-			foreach (var texture in CollectResolvedTextures(model))
-			{
+			foreach (var texture in CollectResolvedTextures(model)) {
 				resolvedTextures.Add(texture);
 			}
 
 			variantKey = $"block:{normalizedTarget}:{model.Name}:{JoinTextures(resolvedTextures)}";
 		}
-		else if (hasItemRegistry)
-		{
+		else if (hasItemRegistry) {
 			ProcessItem(itemInfo);
 		}
-		else
-		{
+		else {
 			variantKey = $"literal:{normalizedTarget}";
 		}
 
 		var sourcePackId = DetermineSourcePackId(modelPath, resolvedTextures);
 		if (string.Equals(sourcePackId, VanillaPackId, StringComparison.OrdinalIgnoreCase) &&
 		    !string.IsNullOrWhiteSpace(primaryModelIdentifier) &&
-		    TryResolvePackFromAsset(primaryModelIdentifier, "models", ".json", out var modelPackId))
-		{
+		    TryResolvePackFromAsset(primaryModelIdentifier, "models", ".json", out var modelPackId)) {
 			sourcePackId = modelPackId;
 		}
 
@@ -662,25 +575,26 @@ public sealed partial class MinecraftBlockRenderer
 			? resolvedTextures.OrderBy(static t => t, StringComparer.OrdinalIgnoreCase).ToArray()
 			: [];
 
-		return new ResourceIdResult(resourceId, sourcePackId, _packContext.PackStackHash)
-		{
+		return new ResourceIdResult(resourceId, sourcePackId, _packContext.PackStackHash) {
 			Model = modelPath,
 			Textures = texturesList
 		};
 	}
 
-	private static string JoinTextures(IReadOnlyCollection<string> textures)
-	{
-		if (textures.Count == 0)
-		{
+	private static string JoinTextures(IReadOnlyCollection<string> textures) {
+		if (textures.Count == 0) {
 			return string.Empty;
 		}
 
 		return string.Join(',', textures.OrderBy(static t => t, StringComparer.OrdinalIgnoreCase));
 	}
 
-	private sealed record ItemModelResolution(string LookupTarget, ItemRegistry.ItemInfo? ItemInfo,
-		BlockModelInstance? Model, IReadOnlyList<string>? ModelCandidates, string? ResolvedModelName);
+	private sealed record ItemModelResolution(
+		string LookupTarget,
+		ItemRegistry.ItemInfo? ItemInfo,
+		BlockModelInstance? Model,
+		IReadOnlyList<string>? ModelCandidates,
+		string? ResolvedModelName);
 
 	private sealed class ItemRenderCapture
 	{
@@ -692,10 +606,8 @@ public sealed partial class MinecraftBlockRenderer
 		public string? ResolvedModelName { get; set; }
 		public BlockRenderOptions FinalOptions { get; set; }
 
-		public ItemModelResolution? ToResolution()
-		{
-			if (string.IsNullOrWhiteSpace(NormalizedItemKey))
-			{
+		public ItemModelResolution? ToResolution() {
+			if (string.IsNullOrWhiteSpace(NormalizedItemKey)) {
 				return null;
 			}
 
@@ -703,14 +615,11 @@ public sealed partial class MinecraftBlockRenderer
 		}
 	}
 
-	private static IReadOnlyCollection<string> CollectResolvedTextures(BlockModelInstance model)
-	{
+	private static IReadOnlyCollection<string> CollectResolvedTextures(BlockModelInstance model) {
 		var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-		foreach (var (_, texture) in model.Textures)
-		{
+		foreach (var (_, texture) in model.Textures) {
 			var resolved = ResolveTexture(texture, model);
-			if (!string.IsNullOrWhiteSpace(resolved))
-			{
+			if (!string.IsNullOrWhiteSpace(resolved)) {
 				set.Add(resolved);
 			}
 		}
@@ -718,26 +627,21 @@ public sealed partial class MinecraftBlockRenderer
 		return set;
 	}
 
-	private static string BuildItemRenderDataKey(ItemRenderData data)
-	{
+	private static string BuildItemRenderDataKey(ItemRenderData data) {
 		var builder = new StringBuilder();
-		if (data.Layer0Tint.HasValue)
-		{
+		if (data.Layer0Tint.HasValue) {
 			builder.Append("l0=");
 			builder.Append(data.Layer0Tint.Value.ToPixel<Rgba32>().ToHex());
 		}
-		else
-		{
+		else {
 			builder.Append("l0=none");
 		}
 
 		builder.Append(";disable=");
 		builder.Append(data.DisableDefaultLayer0Tint ? '1' : '0');
 
-		if (data.AdditionalLayerTints is { Count: > 0 })
-		{
-			foreach (var layer in data.AdditionalLayerTints.OrderBy(static kvp => kvp.Key))
-			{
+		if (data.AdditionalLayerTints is { Count: > 0 }) {
+			foreach (var layer in data.AdditionalLayerTints.OrderBy(static kvp => kvp.Key)) {
 				builder.Append(";l");
 				builder.Append(layer.Key.ToString(CultureInfo.InvariantCulture));
 				builder.Append('=');
@@ -745,37 +649,29 @@ public sealed partial class MinecraftBlockRenderer
 			}
 		}
 
-		if (data.CustomData is not null)
-		{
+		if (data.CustomData is not null) {
 			builder.Append(";custom=");
 			builder.Append(BuildCustomDataKey(data.CustomData));
 		}
-		else
-		{
+		else {
 			builder.Append(";custom=none");
 		}
 
-		if (data.Profile is not null)
-		{
+		if (data.Profile is not null) {
 			builder.Append(";profile=");
 			builder.Append(BuildProfileKey(data.Profile));
 		}
-		else
-		{
+		else {
 			builder.Append(";profile=none");
 		}
 
 		return builder.ToString();
 	}
 
-	private static string BuildProfileKey(NbtCompound profile)
-	{
-		if (profile.TryGetValue("properties", out var propertiesTag) && propertiesTag is NbtList properties)
-		{
-			foreach (var entry in properties)
-			{
-				if (entry is not NbtCompound propertyCompound)
-				{
+	private static string BuildProfileKey(NbtCompound profile) {
+		if (profile.TryGetValue("properties", out var propertiesTag) && propertiesTag is NbtList properties) {
+			foreach (var entry in properties) {
+				if (entry is not NbtCompound propertyCompound) {
 					continue;
 				}
 
@@ -784,19 +680,16 @@ public sealed partial class MinecraftBlockRenderer
 				    nameValue.Value.Equals("textures", StringComparison.OrdinalIgnoreCase) &&
 				    propertyCompound.TryGetValue("value", out var valueTag) &&
 				    valueTag is NbtString valueString &&
-				    !string.IsNullOrWhiteSpace(valueString.Value))
-				{
+				    !string.IsNullOrWhiteSpace(valueString.Value)) {
 					var hash = SHA256.HashData(Encoding.UTF8.GetBytes(valueString.Value));
 					return Convert.ToHexString(hash);
 				}
 			}
 		}
 
-		if (profile.TryGetValue("id", out var idTag))
-		{
+		if (profile.TryGetValue("id", out var idTag)) {
 			var formatted = FormatNbtValue(idTag);
-			if (!string.IsNullOrWhiteSpace(formatted))
-			{
+			if (!string.IsNullOrWhiteSpace(formatted)) {
 				return formatted;
 			}
 		}
@@ -804,11 +697,9 @@ public sealed partial class MinecraftBlockRenderer
 		return "none";
 	}
 
-	private static string BuildCustomDataKey(NbtCompound compound)
-	{
+	private static string BuildCustomDataKey(NbtCompound compound) {
 		var segments = new List<string>();
-		foreach (var pair in compound.OrderBy(static kvp => kvp.Key, StringComparer.OrdinalIgnoreCase))
-		{
+		foreach (var pair in compound.OrderBy(static kvp => kvp.Key, StringComparer.OrdinalIgnoreCase)) {
 			var key = pair.Key ?? string.Empty;
 			var value = FormatNbtValue(pair.Value);
 			segments.Add($"{key}={value}");
@@ -818,8 +709,7 @@ public sealed partial class MinecraftBlockRenderer
 	}
 
 	private static string FormatNbtValue(NbtTag tag)
-		=> tag switch
-		{
+		=> tag switch {
 			NbtString s => s.Value,
 			NbtInt i => i.Value.ToString(CultureInfo.InvariantCulture),
 			NbtLong l => l.Value.ToString(CultureInfo.InvariantCulture),
@@ -841,60 +731,47 @@ public sealed partial class MinecraftBlockRenderer
 			_ => string.Empty
 		};
 
-	private string DetermineSourcePackId(string? modelPath, IReadOnlyCollection<string> textureIds)
-	{
-		if (TryResolvePackFromAsset(modelPath, "models", ".json", out var packId))
-		{
+	private string DetermineSourcePackId(string? modelPath, IReadOnlyCollection<string> textureIds) {
+		if (TryResolvePackFromAsset(modelPath, "models", ".json", out var packId)) {
 			return packId;
 		}
 
-		foreach (var textureId in textureIds)
-		{
-			if (TryResolvePackFromAsset(textureId, "textures", ".png", out packId))
-			{
+		foreach (var textureId in textureIds) {
+			if (TryResolvePackFromAsset(textureId, "textures", ".png", out packId)) {
 				return packId;
 			}
 		}
 
 		var searchRoots = _packContext.SearchRoots;
 		var normalizedModel = NormalizeModelPath(modelPath);
-		if (!string.IsNullOrWhiteSpace(normalizedModel))
-		{
-			for (var i = searchRoots.Count - 1; i >= 0; i--)
-			{
+		if (!string.IsNullOrWhiteSpace(normalizedModel)) {
+			for (var i = searchRoots.Count - 1; i >= 0; i--) {
 				var root = searchRoots[i];
-				if (root.Kind == OverlayRootKind.Vanilla)
-				{
+				if (root.Kind == OverlayRootKind.Vanilla) {
 					continue;
 				}
 
 				var candidate = Path.Combine(root.Path, "models", normalizedModel + ".json");
-				if (File.Exists(candidate))
-				{
+				if (File.Exists(candidate)) {
 					return root.SourceId;
 				}
 			}
 		}
 
-		foreach (var textureId in textureIds)
-		{
+		foreach (var textureId in textureIds) {
 			var normalizedTexture = NormalizeTexturePath(textureId);
-			if (string.IsNullOrWhiteSpace(normalizedTexture))
-			{
+			if (string.IsNullOrWhiteSpace(normalizedTexture)) {
 				continue;
 			}
 
-			for (var i = searchRoots.Count - 1; i >= 0; i--)
-			{
+			for (var i = searchRoots.Count - 1; i >= 0; i--) {
 				var root = searchRoots[i];
-				if (root.Kind == OverlayRootKind.Vanilla)
-				{
+				if (root.Kind == OverlayRootKind.Vanilla) {
 					continue;
 				}
 
 				var candidate = Path.Combine(root.Path, "textures", normalizedTexture + ".png");
-				if (File.Exists(candidate))
-				{
+				if (File.Exists(candidate)) {
 					return root.SourceId;
 				}
 			}
@@ -903,50 +780,41 @@ public sealed partial class MinecraftBlockRenderer
 		return VanillaPackId;
 	}
 
-	private bool TryResolvePackFromAsset(string? assetId, string category, string extension, out string packId)
-	{
+	private bool TryResolvePackFromAsset(string? assetId, string category, string extension, out string packId) {
 		packId = VanillaPackId;
-		if (string.IsNullOrWhiteSpace(assetId))
-		{
+		if (string.IsNullOrWhiteSpace(assetId)) {
 			return false;
 		}
 
 		var (namespaceName, relativePath) = NormalizeAssetPath(assetId);
-		if (string.IsNullOrWhiteSpace(relativePath))
-		{
+		if (string.IsNullOrWhiteSpace(relativePath)) {
 			return false;
 		}
 
-		if (relativePath.StartsWith(category + "/", StringComparison.OrdinalIgnoreCase))
-		{
+		if (relativePath.StartsWith(category + "/", StringComparison.OrdinalIgnoreCase)) {
 			relativePath = relativePath[(category.Length + 1)..];
 		}
 
-		if (relativePath.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
-		{
+		if (relativePath.EndsWith(extension, StringComparison.OrdinalIgnoreCase)) {
 			relativePath = relativePath[..^extension.Length];
 		}
 
 		relativePath = relativePath.Replace('/', Path.DirectorySeparatorChar);
 
 		var roots = _packContext.AssetNamespaces.ResolveRoots(namespaceName);
-		for (var i = roots.Count - 1; i >= 0; i--)
-		{
+		for (var i = roots.Count - 1; i >= 0; i--) {
 			var root = roots[i];
 			var basePath = root.Path;
 			string candidate;
 
-			if (basePath.EndsWith(category, StringComparison.OrdinalIgnoreCase))
-			{
+			if (basePath.EndsWith(category, StringComparison.OrdinalIgnoreCase)) {
 				candidate = Path.Combine(basePath, relativePath + extension);
 			}
-			else
-			{
+			else {
 				candidate = Path.Combine(basePath, category, relativePath + extension);
 			}
 
-			if (File.Exists(candidate))
-			{
+			if (File.Exists(candidate)) {
 				packId = root.SourceId;
 				return !root.IsVanilla;
 			}
@@ -955,38 +823,31 @@ public sealed partial class MinecraftBlockRenderer
 		return false;
 	}
 
-	private static string NormalizeModelPath(string? modelPath)
-	{
-		if (string.IsNullOrWhiteSpace(modelPath))
-		{
+	private static string NormalizeModelPath(string? modelPath) {
+		if (string.IsNullOrWhiteSpace(modelPath)) {
 			return string.Empty;
 		}
 
 		var normalized = modelPath.Replace('\\', '/').Trim();
-		if (normalized.StartsWith("minecraft:", StringComparison.OrdinalIgnoreCase))
-		{
+		if (normalized.StartsWith("minecraft:", StringComparison.OrdinalIgnoreCase)) {
 			normalized = normalized[10..];
 		}
 
 		normalized = normalized.TrimStart('/');
-		if (normalized.StartsWith("models/", StringComparison.OrdinalIgnoreCase))
-		{
+		if (normalized.StartsWith("models/", StringComparison.OrdinalIgnoreCase)) {
 			normalized = normalized[7..];
 		}
 
 		return normalized;
 	}
 
-	private static string NormalizeModelIdentifier(string identifier)
-	{
-		if (string.IsNullOrWhiteSpace(identifier))
-		{
+	private static string NormalizeModelIdentifier(string identifier) {
+		if (string.IsNullOrWhiteSpace(identifier)) {
 			return identifier;
 		}
 
 		var trimmed = identifier.Trim();
-		if (trimmed.IndexOf(':') >= 0)
-		{
+		if (trimmed.IndexOf(':') >= 0) {
 			return trimmed;
 		}
 
@@ -994,45 +855,37 @@ public sealed partial class MinecraftBlockRenderer
 		return string.IsNullOrWhiteSpace(trimmed) ? "minecraft:" : $"minecraft:{trimmed}";
 	}
 
-	private static string NormalizeTexturePath(string textureId)
-	{
-		if (string.IsNullOrWhiteSpace(textureId))
-		{
+	private static string NormalizeTexturePath(string textureId) {
+		if (string.IsNullOrWhiteSpace(textureId)) {
 			return string.Empty;
 		}
 
 		var normalized = textureId.Replace('\\', '/').Trim();
-		if (normalized.StartsWith("minecraft:", StringComparison.OrdinalIgnoreCase))
-		{
+		if (normalized.StartsWith("minecraft:", StringComparison.OrdinalIgnoreCase)) {
 			normalized = normalized[10..];
 		}
 
 		normalized = normalized.TrimStart('/');
-		if (normalized.StartsWith("textures/", StringComparison.OrdinalIgnoreCase))
-		{
+		if (normalized.StartsWith("textures/", StringComparison.OrdinalIgnoreCase)) {
 			normalized = normalized[9..];
 		}
 
-		if (normalized.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
-		{
+		if (normalized.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) {
 			normalized = normalized[..^4];
 		}
 
 		return normalized;
 	}
 
-	private static (string NamespaceName, string RelativePath) NormalizeAssetPath(string assetId)
-	{
+	private static (string NamespaceName, string RelativePath) NormalizeAssetPath(string assetId) {
 		var normalized = assetId.Replace('\\', '/').Trim();
-		if (string.IsNullOrWhiteSpace(normalized))
-		{
+		if (string.IsNullOrWhiteSpace(normalized)) {
 			return ("minecraft", string.Empty);
 		}
 
 		var namespaceName = "minecraft";
 		var colonIndex = normalized.IndexOf(':');
-		if (colonIndex >= 0)
-		{
+		if (colonIndex >= 0) {
 			namespaceName = normalized[..colonIndex];
 			normalized = normalized[(colonIndex + 1)..];
 		}
@@ -1041,36 +894,31 @@ public sealed partial class MinecraftBlockRenderer
 		return (namespaceName, normalized);
 	}
 
-	private static string ComputeResourceIdHash(string input)
-	{
+	private static string ComputeResourceIdHash(string input) {
 		using var sha = SHA256.Create();
 		var bytes = Encoding.UTF8.GetBytes(input);
 		var hash = sha.ComputeHash(bytes);
 		return EncodeBase32(hash);
 	}
 
-	private static string EncodeBase32(ReadOnlySpan<byte> bytes)
-	{
+	private static string EncodeBase32(ReadOnlySpan<byte> bytes) {
 		const string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 		var outputLength = (bytes.Length * 8 + 4) / 5;
 		var builder = new StringBuilder(outputLength);
 		var buffer = 0;
 		var bitsLeft = 0;
 
-		foreach (var b in bytes)
-		{
+		foreach (var b in bytes) {
 			buffer = (buffer << 8) | b;
 			bitsLeft += 8;
-			while (bitsLeft >= 5)
-			{
+			while (bitsLeft >= 5) {
 				var index = (buffer >> (bitsLeft - 5)) & 0b11111;
 				bitsLeft -= 5;
 				builder.Append(alphabet[index]);
 			}
 		}
 
-		if (bitsLeft > 0)
-		{
+		if (bitsLeft > 0) {
 			var index = (buffer << (5 - bitsLeft)) & 0b11111;
 			builder.Append(alphabet[index]);
 		}
@@ -1083,8 +931,7 @@ public sealed partial class MinecraftBlockRenderer
 	private sealed class RenderPackContext
 	{
 		private RenderPackContext(string assetsRoot, IReadOnlyList<OverlayRoot> overlayRoots,
-			IReadOnlyList<string> packIds, string packStackHash, IReadOnlyList<RegisteredResourcePack> packs)
-		{
+			IReadOnlyList<string> packIds, string packStackHash, IReadOnlyList<RegisteredResourcePack> packs) {
 			AssetsRoot = assetsRoot;
 			OverlayRoots = overlayRoots;
 			PackIds = packIds;
@@ -1102,61 +949,51 @@ public sealed partial class MinecraftBlockRenderer
 		public IReadOnlyList<OverlaySearchRoot> SearchRoots { get; }
 		public AssetNamespaceRegistry AssetNamespaces { get; }
 
-		private IReadOnlyList<OverlaySearchRoot> BuildSearchRoots()
-		{
+		private IReadOnlyList<OverlaySearchRoot> BuildSearchRoots() {
 			var roots = new List<OverlaySearchRoot>();
-			foreach (var overlay in OverlayRoots)
-			{
+			foreach (var overlay in OverlayRoots) {
 				roots.Add(new OverlaySearchRoot(overlay.Path, overlay.SourceId, overlay.Kind));
 			}
 
-			if (!string.IsNullOrWhiteSpace(AssetsRoot))
-			{
+			if (!string.IsNullOrWhiteSpace(AssetsRoot)) {
 				roots.Add(new OverlaySearchRoot(AssetsRoot, VanillaPackId, OverlayRootKind.Vanilla));
 			}
 
 			return roots;
 		}
 
-		private AssetNamespaceRegistry BuildAssetNamespaces()
-		{
+		private AssetNamespaceRegistry BuildAssetNamespaces() {
 			var registry = new AssetNamespaceRegistry();
 
-			if (!string.IsNullOrWhiteSpace(AssetsRoot) && Directory.Exists(AssetsRoot))
-			{
+			if (!string.IsNullOrWhiteSpace(AssetsRoot) && Directory.Exists(AssetsRoot)) {
 				RegisterNamespaceRoot(registry, "minecraft", AssetsRoot, VanillaPackId, isVanilla: true);
 			}
 
-			foreach (var overlay in OverlayRoots)
-			{
+			foreach (var overlay in OverlayRoots) {
 				AddOverlayNamespaces(registry, overlay);
 			}
 
 			return registry;
 		}
 
-		private static void AddOverlayNamespaces(AssetNamespaceRegistry registry, OverlayRoot overlay)
-		{
-			if (string.IsNullOrWhiteSpace(overlay.Path) || !Directory.Exists(overlay.Path))
-			{
+		private static void AddOverlayNamespaces(AssetNamespaceRegistry registry, OverlayRoot overlay) {
+			if (string.IsNullOrWhiteSpace(overlay.Path) || !Directory.Exists(overlay.Path)) {
 				return;
 			}
 
 			var normalized = Path.GetFullPath(overlay.Path);
 			var directoryInfo = new DirectoryInfo(normalized);
-			if (directoryInfo.Parent is { } parent && parent.Name.Equals("assets", StringComparison.OrdinalIgnoreCase))
-			{
+			if (directoryInfo.Parent is { } parent &&
+			    parent.Name.Equals("assets", StringComparison.OrdinalIgnoreCase)) {
 				RegisterNamespaceRoot(registry, directoryInfo.Name, normalized, overlay.SourceId,
 					overlay.Kind == OverlayRootKind.Vanilla);
 				return;
 			}
 
 			var assetsDirectory = Path.Combine(normalized, "assets");
-			if (Directory.Exists(assetsDirectory))
-			{
+			if (Directory.Exists(assetsDirectory)) {
 				foreach (var namespaceDirectory in Directory.EnumerateDirectories(assetsDirectory, "*",
-					         SearchOption.TopDirectoryOnly))
-				{
+					         SearchOption.TopDirectoryOnly)) {
 					var namespaceName = Path.GetFileName(namespaceDirectory);
 					RegisterNamespaceRoot(registry, namespaceName, Path.GetFullPath(namespaceDirectory),
 						overlay.SourceId,
@@ -1171,22 +1008,18 @@ public sealed partial class MinecraftBlockRenderer
 		}
 
 		private static void RegisterNamespaceRoot(AssetNamespaceRegistry registry, string namespaceName, string path,
-			string sourceId, bool isVanilla)
-		{
+			string sourceId, bool isVanilla) {
 			registry.AddNamespace(namespaceName, path, sourceId, isVanilla);
 			var texturesPath = Path.Combine(path, "textures");
-			if (Directory.Exists(texturesPath))
-			{
+			if (Directory.Exists(texturesPath)) {
 				registry.AddNamespace(namespaceName, texturesPath, sourceId, isVanilla);
 			}
 		}
 
 		public static RenderPackContext Create(string? assetsDirectory, IReadOnlyList<OverlayRoot> baseOverlayRoots,
-			TexturePackStack? packStack)
-		{
+			TexturePackStack? packStack) {
 			var overlays = new List<OverlayRoot>(baseOverlayRoots);
-			if (packStack is not null)
-			{
+			if (packStack is not null) {
 				overlays.AddRange(packStack.OverlayRoots.Select(static overlay =>
 					new OverlayRoot(overlay.Path, overlay.PackId, OverlayRootKind.ResourcePack)));
 			}

@@ -12,21 +12,17 @@ public sealed class ItemRegistry
 {
 	private readonly Dictionary<string, ItemInfo> _entries;
 
-	private static readonly JsonSerializerOptions Options = new JsonSerializerOptions
-	{
+	private static readonly JsonSerializerOptions Options = new JsonSerializerOptions {
 		PropertyNameCaseInsensitive = true,
 		ReadCommentHandling = JsonCommentHandling.Skip
 	};
 
-	private ItemRegistry(IEnumerable<ItemInfo> entries)
-	{
+	private ItemRegistry(IEnumerable<ItemInfo> entries) {
 		_entries = entries.ToDictionary(entry => entry.Name, StringComparer.OrdinalIgnoreCase);
 	}
 
-	public static ItemRegistry LoadFromFile(string path)
-	{
-		if (!File.Exists(path))
-		{
+	public static ItemRegistry LoadFromFile(string path) {
+		if (!File.Exists(path)) {
 			throw new FileNotFoundException("Item registry file not found", path);
 		}
 
@@ -40,8 +36,7 @@ public sealed class ItemRegistry
 
 	public static ItemRegistry LoadFromMinecraftAssets(string assetsRoot,
 		IReadOnlyDictionary<string, BlockModelDefinition> modelDefinitions, IEnumerable<string>? overlayRoots = null,
-		AssetNamespaceRegistry? assetNamespaces = null)
-	{
+		AssetNamespaceRegistry? assetNamespaces = null) {
 		ArgumentException.ThrowIfNullOrWhiteSpace(assetsRoot);
 		ArgumentNullException.ThrowIfNull(modelDefinitions);
 
@@ -49,10 +44,8 @@ public sealed class ItemRegistry
 		return new ItemRegistry(entries.Where(static entry => !string.IsNullOrWhiteSpace(entry.Name)));
 	}
 
-	public bool TryGetModel(string itemName, out string modelPath)
-	{
-		if (_entries.TryGetValue(itemName, out var info) && !string.IsNullOrWhiteSpace(info.Model))
-		{
+	public bool TryGetModel(string itemName, out string modelPath) {
+		if (_entries.TryGetValue(itemName, out var info) && !string.IsNullOrWhiteSpace(info.Model)) {
 			modelPath = info.Model!;
 			return true;
 		}

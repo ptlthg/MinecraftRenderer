@@ -31,8 +31,7 @@ public static class MinecraftAtlasGenerator
 		[JsonPropertyName("texturePack")] public string? TexturePack { get; init; }
 	}
 
-	public static readonly IReadOnlyList<AtlasView> DefaultViews =
-	[
+	public static readonly IReadOnlyList<AtlasView> DefaultViews = [
 		new("isometric_right", new MinecraftBlockRenderer.BlockRenderOptions()),
 		new("isometric_left", new MinecraftBlockRenderer.BlockRenderOptions(YawInDegrees: 45f, Size: 512)),
 		new("front", new MinecraftBlockRenderer.BlockRenderOptions(YawInDegrees: 0f, PitchInDegrees: 0f, Size: 512))
@@ -48,8 +47,7 @@ public static class MinecraftAtlasGenerator
 		IEnumerable<string>? blockFilter = null,
 		IEnumerable<string>? itemFilter = null,
 		bool includeBlocks = true,
-		bool includeItems = true)
-	{
+		bool includeItems = true) {
 		ArgumentNullException.ThrowIfNull(renderer);
 		ArgumentNullException.ThrowIfNull(outputDirectory);
 		ArgumentNullException.ThrowIfNull(views);
@@ -65,15 +63,13 @@ public static class MinecraftAtlasGenerator
 		var itemNames = GetCandidateItemNames(renderer, itemFilter, includeItems);
 
 		var results = new List<AtlasResult>();
-		var serializerOptions = new JsonSerializerOptions
-		{
+		var serializerOptions = new JsonSerializerOptions {
 			WriteIndented = true,
 			DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
 		};
 		var perPage = columns * rows;
 
-		if (perPage <= 0)
-		{
+		if (perPage <= 0) {
 			throw new InvalidOperationException("Columns x Rows must be greater than zero.");
 		}
 
@@ -81,77 +77,65 @@ public static class MinecraftAtlasGenerator
 			new List<(string Category, IReadOnlyList<string> Names,
 				Func<string, MinecraftBlockRenderer.BlockRenderOptions, Image<Rgba32>> RendererFunc)>(2);
 
-		if (blockNames.Count > 0)
-		{
+		if (blockNames.Count > 0) {
 			categories.Add(("blocks", blockNames, renderer.RenderBlock));
 		}
 
-		if (itemNames.Count > 0)
-		{
+		if (itemNames.Count > 0) {
 			categories.Add(("items", itemNames, renderer.RenderGuiItem));
 		}
 
-		foreach (var (category, names, renderFunc) in categories)
-		{
-			for (var viewIndex = 0; viewIndex < views.Count; viewIndex++)
-			{
+		foreach (var (category, names, renderFunc) in categories) {
+			for (var viewIndex = 0; viewIndex < views.Count; viewIndex++) {
 				var view = views[viewIndex];
 				var totalPages = (int)Math.Ceiling(names.Count / (double)perPage);
 
-				for (var page = 0; page < totalPages; page++)
-				{
+				for (var page = 0; page < totalPages; page++) {
 					var startIndex = page * perPage;
 					var count = Math.Min(perPage, names.Count - startIndex);
 
-					if (count <= 0)
-					{
+					if (count <= 0) {
 						continue;
 					}
 
 					using var canvas = new Image<Rgba32>(columns * tileSize, rows * tileSize, Color.Transparent);
 					var manifestEntries = new List<AtlasManifestEntry>(count);
 
-					for (var localIndex = 0; localIndex < count; localIndex++)
-					{
+					for (var localIndex = 0; localIndex < count; localIndex++) {
 						var name = names[startIndex + localIndex];
 						var globalIndex = startIndex + localIndex;
 						var col = localIndex % columns;
 						var row = localIndex / columns;
 						string? error = null;
 
-						try
-						{
+						try {
 							var effectiveOptions = category.Equals("items", StringComparison.OrdinalIgnoreCase)
 								? NormalizeItemRenderOptions(view.Options)
 								: view.Options;
 
 							using var tile = renderFunc(name, effectiveOptions);
-							if (category.Equals("items", StringComparison.OrdinalIgnoreCase))
-							{
-								tile.Mutate(ctx => ctx.Resize(new ResizeOptions
-								{
+							if (category.Equals("items", StringComparison.OrdinalIgnoreCase)) {
+								tile.Mutate(ctx => ctx.Resize(new ResizeOptions {
 									Size = new Size(tileSize, tileSize),
 									Sampler = KnownResamplers.NearestNeighbor,
 									Mode = ResizeMode.Stretch
 								}));
 							}
-							else
-							{
+							else {
 								tile.Mutate(ctx => ctx.Resize(tileSize, tileSize));
 							}
+
 							// ReSharper disable once AccessToDisposedClosure
 							canvas.Mutate(ctx => ctx.DrawImage(tile, new Point(col * tileSize, row * tileSize), 1f));
 						}
-						catch (Exception ex)
-						{
+						catch (Exception ex) {
 							error = ex.Message;
 						}
 
 						manifestEntries.Add(new AtlasManifestEntry(globalIndex, name, col, row, error));
 					}
 
-					var baseFileName = string.Join("_", new[]
-					{
+					var baseFileName = string.Join("_", new[] {
 						SanitizeFileName(category),
 						SanitizeFileName(view.Name),
 						$"page{(page + 1).ToString("D2", CultureInfo.InvariantCulture)}"
@@ -173,11 +157,9 @@ public static class MinecraftAtlasGenerator
 
 	public static List<string> GetCandidateBlockNames(MinecraftBlockRenderer renderer,
 		IEnumerable<string>? blockFilter,
-		bool includeBlocks)
-	{
+		bool includeBlocks) {
 		ArgumentNullException.ThrowIfNull(renderer);
-		if (!includeBlocks)
-		{
+		if (!includeBlocks) {
 			return [];
 		}
 
@@ -188,11 +170,9 @@ public static class MinecraftAtlasGenerator
 
 	public static List<string> GetCandidateItemNames(MinecraftBlockRenderer renderer,
 		IEnumerable<string>? itemFilter,
-		bool includeItems)
-	{
+		bool includeItems) {
 		ArgumentNullException.ThrowIfNull(renderer);
-		if (!includeItems)
-		{
+		if (!includeItems) {
 			return [];
 		}
 
@@ -201,8 +181,7 @@ public static class MinecraftAtlasGenerator
 		return names;
 	}
 
-	public static string SanitizeFileName(string input)
-	{
+	public static string SanitizeFileName(string input) {
 		ArgumentNullException.ThrowIfNull(input);
 		var invalidChars = Path.GetInvalidFileNameChars();
 		var sanitized = new string(input
@@ -212,11 +191,9 @@ public static class MinecraftAtlasGenerator
 	}
 
 	public static MinecraftBlockRenderer.BlockRenderOptions NormalizeItemRenderOptions(
-		MinecraftBlockRenderer.BlockRenderOptions options)
-	{
+		MinecraftBlockRenderer.BlockRenderOptions options) {
 		if (MathF.Abs(options.YawInDegrees) < 0.01f && MathF.Abs(options.PitchInDegrees) < 0.01f &&
-		    MathF.Abs(options.RollInDegrees) < 0.01f)
-		{
+		    MathF.Abs(options.RollInDegrees) < 0.01f) {
 			return options;
 		}
 

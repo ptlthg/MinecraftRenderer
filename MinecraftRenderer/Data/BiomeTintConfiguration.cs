@@ -15,8 +15,7 @@ internal sealed class BiomeTintConfiguration
 		HashSet<string> dryFoliageTextures,
 		HashSet<string> dryFoliageBlocks,
 		HashSet<string> itemTintExclusions,
-		Dictionary<string, Color> constantColors)
-	{
+		Dictionary<string, Color> constantColors) {
 		GrassTextures = grassTextures;
 		GrassBlocks = grassBlocks;
 		FoliageTextures = foliageTextures;
@@ -43,8 +42,7 @@ internal sealed class BiomeTintConfiguration
 
 	public Dictionary<string, Color> ConstantColors { get; }
 
-	public static BiomeTintConfiguration LoadDefault()
-	{
+	public static BiomeTintConfiguration LoadDefault() {
 		return new BiomeTintConfiguration(
 			CreateSet(GrassTextureKeys),
 			CreateSet(GrassBlockKeys),
@@ -56,19 +54,15 @@ internal sealed class BiomeTintConfiguration
 			CreateColorMap());
 	}
 
-	private static HashSet<string> CreateSet(IEnumerable<string>? values)
-	{
+	private static HashSet<string> CreateSet(IEnumerable<string>? values) {
 		var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-		if (values is null)
-		{
+		if (values is null) {
 			return set;
 		}
 
-		foreach (var value in values)
-		{
+		foreach (var value in values) {
 			var normalized = value?.Trim();
-			if (!string.IsNullOrEmpty(normalized))
-			{
+			if (!string.IsNullOrEmpty(normalized)) {
 				set.Add(normalized.ToLowerInvariant());
 			}
 		}
@@ -76,13 +70,10 @@ internal sealed class BiomeTintConfiguration
 		return set;
 	}
 
-	private static Dictionary<string, Color> CreateColorMap()
-	{
+	private static Dictionary<string, Color> CreateColorMap() {
 		var result = new Dictionary<string, Color>(StringComparer.OrdinalIgnoreCase);
-		foreach (var (key, r, g, b) in ConstantColorEntries)
-		{
-			if (string.IsNullOrWhiteSpace(key))
-			{
+		foreach (var (key, r, g, b) in ConstantColorEntries) {
+			if (string.IsNullOrWhiteSpace(key)) {
 				continue;
 			}
 
@@ -93,8 +84,7 @@ internal sealed class BiomeTintConfiguration
 		return result;
 	}
 
-	private static readonly string[] GrassTextureKeys =
-	{
+	private static readonly string[] GrassTextureKeys = {
 		"grass",
 		"tall_grass",
 		"short_grass",
@@ -122,8 +112,7 @@ internal sealed class BiomeTintConfiguration
 		"sea_grass"
 	};
 
-	private static readonly string[] GrassBlockKeys =
-	{
+	private static readonly string[] GrassBlockKeys = {
 		"grass_block",
 		"grass",
 		"tall_grass",
@@ -146,8 +135,7 @@ internal sealed class BiomeTintConfiguration
 		"potted_fern"
 	};
 
-	private static readonly string[] FoliageTextureKeys =
-	{
+	private static readonly string[] FoliageTextureKeys = {
 		"oak_leaves",
 		"spruce_leaves",
 		"birch_leaves",
@@ -186,8 +174,7 @@ internal sealed class BiomeTintConfiguration
 		"small_dripleaf_stem_top"
 	};
 
-	private static readonly string[] FoliageBlockKeys =
-	{
+	private static readonly string[] FoliageBlockKeys = {
 		"oak_leaves",
 		"spruce_leaves",
 		"birch_leaves",
@@ -229,8 +216,7 @@ internal sealed class BiomeTintConfiguration
 		"potted_flowering_azalea_bush"
 	};
 
-	private static readonly string[] DryFoliageTextureKeys =
-	{
+	private static readonly string[] DryFoliageTextureKeys = {
 		"dead_bush",
 		"leaf_litter",
 		"leaf_litter_1",
@@ -241,8 +227,7 @@ internal sealed class BiomeTintConfiguration
 		"tall_dry_grass"
 	};
 
-	private static readonly string[] DryFoliageBlockKeys =
-	{
+	private static readonly string[] DryFoliageBlockKeys = {
 		"dead_bush",
 		"leaf_litter",
 		"leaf_litter_1",
@@ -254,8 +239,7 @@ internal sealed class BiomeTintConfiguration
 		"potted_dead_bush"
 	};
 
-	private static readonly string[] ItemTintExclusionKeys =
-	{
+	private static readonly string[] ItemTintExclusionKeys = {
 		"oak_sapling",
 		"spruce_sapling",
 		"birch_sapling",
@@ -269,8 +253,7 @@ internal sealed class BiomeTintConfiguration
 		"cherry_sapling"
 	};
 
-	private static readonly (string Key, byte R, byte G, byte B)[] ConstantColorEntries =
-	{
+	private static readonly (string Key, byte R, byte G, byte B)[] ConstantColorEntries = {
 		("birch_leaves", 128, 167, 85),
 		("spruce_leaves", 97, 153, 97),
 		("lily_pad", 32, 128, 48)

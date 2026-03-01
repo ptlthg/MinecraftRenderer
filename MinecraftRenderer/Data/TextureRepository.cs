@@ -22,8 +22,10 @@ public sealed class TextureRepository : IDisposable
 	private readonly ConcurrentDictionary<string, Image<Rgba32>> _cache = new(StringComparer.OrdinalIgnoreCase);
 	private readonly Dictionary<string, string> _embedded = new(StringComparer.OrdinalIgnoreCase);
 	private readonly Image<Rgba32> _missingTexture;
+
 	private readonly ConcurrentDictionary<string, TextureAnimation> _animationCache =
 		new(StringComparer.OrdinalIgnoreCase);
+
 	private volatile AnimationOverride? _activeAnimationOverride;
 	private readonly object _animationOverrideLock = new();
 	private readonly Dictionary<uint, int> _trimPaletteLookup;
@@ -34,66 +36,53 @@ public sealed class TextureRepository : IDisposable
 	private bool _disposed;
 
 	public TextureRepository(string dataRoot, string? embeddedTextureFile = null,
-		IEnumerable<string>? overlayRoots = null, AssetNamespaceRegistry? assetNamespaces = null)
-	{
+		IEnumerable<string>? overlayRoots = null, AssetNamespaceRegistry? assetNamespaces = null) {
 		_assetNamespaces = assetNamespaces;
 		_sources = BuildSourceList(dataRoot, overlayRoots, assetNamespaces);
 		_missingTexture = CreateMissingTexture();
 
-		if (TryLoadTrimPaletteColors(out var trimPaletteColors))
-		{
+		if (TryLoadTrimPaletteColors(out var trimPaletteColors)) {
 			_trimPaletteLength = trimPaletteColors.Length;
 			_trimPaletteLookup = new Dictionary<uint, int>(trimPaletteColors.Length);
-			for (var i = 0; i < trimPaletteColors.Length; i++)
-			{
+			for (var i = 0; i < trimPaletteColors.Length; i++) {
 				_trimPaletteLookup[trimPaletteColors[i].PackedValue] = i;
 			}
 		}
-		else
-		{
+		else {
 			_trimPaletteLength = 0;
 			_trimPaletteLookup = new Dictionary<uint, int>();
 		}
 
 		var colormapRoot = FindColormapRoot();
-		if (colormapRoot is not null)
-		{
+		if (colormapRoot is not null) {
 			var grassPath = Path.Combine(colormapRoot, "colormap", "grass.png");
-			if (File.Exists(grassPath))
-			{
+			if (File.Exists(grassPath)) {
 				GrassColorMap = Image.Load<Rgba32>(grassPath);
 			}
 
 			var foliagePath = Path.Combine(colormapRoot, "colormap", "foliage.png");
-			if (File.Exists(foliagePath))
-			{
+			if (File.Exists(foliagePath)) {
 				FoliageColorMap = Image.Load<Rgba32>(foliagePath);
 			}
 
 			var dryFoliagePath = Path.Combine(colormapRoot, "colormap", "dryfoliage.png");
-			if (File.Exists(dryFoliagePath))
-			{
+			if (File.Exists(dryFoliagePath)) {
 				DryFoliageColorMap = Image.Load<Rgba32>(dryFoliagePath);
 			}
 		}
 
-		if (!string.IsNullOrWhiteSpace(embeddedTextureFile) && File.Exists(embeddedTextureFile))
-		{
+		if (!string.IsNullOrWhiteSpace(embeddedTextureFile) && File.Exists(embeddedTextureFile)) {
 			var json = File.ReadAllText(embeddedTextureFile);
-			var options = new JsonSerializerOptions
-			{
+			var options = new JsonSerializerOptions {
 				PropertyNameCaseInsensitive = true,
 				ReadCommentHandling = JsonCommentHandling.Skip
 			};
 
 			var entries = JsonSerializer.Deserialize<List<TextureContentEntry>>(json, options);
 
-			if (entries is not null)
-			{
-				foreach (var entry in entries)
-				{
-					if (!string.IsNullOrWhiteSpace(entry.Texture))
-					{
+			if (entries is not null) {
+				foreach (var entry in entries) {
+					if (!string.IsNullOrWhiteSpace(entry.Texture)) {
 						var key = NormalizeTextureId(entry.Name);
 						_embedded[key] = entry.Texture!;
 					}
@@ -102,34 +91,29 @@ public sealed class TextureRepository : IDisposable
 		}
 	}
 
-	public Image<Rgba32> GetTexture(string textureId)
-	{
-		if (string.IsNullOrWhiteSpace(textureId))
-		{
+	public Image<Rgba32> GetTexture(string textureId) {
+		if (string.IsNullOrWhiteSpace(textureId)) {
 			return _missingTexture;
 		}
 
 		var normalized = NormalizeTextureId(textureId);
 		var overrideContext = _activeAnimationOverride;
-		if (overrideContext is not null && overrideContext.TryGetFrame(normalized, out var overrideFrame))
-		{
+		if (overrideContext is not null && overrideContext.TryGetFrame(normalized, out var overrideFrame)) {
 			return overrideFrame.Image;
 		}
 
 		return _cache.GetOrAdd(normalized, LoadTextureInternal);
 	}
 
-	public bool TryGetTexture(string textureId, out Image<Rgba32> texture)
-	{
+	public bool TryGetTexture(string textureId, out Image<Rgba32> texture) {
 		texture = GetTexture(textureId);
 		return !ReferenceEquals(texture, _missingTexture);
 	}
 
-	public Image<Rgba32> GetTintedTexture(string textureId, Color tint, float strengthMultiplier = 1f, float blend = 1f)
-	{
+	public Image<Rgba32> GetTintedTexture(string textureId, Color tint, float strengthMultiplier = 1f,
+		float blend = 1f) {
 		var tintRgba = tint.ToPixel<Rgba32>();
-		if (tintRgba.A == 0)
-		{
+		if (tintRgba.A == 0) {
 			return GetTexture(textureId);
 		}
 
@@ -138,16 +122,13 @@ public sealed class TextureRepository : IDisposable
 		var blendKey = blend.ToString("0.###", CultureInfo.InvariantCulture);
 		var cacheKey = $"{normalized}_{tint.ToHex()}_{strengthKey}_{blendKey}";
 		var overrideSuffix = _activeAnimationOverride?.CacheKeySuffix;
-		if (!string.IsNullOrEmpty(overrideSuffix))
-		{
+		if (!string.IsNullOrEmpty(overrideSuffix)) {
 			cacheKey += $"|anim:{overrideSuffix}";
 		}
 
-		return _cache.GetOrAdd(cacheKey, _ =>
-		{
+		return _cache.GetOrAdd(cacheKey, _ => {
 			var original = GetTexture(textureId);
-			if (ReferenceEquals(original, _missingTexture))
-			{
+			if (ReferenceEquals(original, _missingTexture)) {
 				return _missingTexture;
 			}
 
@@ -158,25 +139,20 @@ public sealed class TextureRepository : IDisposable
 				MathF.Min(tintRgba.B / 255f * strengthMultiplier, 1f),
 				tintRgba.A / 255f);
 
-			tinted.ProcessPixelRows(accessor =>
-			{
-				for (var y = 0; y < accessor.Height; y++)
-				{
+			tinted.ProcessPixelRows(accessor => {
+				for (var y = 0; y < accessor.Height; y++) {
 					var row = accessor.GetRowSpan(y);
-					for (var x = 0; x < row.Length; x++)
-					{
+					for (var x = 0; x < row.Length; x++) {
 						var pixelVector = row[x].ToVector4();
 						var tintedVector = pixelVector * tintVector;
 						tintedVector.W = pixelVector.W * tintVector.W;
 						tintedVector = Vector4.Clamp(tintedVector, Vector4.Zero, Vector4.One);
 
 						var clampedBlend = blend;
-						if (clampedBlend < 0f)
-						{
+						if (clampedBlend < 0f) {
 							clampedBlend = 0f;
 						}
-						else if (clampedBlend > 1f)
-						{
+						else if (clampedBlend > 1f) {
 							clampedBlend = 1f;
 						}
 
@@ -193,24 +169,20 @@ public sealed class TextureRepository : IDisposable
 		});
 	}
 
-	public void RegisterTexture(string textureId, Image<Rgba32> image, bool overwrite = true)
-	{
+	public void RegisterTexture(string textureId, Image<Rgba32> image, bool overwrite = true) {
 		ArgumentException.ThrowIfNullOrWhiteSpace(textureId);
 		ArgumentNullException.ThrowIfNull(image);
 
 		var normalized = NormalizeTextureId(textureId);
-		if (!overwrite && _cache.ContainsKey(normalized))
-		{
+		if (!overwrite && _cache.ContainsKey(normalized)) {
 			return;
 		}
 
 		_cache.AddOrUpdate(
 			normalized,
 			_ => image.Clone(),
-			(_, existing) =>
-			{
-				if (!ReferenceEquals(existing, _missingTexture))
-				{
+			(_, existing) => {
+				if (!ReferenceEquals(existing, _missingTexture)) {
 					existing.Dispose();
 				}
 
@@ -218,64 +190,52 @@ public sealed class TextureRepository : IDisposable
 			});
 	}
 
-	private Image<Rgba32> LoadTextureInternal(string normalized)
-	{
+	private Image<Rgba32> LoadTextureInternal(string normalized) {
 		var (namespaceName, pathWithinNamespace) = ParseNamespace(normalized);
 		var logicalPaths = EnumerateLogicalPaths(pathWithinNamespace).ToList();
 
 		// Iterate sources in reverse order (High Priority -> Low Priority)
-		for (var i = _sources.Count - 1; i >= 0; i--)
-		{
+		for (var i = _sources.Count - 1; i >= 0; i--) {
 			var source = _sources[i];
-			foreach (var logicalPath in logicalPaths)
-			{
-				if (source.TryResolve(namespaceName, logicalPath, out var candidate))
-				{
+			foreach (var logicalPath in logicalPaths) {
+				if (source.TryResolve(namespaceName, logicalPath, out var candidate)) {
 					var loadedTexture = Image.Load<Rgba32>(candidate);
 					return ProcessAnimatedTexture(normalized, candidate, loadedTexture);
 				}
 			}
 		}
 
-		if (_embedded.TryGetValue(normalized, out var dataUri) && TryDecodeDataUri(dataUri, out var image))
-		{
+		if (_embedded.TryGetValue(normalized, out var dataUri) && TryDecodeDataUri(dataUri, out var image)) {
 			return image;
 		}
 
 		var shortKeyIndex = normalized.LastIndexOf('/');
-		if (shortKeyIndex >= 0)
-		{
+		if (shortKeyIndex >= 0) {
 			var shortKey = normalized[(shortKeyIndex + 1)..];
-			if (_embedded.TryGetValue(shortKey, out dataUri) && TryDecodeDataUri(dataUri, out image))
-			{
+			if (_embedded.TryGetValue(shortKey, out dataUri) && TryDecodeDataUri(dataUri, out image)) {
 				return image;
 			}
 		}
 
-		if (TryGenerateArmorTrimTexture(normalized, out var generated))
-		{
+		if (TryGenerateArmorTrimTexture(normalized, out var generated)) {
 			return generated;
 		}
 
 		return _missingTexture;
 	}
 
-	private static (string Namespace, string Path) ParseNamespace(string normalized)
-	{
+	private static (string Namespace, string Path) ParseNamespace(string normalized) {
 		var sanitized = normalized.TrimStart('/').Replace('\\', '/');
 		var colonIndex = sanitized.IndexOf(':');
-		if (colonIndex >= 0)
-		{
+		if (colonIndex >= 0) {
 			return (sanitized[..colonIndex], sanitized[(colonIndex + 1)..]);
 		}
 
 		return ("minecraft", sanitized);
 	}
 
-	private IEnumerable<string> EnumerateLogicalPaths(string pathWithinNamespace)
-	{
-		if (string.IsNullOrWhiteSpace(pathWithinNamespace))
-		{
+	private IEnumerable<string> EnumerateLogicalPaths(string pathWithinNamespace) {
+		if (string.IsNullOrWhiteSpace(pathWithinNamespace)) {
 			yield break;
 		}
 
@@ -284,95 +244,77 @@ public sealed class TextureRepository : IDisposable
 		var segments = pathWithinNamespace.Split('/', StringSplitOptions.RemoveEmptyEntries);
 		var workingSegments = segments;
 
-		if (workingSegments.Length > 1 && workingSegments[0].Equals("textures", StringComparison.OrdinalIgnoreCase))
-		{
+		if (workingSegments.Length > 1 && workingSegments[0].Equals("textures", StringComparison.OrdinalIgnoreCase)) {
 			workingSegments = workingSegments.Skip(1).ToArray();
-			if (workingSegments.Length > 0)
-			{
+			if (workingSegments.Length > 0) {
 				yield return string.Join('/', workingSegments);
 			}
 		}
 
-		if (workingSegments.Length > 1)
-		{
+		if (workingSegments.Length > 1) {
 			var first = workingSegments[0];
 			var remainder = string.Join('/', workingSegments.Skip(1));
-			foreach (var variant in EnumerateFolderCandidates(first))
-			{
-				if (!string.Equals(variant, first, StringComparison.OrdinalIgnoreCase))
-				{
+			foreach (var variant in EnumerateFolderCandidates(first)) {
+				if (!string.Equals(variant, first, StringComparison.OrdinalIgnoreCase)) {
 					yield return $"{variant}/{remainder}";
 				}
 			}
 		}
 
-		if (workingSegments.Length > 0)
-		{
+		if (workingSegments.Length > 0) {
 			yield return workingSegments[^1];
 		}
 	}
 
-	private IEnumerable<string> EnumerateCandidatePaths(string normalized)
-	{
+	private IEnumerable<string> EnumerateCandidatePaths(string normalized) {
 		// Legacy method kept for internal helpers that might rely on it, but refactored to use new logic
 		var (namespaceName, pathWithinNamespace) = ParseNamespace(normalized);
-		foreach (var logicalPath in EnumerateLogicalPaths(pathWithinNamespace))
-		{
-			for (var i = _sources.Count - 1; i >= 0; i--)
-			{
+		foreach (var logicalPath in EnumerateLogicalPaths(pathWithinNamespace)) {
+			for (var i = _sources.Count - 1; i >= 0; i--) {
 				var source = _sources[i];
-				if (source.TryResolve(namespaceName, logicalPath, out var candidate))
-				{
+				if (source.TryResolve(namespaceName, logicalPath, out var candidate)) {
 					yield return candidate;
 				}
 			}
 		}
 	}
 
-	private static IReadOnlyList<TextureSource> BuildSourceList(string primaryRoot, IEnumerable<string>? overlayRoots, AssetNamespaceRegistry? assetNamespaces)
-	{
+	private static IReadOnlyList<TextureSource> BuildSourceList(string primaryRoot, IEnumerable<string>? overlayRoots,
+		AssetNamespaceRegistry? assetNamespaces) {
 		var sources = new List<TextureSource>();
 
-		if (assetNamespaces is not null)
-		{
-			foreach (var sourceId in assetNamespaces.GetSources())
-			{
+		if (assetNamespaces is not null) {
+			foreach (var sourceId in assetNamespaces.GetSources()) {
 				sources.Add(new RegistryTextureSource(sourceId, assetNamespaces));
 			}
 		}
-		else
-		{
+		else {
 			// Fallback: Treat each root as a separate source to preserve order
 			var orderedRoots = new List<string>();
-			
-			void TryAddDirectory(string? candidate)
-			{
+
+			void TryAddDirectory(string? candidate) {
 				if (string.IsNullOrWhiteSpace(candidate)) return;
 				var fullPath = Path.GetFullPath(candidate);
 				if (!Directory.Exists(fullPath)) return;
-				if (!orderedRoots.Contains(fullPath, StringComparer.OrdinalIgnoreCase))
-				{
+				if (!orderedRoots.Contains(fullPath, StringComparer.OrdinalIgnoreCase)) {
 					orderedRoots.Add(fullPath);
 				}
-				
+
 				var texturesSubdirectory = Path.Combine(fullPath, "textures");
-				if (Directory.Exists(texturesSubdirectory) && !orderedRoots.Contains(texturesSubdirectory, StringComparer.OrdinalIgnoreCase))
-				{
+				if (Directory.Exists(texturesSubdirectory) &&
+				    !orderedRoots.Contains(texturesSubdirectory, StringComparer.OrdinalIgnoreCase)) {
 					orderedRoots.Add(texturesSubdirectory);
 				}
 			}
 
 			TryAddDirectory(primaryRoot);
-			if (overlayRoots is not null)
-			{
-				foreach (var overlay in overlayRoots)
-				{
+			if (overlayRoots is not null) {
+				foreach (var overlay in overlayRoots) {
 					TryAddDirectory(overlay);
 				}
 			}
 
-			foreach (var root in orderedRoots)
-			{
+			foreach (var root in orderedRoots) {
 				sources.Add(new DirectoryTextureSource(root));
 			}
 		}
@@ -380,15 +322,13 @@ public sealed class TextureRepository : IDisposable
 		return sources;
 	}
 
-	private string? FindColormapRoot()
-	{
-		for (var i = _sources.Count - 1; i >= 0; i--)
-		{
-			if (_sources[i].TryResolve("minecraft", "colormap/grass", out var path))
-			{
+	private string? FindColormapRoot() {
+		for (var i = _sources.Count - 1; i >= 0; i--) {
+			if (_sources[i].TryResolve("minecraft", "colormap/grass", out var path)) {
 				return Path.GetDirectoryName(Path.GetDirectoryName(path));
 			}
 		}
+
 		return null;
 	}
 
@@ -402,26 +342,21 @@ public sealed class TextureRepository : IDisposable
 		private readonly string _sourceId;
 		private readonly AssetNamespaceRegistry _registry;
 
-		public RegistryTextureSource(string sourceId, AssetNamespaceRegistry registry)
-		{
+		public RegistryTextureSource(string sourceId, AssetNamespaceRegistry registry) {
 			_sourceId = sourceId;
 			_registry = registry;
 		}
 
-		public override bool TryResolve(string namespaceName, string relativePath, out string absolutePath)
-		{
+		public override bool TryResolve(string namespaceName, string relativePath, out string absolutePath) {
 			var roots = _registry.GetRoots(namespaceName, _sourceId);
-			if (roots.Count == 0 && !string.Equals(namespaceName, "minecraft", StringComparison.OrdinalIgnoreCase))
-			{
+			if (roots.Count == 0 && !string.Equals(namespaceName, "minecraft", StringComparison.OrdinalIgnoreCase)) {
 				roots = _registry.GetRoots("minecraft", _sourceId);
 			}
 
 			var withExtension = relativePath.Replace('/', Path.DirectorySeparatorChar) + ".png";
-			foreach (var root in roots)
-			{
+			foreach (var root in roots) {
 				var candidate = Path.Combine(root.Path, withExtension);
-				if (File.Exists(candidate))
-				{
+				if (File.Exists(candidate)) {
 					absolutePath = candidate;
 					return true;
 				}
@@ -436,17 +371,14 @@ public sealed class TextureRepository : IDisposable
 	{
 		private readonly string _root;
 
-		public DirectoryTextureSource(string root)
-		{
+		public DirectoryTextureSource(string root) {
 			_root = root;
 		}
 
-		public override bool TryResolve(string namespaceName, string relativePath, out string absolutePath)
-		{
+		public override bool TryResolve(string namespaceName, string relativePath, out string absolutePath) {
 			var withExtension = relativePath.Replace('/', Path.DirectorySeparatorChar) + ".png";
 			var candidate = Path.Combine(_root, withExtension);
-			if (File.Exists(candidate))
-			{
+			if (File.Exists(candidate)) {
 				absolutePath = candidate;
 				return true;
 			}
@@ -456,34 +388,27 @@ public sealed class TextureRepository : IDisposable
 		}
 	}
 
-	private static IEnumerable<string> EnumerateFolderCandidates(string folder)
-	{
+	private static IEnumerable<string> EnumerateFolderCandidates(string folder) {
 		yield return folder;
 
-		if (folder.Equals("block", StringComparison.OrdinalIgnoreCase))
-		{
+		if (folder.Equals("block", StringComparison.OrdinalIgnoreCase)) {
 			yield return "blocks";
 		}
-		else if (folder.Equals("blocks", StringComparison.OrdinalIgnoreCase))
-		{
+		else if (folder.Equals("blocks", StringComparison.OrdinalIgnoreCase)) {
 			yield return "block";
 		}
-		else if (folder.Equals("item", StringComparison.OrdinalIgnoreCase))
-		{
+		else if (folder.Equals("item", StringComparison.OrdinalIgnoreCase)) {
 			yield return "items";
 		}
-		else if (folder.Equals("items", StringComparison.OrdinalIgnoreCase))
-		{
+		else if (folder.Equals("items", StringComparison.OrdinalIgnoreCase)) {
 			yield return "item";
 		}
 	}
 
-	internal static string NormalizeTextureId(string textureId)
-	{
+	internal static string NormalizeTextureId(string textureId) {
 		var normalized = textureId.Trim();
 
-		if (normalized.StartsWith("minecraft:", StringComparison.OrdinalIgnoreCase))
-		{
+		if (normalized.StartsWith("minecraft:", StringComparison.OrdinalIgnoreCase)) {
 			normalized = normalized[10..];
 		}
 
@@ -492,11 +417,9 @@ public sealed class TextureRepository : IDisposable
 			.ToLowerInvariant();
 	}
 
-	private static bool TryDecodeDataUri(string dataUri, out Image<Rgba32> image)
-	{
+	private static bool TryDecodeDataUri(string dataUri, out Image<Rgba32> image) {
 		const string prefix = "data:image/png;base64,";
-		if (dataUri.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-		{
+		if (dataUri.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) {
 			var base64 = dataUri[prefix.Length..];
 			var bytes = Convert.FromBase64String(base64);
 			image = Image.Load<Rgba32>(bytes);
@@ -507,16 +430,13 @@ public sealed class TextureRepository : IDisposable
 		return false;
 	}
 
-	private static Image<Rgba32> CreateMissingTexture()
-	{
+	private static Image<Rgba32> CreateMissingTexture() {
 		var image = new Image<Rgba32>(16, 16);
 		var magenta = new Rgba32(0xFF, 0x00, 0xFF, 0xFF);
 		var black = new Rgba32(0x00, 0x00, 0x00, 0xFF);
 
-		for (var y = 0; y < 16; y++)
-		{
-			for (var x = 0; x < 16; x++)
-			{
+		for (var y = 0; y < 16; y++) {
+			for (var x = 0; x < 16; x++) {
 				var isMagenta = (x / 8 + y / 8) % 2 == 0;
 				image[x, y] = isMagenta ? magenta : black;
 			}
@@ -525,11 +445,9 @@ public sealed class TextureRepository : IDisposable
 		return image;
 	}
 
-	private Image<Rgba32> ProcessAnimatedTexture(string normalizedKey, string texturePath, Image<Rgba32> spriteSheet)
-	{
+	private Image<Rgba32> ProcessAnimatedTexture(string normalizedKey, string texturePath, Image<Rgba32> spriteSheet) {
 		var animation = TryBuildTextureAnimation(texturePath, spriteSheet);
-		if (animation is null || animation.Frames.Count == 0)
-		{
+		if (animation is null || animation.Frames.Count == 0) {
 			return spriteSheet;
 		}
 
@@ -539,29 +457,24 @@ public sealed class TextureRepository : IDisposable
 		return firstFrame;
 	}
 
-	private TextureAnimation? TryBuildTextureAnimation(string texturePath, Image<Rgba32> spriteSheet)
-	{
+	private TextureAnimation? TryBuildTextureAnimation(string texturePath, Image<Rgba32> spriteSheet) {
 		var metadataPath = texturePath + ".mcmeta";
-		if (!File.Exists(metadataPath))
-		{
+		if (!File.Exists(metadataPath)) {
 			return null;
 		}
 
-		try
-		{
+		try {
 			using var stream = File.OpenRead(metadataPath);
 			using var document = JsonDocument.Parse(stream);
 
 			if (!document.RootElement.TryGetProperty("animation", out var animationElement) ||
-			    animationElement.ValueKind != JsonValueKind.Object)
-			{
+			    animationElement.ValueKind != JsonValueKind.Object) {
 				return null;
 			}
 
 			var defaultFrameTime = 1f;
 			if (animationElement.TryGetProperty("frametime", out var frametimeProperty) &&
-			    frametimeProperty.ValueKind == JsonValueKind.Number)
-			{
+			    frametimeProperty.ValueKind == JsonValueKind.Number) {
 				defaultFrameTime = Math.Max(frametimeProperty.GetSingle(), 1f);
 			}
 
@@ -580,10 +493,8 @@ public sealed class TextureRepository : IDisposable
 				: BuildSequentialFrames(maximumFrameIndex + 1, defaultFrameTime);
 
 			var frames = new List<TextureAnimationFrame>(sequence.Count);
-			foreach (var descriptor in sequence)
-			{
-				if (descriptor.Index < 0)
-				{
+			foreach (var descriptor in sequence) {
+				if (descriptor.Index < 0) {
 					continue;
 				}
 
@@ -595,8 +506,7 @@ public sealed class TextureRepository : IDisposable
 				var x = column * frameWidth;
 				var y = row * frameHeightValue;
 
-				if (x + frameWidth > spriteSheet.Width || y + frameHeightValue > spriteSheet.Height)
-				{
+				if (x + frameWidth > spriteSheet.Width || y + frameHeightValue > spriteSheet.Height) {
 					continue;
 				}
 
@@ -605,57 +515,48 @@ public sealed class TextureRepository : IDisposable
 				frames.Add(new TextureAnimationFrame(normalizedIndex, frameImage, durationMs));
 			}
 
-			if (frames.Count == 0)
-			{
+			if (frames.Count == 0) {
 				return null;
 			}
 
 			var interpolate = animationElement.TryGetProperty("interpolate", out var interpolateElement) &&
-			                     interpolateElement.ValueKind == JsonValueKind.True;
+			                  interpolateElement.ValueKind == JsonValueKind.True;
 
 			return new TextureAnimation(frames, interpolate, frameWidth, frameHeightValue);
 		}
-		catch (JsonException)
-		{
+		catch (JsonException) {
 			return null;
 		}
-		catch (IOException)
-		{
+		catch (IOException) {
 			return null;
 		}
 	}
 
 	private static IReadOnlyList<AnimationFrameDescriptor> ExtractFrameSequence(JsonElement animationElement,
-		float defaultFrameTime)
-	{
+		float defaultFrameTime) {
 		if (!animationElement.TryGetProperty("frames", out var framesElement) ||
-		    framesElement.ValueKind != JsonValueKind.Array)
-		{
+		    framesElement.ValueKind != JsonValueKind.Array) {
 			return [];
 		}
 
 		var frames = new List<AnimationFrameDescriptor>();
-		foreach (var entry in framesElement.EnumerateArray())
-		{
-			switch (entry.ValueKind)
-			{
+		foreach (var entry in framesElement.EnumerateArray()) {
+			switch (entry.ValueKind) {
 				case JsonValueKind.Number:
 					frames.Add(new AnimationFrameDescriptor(entry.GetInt32(), defaultFrameTime));
 					break;
 				case JsonValueKind.Object:
 					var index = entry.TryGetProperty("index", out var indexElement) &&
-					             indexElement.ValueKind == JsonValueKind.Number
+					            indexElement.ValueKind == JsonValueKind.Number
 						? indexElement.GetInt32()
 						: -1;
-					if (index < 0)
-					{
+					if (index < 0) {
 						continue;
 					}
 
 					var frameTime = defaultFrameTime;
 					if (entry.TryGetProperty("time", out var timeElement) &&
-					    timeElement.ValueKind == JsonValueKind.Number)
-					{
+					    timeElement.ValueKind == JsonValueKind.Number) {
 						frameTime = Math.Max(timeElement.GetInt32(), 1);
 					}
 
@@ -667,30 +568,25 @@ public sealed class TextureRepository : IDisposable
 		return frames;
 	}
 
-	private static IReadOnlyList<AnimationFrameDescriptor> BuildSequentialFrames(int frameCount, float defaultFrameTime)
-	{
-		if (frameCount <= 0)
-		{
+	private static IReadOnlyList<AnimationFrameDescriptor>
+		BuildSequentialFrames(int frameCount, float defaultFrameTime) {
+		if (frameCount <= 0) {
 			return [];
 		}
 
 		var frames = new List<AnimationFrameDescriptor>(frameCount);
-		for (var i = 0; i < frameCount; i++)
-		{
+		for (var i = 0; i < frameCount; i++) {
 			frames.Add(new AnimationFrameDescriptor(i, defaultFrameTime));
 		}
 
 		return frames;
 	}
 
-	private bool TryLoadTrimPaletteColors(out Rgba32[] colors)
-	{
-		foreach (var candidate in EnumerateCandidatePaths("trims/color_palettes/trim_palette"))
-		{
+	private bool TryLoadTrimPaletteColors(out Rgba32[] colors) {
+		foreach (var candidate in EnumerateCandidatePaths("trims/color_palettes/trim_palette")) {
 			if (!File.Exists(candidate)) continue;
 
-			try
-			{
+			try {
 				using var image = Image.Load<Rgba32>(candidate);
 				if (image.Height <= 0) continue;
 
@@ -700,12 +596,10 @@ public sealed class TextureRepository : IDisposable
 				colors = copy;
 				return true;
 			}
-			catch (IOException)
-			{
+			catch (IOException) {
 				continue;
 			}
-			catch (UnknownImageFormatException)
-			{
+			catch (UnknownImageFormatException) {
 				continue;
 			}
 		}
@@ -714,74 +608,62 @@ public sealed class TextureRepository : IDisposable
 		return false;
 	}
 
-	private bool TryGenerateArmorTrimTexture(string normalized, out Image<Rgba32> generated)
-	{
+	private bool TryGenerateArmorTrimTexture(string normalized, out Image<Rgba32> generated) {
 		generated = null!;
-		if (!normalized.StartsWith("trims/items/", StringComparison.OrdinalIgnoreCase))
-		{
+		if (!normalized.StartsWith("trims/items/", StringComparison.OrdinalIgnoreCase)) {
 			return false;
 		}
 
 		var fileName = Path.GetFileName(normalized);
-		if (string.IsNullOrWhiteSpace(fileName))
-		{
+		if (string.IsNullOrWhiteSpace(fileName)) {
 			return false;
 		}
 
 		var trimMarkerIndex = fileName.IndexOf("_trim_", StringComparison.OrdinalIgnoreCase);
-		if (trimMarkerIndex < 0)
-		{
+		if (trimMarkerIndex < 0) {
 			return false;
 		}
 
 		var baseOverlayName = fileName[..(trimMarkerIndex + "_trim".Length)];
 		var materialToken = fileName[(trimMarkerIndex + "_trim_".Length)..];
-		if (string.IsNullOrWhiteSpace(baseOverlayName) || string.IsNullOrWhiteSpace(materialToken))
-		{
+		if (string.IsNullOrWhiteSpace(baseOverlayName) || string.IsNullOrWhiteSpace(materialToken)) {
 			return false;
 		}
 
 		var baseOverlayId = $"trims/items/{baseOverlayName}";
 		var overlayBase = GetTexture(baseOverlayId);
-		if (ReferenceEquals(overlayBase, _missingTexture))
-		{
+		if (ReferenceEquals(overlayBase, _missingTexture)) {
 			return false;
 		}
 
-		if (_trimPaletteLength == 0 || _trimPaletteLookup.Count == 0)
-		{
+		if (_trimPaletteLength == 0 || _trimPaletteLookup.Count == 0) {
 			return false;
 		}
 
 		var materialPalette = ResolveArmorTrimPalette(materialToken);
-		if (materialPalette is null || ReferenceEquals(materialPalette, _missingTexture) || materialPalette.Height == 0)
-		{
+		if (materialPalette is null || ReferenceEquals(materialPalette, _missingTexture) ||
+		    materialPalette.Height == 0) {
 			return false;
 		}
 
 		var materialPaletteRow = materialPalette.DangerousGetPixelRowMemory(0).Span;
-		if (materialPaletteRow.Length == 0)
-		{
+		if (materialPaletteRow.Length == 0) {
 			return false;
 		}
 
 		var tinted = overlayBase.Clone();
 
-		for (var y = 0; y < overlayBase.Height; y++)
-		{
+		for (var y = 0; y < overlayBase.Height; y++) {
 			var sourceRow = overlayBase.DangerousGetPixelRowMemory(y).Span;
 			var targetRow = tinted.DangerousGetPixelRowMemory(y).Span;
 
-			for (var x = 0; x < sourceRow.Length; x++)
-			{
+			for (var x = 0; x < sourceRow.Length; x++) {
 				var sourcePixel = sourceRow[x];
-				if (sourcePixel.A == 0)
-				{
+				if (sourcePixel.A == 0) {
 					continue;
 				}
 
-				if (!_trimPaletteLookup.TryGetValue(sourcePixel.PackedValue, out var paletteIndex))
-				{
+				if (!_trimPaletteLookup.TryGetValue(sourcePixel.PackedValue, out var paletteIndex)) {
 					targetRow[x] = sourcePixel;
 					continue;
 				}
@@ -796,13 +678,10 @@ public sealed class TextureRepository : IDisposable
 		return true;
 	}
 
-	private Image<Rgba32>? ResolveArmorTrimPalette(string materialToken)
-	{
-		foreach (var candidate in EnumerateArmorTrimPaletteCandidates(materialToken))
-		{
+	private Image<Rgba32>? ResolveArmorTrimPalette(string materialToken) {
+		foreach (var candidate in EnumerateArmorTrimPaletteCandidates(materialToken)) {
 			var palette = GetTexture($"trims/color_palettes/{candidate}");
-			if (!ReferenceEquals(palette, _missingTexture))
-			{
+			if (!ReferenceEquals(palette, _missingTexture)) {
 				return palette;
 			}
 		}
@@ -810,24 +689,19 @@ public sealed class TextureRepository : IDisposable
 		return null;
 	}
 
-	private static IEnumerable<string> EnumerateArmorTrimPaletteCandidates(string materialToken)
-	{
-		if (string.IsNullOrWhiteSpace(materialToken))
-		{
+	private static IEnumerable<string> EnumerateArmorTrimPaletteCandidates(string materialToken) {
+		if (string.IsNullOrWhiteSpace(materialToken)) {
 			yield break;
 		}
 
 		var normalizedMaterial = materialToken.Trim();
-		if (normalizedMaterial.Length == 0)
-		{
+		if (normalizedMaterial.Length == 0) {
 			yield break;
 		}
 
-		if (normalizedMaterial.EndsWith("_darker", StringComparison.OrdinalIgnoreCase))
-		{
+		if (normalizedMaterial.EndsWith("_darker", StringComparison.OrdinalIgnoreCase)) {
 			yield return normalizedMaterial;
-			if (normalizedMaterial.Length > 7)
-			{
+			if (normalizedMaterial.Length > 7) {
 				yield return normalizedMaterial[..^7];
 			}
 
@@ -837,10 +711,8 @@ public sealed class TextureRepository : IDisposable
 		yield return normalizedMaterial;
 	}
 
-	private static int? GetOptionalPositiveInt(JsonElement element, string propertyName)
-	{
-		if (element.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.Number)
-		{
+	private static int? GetOptionalPositiveInt(JsonElement element, string propertyName) {
+		if (element.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.Number) {
 			var value = property.GetInt32();
 			return value > 0 ? value : null;
 		}
@@ -848,16 +720,13 @@ public sealed class TextureRepository : IDisposable
 		return null;
 	}
 
-	internal bool TryGetAnimation(string textureId, out TextureAnimation animation)
-	{
+	internal bool TryGetAnimation(string textureId, out TextureAnimation animation) {
 		var normalized = NormalizeTextureId(textureId);
 		return _animationCache.TryGetValue(normalized, out animation);
 	}
 
-	internal IDisposable BeginAnimationOverride(IReadOnlyDictionary<string, TextureAnimationFrame> frames)
-	{
-		if (frames is null || frames.Count == 0)
-		{
+	internal IDisposable BeginAnimationOverride(IReadOnlyDictionary<string, TextureAnimationFrame> frames) {
+		if (frames is null || frames.Count == 0) {
 			return NoopScope.Instance;
 		}
 
@@ -868,8 +737,7 @@ public sealed class TextureRepository : IDisposable
 		return new AnimationOverrideScope(this, previous);
 	}
 
-	private static string BuildOverrideCacheKey(IReadOnlyDictionary<string, TextureAnimationFrame> frames)
-	{
+	private static string BuildOverrideCacheKey(IReadOnlyDictionary<string, TextureAnimationFrame> frames) {
 		return string.Join('|', frames
 			.OrderBy(static kvp => kvp.Key, StringComparer.OrdinalIgnoreCase)
 			.Select(static kvp => $"{kvp.Key}:{kvp.Value.FrameIndex}"));
@@ -880,8 +748,7 @@ public sealed class TextureRepository : IDisposable
 	internal sealed class TextureAnimation
 	{
 		public TextureAnimation(IReadOnlyList<TextureAnimationFrame> frames, bool interpolate, int frameWidth,
-			int frameHeight)
-		{
+			int frameHeight) {
 			Frames = frames ?? throw new ArgumentNullException(nameof(frames));
 			Interpolate = interpolate;
 			FrameWidth = frameWidth;
@@ -895,47 +762,38 @@ public sealed class TextureRepository : IDisposable
 		public int FrameHeight { get; }
 		public int TotalDurationMs { get; }
 
-		public TextureAnimationFrame GetFrameAtTime(long elapsedMilliseconds, out bool requiresDisposal)
-		{
+		public TextureAnimationFrame GetFrameAtTime(long elapsedMilliseconds, out bool requiresDisposal) {
 			requiresDisposal = false;
-			if (Frames.Count == 0)
-			{
+			if (Frames.Count == 0) {
 				throw new InvalidOperationException("Animation does not contain frames.");
 			}
 
-			if (TotalDurationMs <= 0)
-			{
+			if (TotalDurationMs <= 0) {
 				return Frames[0];
 			}
 
 			var normalized = (int)(elapsedMilliseconds % TotalDurationMs);
 			var accumulated = 0;
-			for (var index = 0; index < Frames.Count; index++)
-			{
+			for (var index = 0; index < Frames.Count; index++) {
 				var frame = Frames[index];
 				var duration = Math.Max(frame.DurationMs, 50);
 				var nextAccumulated = accumulated + duration;
-				if (normalized < nextAccumulated)
-				{
-					if (!Interpolate || Frames.Count == 1)
-					{
+				if (normalized < nextAccumulated) {
+					if (!Interpolate || Frames.Count == 1) {
 						return frame;
 					}
 
 					var spanWithinFrame = normalized - accumulated;
-					if (spanWithinFrame <= 0)
-					{
+					if (spanWithinFrame <= 0) {
 						return frame;
 					}
 
 					var progress = duration <= 0 ? 0d : spanWithinFrame / (double)duration;
-					if (progress <= 0d)
-					{
+					if (progress <= 0d) {
 						return frame;
 					}
 
-					if (progress >= 0.999d)
-					{
+					if (progress >= 0.999d) {
 						var nextFrameNearly = Frames[(index + 1) % Frames.Count];
 						return nextFrameNearly;
 					}
@@ -953,20 +811,17 @@ public sealed class TextureRepository : IDisposable
 		}
 
 		private TextureAnimationFrame CreateInterpolatedFrame(TextureAnimationFrame current,
-			TextureAnimationFrame next, double progress)
-		{
+			TextureAnimationFrame next, double progress) {
 			var alpha = (float)Math.Clamp(progress, 0d, 1d);
 			var blended = current.Image.Clone();
 			var width = Math.Min(blended.Width, next.Image.Width);
 			var height = Math.Min(blended.Height, next.Image.Height);
 
-			for (var y = 0; y < height; y++)
-			{
+			for (var y = 0; y < height; y++) {
 				var targetRow = blended.DangerousGetPixelRowMemory(y).Span;
 				var nextRow = next.Image.DangerousGetPixelRowMemory(y).Span;
 				var maxX = Math.Min(targetRow.Length, nextRow.Length);
-				for (var x = 0; x < maxX; x++)
-				{
+				for (var x = 0; x < maxX; x++) {
 					var basePixel = targetRow[x];
 					var nextPixel = nextRow[x];
 					targetRow[x] = BlendPixel(basePixel, nextPixel, alpha);
@@ -978,8 +833,7 @@ public sealed class TextureRepository : IDisposable
 			return new TextureAnimationFrame(frameKey, blended, current.DurationMs);
 		}
 
-		private static Rgba32 BlendPixel(Rgba32 source, Rgba32 target, float amount)
-		{
+		private static Rgba32 BlendPixel(Rgba32 source, Rgba32 target, float amount) {
 			amount = Math.Clamp(amount, 0f, 1f);
 			var inverse = 1f - amount;
 			var r = (byte)Math.Clamp((source.R * inverse) + (target.R * amount), 0f, 255f);
@@ -992,8 +846,7 @@ public sealed class TextureRepository : IDisposable
 
 	internal sealed class TextureAnimationFrame
 	{
-		public TextureAnimationFrame(int frameIndex, Image<Rgba32> image, int durationMs)
-		{
+		public TextureAnimationFrame(int frameIndex, Image<Rgba32> image, int durationMs) {
 			FrameIndex = frameIndex;
 			Image = image ?? throw new ArgumentNullException(nameof(image));
 			DurationMs = durationMs;
@@ -1008,8 +861,7 @@ public sealed class TextureRepository : IDisposable
 	{
 		private readonly IReadOnlyDictionary<string, TextureAnimationFrame> _frames;
 
-		public AnimationOverride(IReadOnlyDictionary<string, TextureAnimationFrame> frames, string cacheKeySuffix)
-		{
+		public AnimationOverride(IReadOnlyDictionary<string, TextureAnimationFrame> frames, string cacheKeySuffix) {
 			_frames = frames;
 			CacheKeySuffix = cacheKeySuffix;
 		}
@@ -1026,16 +878,13 @@ public sealed class TextureRepository : IDisposable
 		private readonly AnimationOverride? _previous;
 		private bool _disposed;
 
-		public AnimationOverrideScope(TextureRepository owner, AnimationOverride? previous)
-		{
+		public AnimationOverrideScope(TextureRepository owner, AnimationOverride? previous) {
 			_owner = owner;
 			_previous = previous;
 		}
 
-		public void Dispose()
-		{
-			if (_disposed)
-			{
+		public void Dispose() {
+			if (_disposed) {
 				return;
 			}
 
@@ -1049,32 +898,26 @@ public sealed class TextureRepository : IDisposable
 	{
 		public static NoopScope Instance { get; } = new();
 
-		public void Dispose()
-		{
+		public void Dispose() {
 			// No-op.
 		}
 	}
 
-	public void Dispose()
-	{
+	public void Dispose() {
 		if (_disposed) return;
 		_disposed = true;
 		_activeAnimationOverride = null;
 
-		foreach (var animation in _animationCache.Values)
-		{
-			foreach (var frame in animation.Frames)
-			{
+		foreach (var animation in _animationCache.Values) {
+			foreach (var frame in animation.Frames) {
 				frame.Image.Dispose();
 			}
 		}
 
 		_animationCache.Clear();
 
-		foreach (var texture in _cache.Values)
-		{
-			if (!ReferenceEquals(texture, _missingTexture))
-			{
+		foreach (var texture in _cache.Values) {
+			if (!ReferenceEquals(texture, _missingTexture)) {
 				texture.Dispose();
 			}
 		}

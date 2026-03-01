@@ -12,161 +12,142 @@ using System.IO;
 /// </summary>
 public sealed class AssetNamespaceRegistry
 {
-    private readonly List<AssetNamespaceRoot> _roots = [];
-    private readonly Dictionary<string, List<AssetNamespaceRoot>> _rootsByNamespace = new(StringComparer.OrdinalIgnoreCase);
-    private readonly HashSet<string> _deduplicationSet = new(StringComparer.OrdinalIgnoreCase);
+	private readonly List<AssetNamespaceRoot> _roots = [];
 
-    /// <summary>
-    /// Adds a namespace root to the registry using the provided insertion order. Duplicate namespace/path pairs
-    /// are ignored to keep iteration stable.
-    /// </summary>
-    public void AddNamespace(string namespaceName, string path, string sourceId, bool isVanilla)
-    {
-        if (string.IsNullOrWhiteSpace(namespaceName))
-        {
-            namespaceName = "minecraft";
-        }
+	private readonly Dictionary<string, List<AssetNamespaceRoot>> _rootsByNamespace =
+		new(StringComparer.OrdinalIgnoreCase);
 
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return;
-        }
+	private readonly HashSet<string> _deduplicationSet = new(StringComparer.OrdinalIgnoreCase);
 
-        var fullPath = Path.GetFullPath(path);
-        if (!Directory.Exists(fullPath))
-        {
-            return;
-        }
+	/// <summary>
+	/// Adds a namespace root to the registry using the provided insertion order. Duplicate namespace/path pairs
+	/// are ignored to keep iteration stable.
+	/// </summary>
+	public void AddNamespace(string namespaceName, string path, string sourceId, bool isVanilla) {
+		if (string.IsNullOrWhiteSpace(namespaceName)) {
+			namespaceName = "minecraft";
+		}
 
-        var identity = $"{namespaceName.ToLowerInvariant()}|{fullPath.ToLowerInvariant()}";
-        if (!_deduplicationSet.Add(identity))
-        {
-            return;
-        }
+		if (string.IsNullOrWhiteSpace(path)) {
+			return;
+		}
 
-        var root = new AssetNamespaceRoot(namespaceName, fullPath, sourceId, isVanilla);
-        _roots.Add(root);
+		var fullPath = Path.GetFullPath(path);
+		if (!Directory.Exists(fullPath)) {
+			return;
+		}
 
-        if (!_rootsByNamespace.TryGetValue(namespaceName, out var bucket))
-        {
-            bucket = new List<AssetNamespaceRoot>();
-            _rootsByNamespace[namespaceName] = bucket;
-        }
+		var identity = $"{namespaceName.ToLowerInvariant()}|{fullPath.ToLowerInvariant()}";
+		if (!_deduplicationSet.Add(identity)) {
+			return;
+		}
 
-        bucket.Add(root);
-    }
+		var root = new AssetNamespaceRoot(namespaceName, fullPath, sourceId, isVanilla);
+		_roots.Add(root);
 
-    /// <summary>
-    /// Returns all roots tracked by the registry in insertion order (vanilla first, overlays last).
-    /// </summary>
-    public ReadOnlyCollection<AssetNamespaceRoot> Roots => _roots.AsReadOnly();
+		if (!_rootsByNamespace.TryGetValue(namespaceName, out var bucket)) {
+			bucket = new List<AssetNamespaceRoot>();
+			_rootsByNamespace[namespaceName] = bucket;
+		}
 
-    /// <summary>
-    /// Retrieves the ordered roots for a specific namespace. If no entries are present for the requested namespace,
-    /// an empty list is returned.
-    /// </summary>
-    public IReadOnlyList<AssetNamespaceRoot> GetRoots(string namespaceName)
-    {
-        if (string.IsNullOrWhiteSpace(namespaceName))
-        {
-            namespaceName = "minecraft";
-        }
+		bucket.Add(root);
+	}
 
-        if (_rootsByNamespace.TryGetValue(namespaceName, out var bucket))
-        {
-            return bucket;
-        }
+	/// <summary>
+	/// Returns all roots tracked by the registry in insertion order (vanilla first, overlays last).
+	/// </summary>
+	public ReadOnlyCollection<AssetNamespaceRoot> Roots => _roots.AsReadOnly();
 
-        return [];
-    }
+	/// <summary>
+	/// Retrieves the ordered roots for a specific namespace. If no entries are present for the requested namespace,
+	/// an empty list is returned.
+	/// </summary>
+	public IReadOnlyList<AssetNamespaceRoot> GetRoots(string namespaceName) {
+		if (string.IsNullOrWhiteSpace(namespaceName)) {
+			namespaceName = "minecraft";
+		}
 
-    /// <summary>
-    /// Resolves the ordered set of namespace roots that should be consulted for the supplied namespace. When
-    /// <paramref name="fallBackToMinecraft"/> is true and the namespace is unknown, the registry returns the roots
-    /// for the vanilla namespace instead.
-    /// </summary>
-    public IReadOnlyList<AssetNamespaceRoot> ResolveRoots(string namespaceName, bool fallBackToMinecraft = true)
-    {
-        var roots = GetRoots(namespaceName);
-        if (roots.Count == 0 && fallBackToMinecraft && !string.Equals(namespaceName, "minecraft", StringComparison.OrdinalIgnoreCase))
-        {
-            return GetRoots("minecraft");
-        }
+		if (_rootsByNamespace.TryGetValue(namespaceName, out var bucket)) {
+			return bucket;
+		}
 
-        return roots;
-    }
+		return [];
+	}
 
-    /// <summary>
-    /// Enumerates candidate absolute paths for a relative asset path within the specified namespace.
-    /// </summary>
-    public IEnumerable<string> EnumerateCandidatePaths(string namespaceName, string relativePath, bool preferOverrides = true)
-    {
-        var roots = ResolveRoots(namespaceName);
-        if (roots.Count == 0)
-        {
-            yield break;
-        }
+	/// <summary>
+	/// Resolves the ordered set of namespace roots that should be consulted for the supplied namespace. When
+	/// <paramref name="fallBackToMinecraft"/> is true and the namespace is unknown, the registry returns the roots
+	/// for the vanilla namespace instead.
+	/// </summary>
+	public IReadOnlyList<AssetNamespaceRoot> ResolveRoots(string namespaceName, bool fallBackToMinecraft = true) {
+		var roots = GetRoots(namespaceName);
+		if (roots.Count == 0 && fallBackToMinecraft &&
+		    !string.Equals(namespaceName, "minecraft", StringComparison.OrdinalIgnoreCase)) {
+			return GetRoots("minecraft");
+		}
 
-        if (preferOverrides)
-        {
-            for (var i = roots.Count - 1; i >= 0; i--)
-            {
-                yield return Path.Combine(roots[i].Path, relativePath);
-            }
-        }
-        else
-        {
-            foreach (var t in roots)
-            {
-                yield return Path.Combine(t.Path, relativePath);
-            }
-        }
-    }
-    /// <summary>
-    /// Returns a list of unique source IDs in the order they were first encountered.
-    /// </summary>
-    public IReadOnlyList<string> GetSources()
-    {
-        var sources = new List<string>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		return roots;
+	}
 
-        foreach (var root in _roots)
-        {
-            if (seen.Add(root.SourceId))
-            {
-                sources.Add(root.SourceId);
-            }
-        }
+	/// <summary>
+	/// Enumerates candidate absolute paths for a relative asset path within the specified namespace.
+	/// </summary>
+	public IEnumerable<string> EnumerateCandidatePaths(string namespaceName, string relativePath,
+		bool preferOverrides = true) {
+		var roots = ResolveRoots(namespaceName);
+		if (roots.Count == 0) {
+			yield break;
+		}
 
-        return sources;
-    }
+		if (preferOverrides) {
+			for (var i = roots.Count - 1; i >= 0; i--) {
+				yield return Path.Combine(roots[i].Path, relativePath);
+			}
+		}
+		else {
+			foreach (var t in roots) {
+				yield return Path.Combine(t.Path, relativePath);
+			}
+		}
+	}
 
-    /// <summary>
-    /// Retrieves the ordered roots for a specific namespace and source ID.
-    /// </summary>
-    public IReadOnlyList<AssetNamespaceRoot> GetRoots(string namespaceName, string sourceId)
-    {
-        if (string.IsNullOrWhiteSpace(namespaceName))
-        {
-            namespaceName = "minecraft";
-        }
+	/// <summary>
+	/// Returns a list of unique source IDs in the order they were first encountered.
+	/// </summary>
+	public IReadOnlyList<string> GetSources() {
+		var sources = new List<string>();
+		var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        if (!_rootsByNamespace.TryGetValue(namespaceName, out var bucket))
-        {
-            return [];
-        }
+		foreach (var root in _roots) {
+			if (seen.Add(root.SourceId)) {
+				sources.Add(root.SourceId);
+			}
+		}
 
-        var results = new List<AssetNamespaceRoot>();
-        foreach (var root in bucket)
-        {
-            if (string.Equals(root.SourceId, sourceId, StringComparison.OrdinalIgnoreCase))
-            {
-                results.Add(root);
-            }
-        }
+		return sources;
+	}
 
-        return results;
-    }
+	/// <summary>
+	/// Retrieves the ordered roots for a specific namespace and source ID.
+	/// </summary>
+	public IReadOnlyList<AssetNamespaceRoot> GetRoots(string namespaceName, string sourceId) {
+		if (string.IsNullOrWhiteSpace(namespaceName)) {
+			namespaceName = "minecraft";
+		}
+
+		if (!_rootsByNamespace.TryGetValue(namespaceName, out var bucket)) {
+			return [];
+		}
+
+		var results = new List<AssetNamespaceRoot>();
+		foreach (var root in bucket) {
+			if (string.Equals(root.SourceId, sourceId, StringComparison.OrdinalIgnoreCase)) {
+				results.Add(root);
+			}
+		}
+
+		return results;
+	}
 }
 
 /// <summary>

@@ -8,21 +8,17 @@ public sealed class BlockRegistry
 {
 	private readonly Dictionary<string, BlockInfo> _entries;
 
-	private BlockRegistry(IEnumerable<BlockInfo> entries)
-	{
+	private BlockRegistry(IEnumerable<BlockInfo> entries) {
 		_entries = entries.ToDictionary(entry => entry.Name, StringComparer.OrdinalIgnoreCase);
 	}
 
-	public static BlockRegistry LoadFromFile(string path)
-	{
-		if (!File.Exists(path))
-		{
+	public static BlockRegistry LoadFromFile(string path) {
+		if (!File.Exists(path)) {
 			throw new FileNotFoundException("Block registry file not found", path);
 		}
 
 		var json = File.ReadAllText(path);
-		var options = new JsonSerializerOptions
-		{
+		var options = new JsonSerializerOptions {
 			PropertyNameCaseInsensitive = true,
 			ReadCommentHandling = JsonCommentHandling.Skip
 		};
@@ -35,8 +31,7 @@ public sealed class BlockRegistry
 
 	public static BlockRegistry LoadFromMinecraftAssets(string assetsRoot,
 		IReadOnlyDictionary<string, BlockModelDefinition> modelDefinitions, IEnumerable<string>? overlayRoots = null,
-		AssetNamespaceRegistry? assetNamespaces = null)
-	{
+		AssetNamespaceRegistry? assetNamespaces = null) {
 		ArgumentException.ThrowIfNullOrWhiteSpace(assetsRoot);
 		ArgumentNullException.ThrowIfNull(modelDefinitions);
 
@@ -44,10 +39,8 @@ public sealed class BlockRegistry
 		return new BlockRegistry(entries.Where(static entry => !string.IsNullOrWhiteSpace(entry.Name)));
 	}
 
-	public bool TryGetModel(string blockName, out string modelPath)
-	{
-		if (_entries.TryGetValue(blockName, out var info) && !string.IsNullOrWhiteSpace(info.Model))
-		{
+	public bool TryGetModel(string blockName, out string modelPath) {
+		if (_entries.TryGetValue(blockName, out var info) && !string.IsNullOrWhiteSpace(info.Model)) {
 			modelPath = info.Model!;
 			return true;
 		}
