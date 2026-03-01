@@ -45,7 +45,8 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		TransformDefinition? OverrideGuiTransform = null,
 		IReadOnlyList<string>? PackIds = null,
 		ItemRenderData? ItemData = null,
-		SkullTextureResolver? SkullTextureResolver = null)
+		SkullTextureResolver? SkullTextureResolver = null,
+		bool EnableAntiAliasing = true)
 	{
 		public static BlockRenderOptions Default { get; } = new();
 	}

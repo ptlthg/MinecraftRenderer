@@ -15,7 +15,8 @@ public class MinecraftHeadRenderer
 		float PitchInDegrees,
 		float RollInDegrees,
 		float PerspectiveAmount = 0f,
-		bool ShowOverlay = true);
+		bool ShowOverlay = true,
+		bool EnableAntiAliasing = true);
 
 	public enum IsometricSide
 	{
@@ -23,7 +24,7 @@ public class MinecraftHeadRenderer
 		Right
 	}
 
-	public record IsometricRenderOptions(int Size, IsometricSide Side = IsometricSide.Right, bool ShowOverlay = true);
+	public record IsometricRenderOptions(int Size, IsometricSide Side = IsometricSide.Right, bool ShowOverlay = true, bool EnableAntiAliasing = true);
 
 	private static readonly Dictionary<Face, Rectangle> BaseMappings = new()
 	{
@@ -103,7 +104,8 @@ public class MinecraftHeadRenderer
 			options.Side == IsometricSide.Right ? isometricRightYaw : isometricLeftYaw,
 			isometricPitch,
 			isometricRoll,
-			ShowOverlay: options.ShowOverlay
+			ShowOverlay: options.ShowOverlay,
+			EnableAntiAliasing: options.EnableAntiAliasing
 		);
 
 		return RenderHead(fullOptions, skin);
@@ -176,6 +178,11 @@ public class MinecraftHeadRenderer
 				tri.TextureRect,
 				tri.Shading,
 				tri.IsOverlay);
+		}
+
+		if (options.EnableAntiAliasing)
+		{
+			AntiAliasingHelper.ApplyFXAA(canvas);
 		}
 
 		return canvas;

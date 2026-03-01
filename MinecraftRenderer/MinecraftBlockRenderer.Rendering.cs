@@ -157,6 +157,11 @@ public sealed partial class MinecraftBlockRenderer
 				tri.Shading);
 		}
 
+		if (options.EnableAntiAliasing)
+		{
+			AntiAliasingHelper.ApplyFXAA(canvas);
+		}
+
 		return canvas;
 	}
 
