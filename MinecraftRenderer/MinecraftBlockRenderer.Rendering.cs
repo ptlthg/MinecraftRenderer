@@ -70,11 +70,8 @@ public sealed partial class MinecraftBlockRenderer
 
 		var applyInventoryLighting = options.UseGuiTransform || options.OverrideGuiTransform is not null;
 		var triangles = BuildTriangles(model, totalTransform, applyInventoryLighting, blockName);
-		var cullTargets = DetermineCullTargets(model);
-		if (cullTargets.Count > 0)
-		{
-			CullBackfaces(triangles, cullTargets);
-		}
+		
+		CullBackfaces(triangles);
 
 		if (triangles.Count == 0)
 		{
@@ -163,7 +160,7 @@ public sealed partial class MinecraftBlockRenderer
 		return canvas;
 	}
 
-	private static void CullBackfaces(List<VisibleTriangle> triangles, HashSet<CullTarget> cullTargets)
+	private static void CullBackfaces(List<VisibleTriangle> triangles)
 	{
 		if (MinecraftBlockRenderer.DebugDisableCulling) return;
 
@@ -173,10 +170,6 @@ public sealed partial class MinecraftBlockRenderer
 		for (var i = triangles.Count - 1; i >= 0; i--)
 		{
 			var triangle = triangles[i];
-			if (!cullTargets.Contains(new CullTarget(triangle.ElementIndex, triangle.FaceDirection)))
-			{
-				continue;
-			}
 
 			var normal = triangle.Normal;
 			if (normal.LengthSquared() < NormalLengthThreshold)
@@ -192,93 +185,7 @@ public sealed partial class MinecraftBlockRenderer
 		}
 	}
 
-	private static HashSet<CullTarget> DetermineCullTargets(BlockModelInstance model)
-	{
-		const float thicknessThreshold = 1e-3f;
-		var targets = new HashSet<CullTarget>();
 
-		for (var elementIndex = 0; elementIndex < model.Elements.Count; elementIndex++)
-		{
-			var element = model.Elements[elementIndex];
-			var thicknessX = MathF.Abs(element.To.X - element.From.X);
-			var thicknessY = MathF.Abs(element.To.Y - element.From.Y);
-			var thicknessZ = MathF.Abs(element.To.Z - element.From.Z);
-
-			TryAddCullPair(model, targets, elementIndex, element, BlockFaceDirection.North, BlockFaceDirection.South,
-				thicknessZ, thicknessThreshold);
-			TryAddCullPair(model, targets, elementIndex, element, BlockFaceDirection.East, BlockFaceDirection.West,
-				thicknessX, thicknessThreshold);
-			TryAddCullPair(model, targets, elementIndex, element, BlockFaceDirection.Up, BlockFaceDirection.Down,
-				thicknessY, thicknessThreshold);
-		}
-
-		return targets;
-	}
-
-	private static void TryAddCullPair(
-		BlockModelInstance model,
-		HashSet<CullTarget> targets,
-		int elementIndex,
-		ModelElement element,
-		BlockFaceDirection primary,
-		BlockFaceDirection opposite,
-		float thickness,
-		float threshold)
-	{
-		if (thickness > threshold)
-		{
-			return;
-		}
-
-		if (!element.Faces.TryGetValue(primary, out var primaryFace)
-		    || !element.Faces.TryGetValue(opposite, out var oppositeFace))
-		{
-			return;
-		}
-
-		if (!FacesShareDuplicateTexture(model, element, primary, primaryFace, opposite, oppositeFace))
-		{
-			return;
-		}
-
-		targets.Add(new CullTarget(elementIndex, primary));
-		targets.Add(new CullTarget(elementIndex, opposite));
-	}
-
-	private static bool FacesShareDuplicateTexture(
-		BlockModelInstance model,
-		ModelElement element,
-		BlockFaceDirection primaryDirection,
-		ModelFace primaryFace,
-		BlockFaceDirection oppositeDirection,
-		ModelFace oppositeFace)
-	{
-		var primaryTexture = ResolveTexture(primaryFace.Texture, model);
-		var oppositeTexture = ResolveTexture(oppositeFace.Texture, model);
-		if (!primaryTexture.Equals(oppositeTexture, StringComparison.OrdinalIgnoreCase))
-		{
-			return false;
-		}
-
-		var primaryRotation = primaryFace.Rotation ?? 0;
-		var oppositeRotation = oppositeFace.Rotation ?? 0;
-		if (primaryRotation != oppositeRotation)
-		{
-			return false;
-		}
-
-		var primaryUv = GetFaceUv(primaryFace, primaryDirection, element);
-		var oppositeUv = GetFaceUv(oppositeFace, oppositeDirection, element);
-		return Vector4ApproximatelyEquals(primaryUv, oppositeUv);
-	}
-
-	private static bool Vector4ApproximatelyEquals(Vector4 left, Vector4 right, float epsilon = 1e-4f)
-	{
-		return MathF.Abs(left.X - right.X) <= epsilon
-		       && MathF.Abs(left.Y - right.Y) <= epsilon
-		       && MathF.Abs(left.Z - right.Z) <= epsilon
-		       && MathF.Abs(left.W - right.W) <= epsilon;
-	}
 
 	private static Bounds ComputeBounds(IEnumerable<VisibleTriangle> triangles)
 	{

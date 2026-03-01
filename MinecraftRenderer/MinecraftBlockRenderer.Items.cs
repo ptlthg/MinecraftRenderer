@@ -2475,26 +2475,11 @@ public sealed partial class MinecraftBlockRenderer
 				defaultTintApplied = false;
 			}
 
-			var hasMetadataTint = itemInfo?.LayerTints.ContainsKey(layerIndex) == true;
-			var hasLegacyTint = false;
-			if (!string.IsNullOrWhiteSpace(normalizedItemKey) &&
-			    LegacyDefaultTintOverrides.ContainsKey(normalizedItemKey))
-			{
-				if (LegacyDefaultTintLayerOverrides.TryGetValue(normalizedItemKey, out var constrainedLayers))
-				{
-					hasLegacyTint = constrainedLayers.Contains(layerIndex);
-				}
-				else
-				{
-					hasLegacyTint = layerIndex == 0;
-				}
-			}
-
 			var hasExplicitPerLayerTint = explicitItemData?.AdditionalLayerTints is not null
 			                              && explicitItemData.AdditionalLayerTints.ContainsKey(layerIndex);
 			var hasPrimaryExplicitTint =
 				layerIndex == primaryTintLayerIndex && explicitItemData?.Layer0Tint.HasValue == true;
-			var skipContextTint = hasMetadataTint || hasLegacyTint || hasExplicitPerLayerTint || hasPrimaryExplicitTint;
+			var skipContextTint = layerTint.HasValue || hasExplicitPerLayerTint || hasPrimaryExplicitTint;
 			var texture = ResolveItemLayerTexture(textureId, tintContext, skipContextTint);
 			var scale = MathF.Min(options.Size / (float)texture.Width, options.Size / (float)texture.Height);
 			var targetWidth = Math.Max(1, (int)MathF.Round(texture.Width * scale));
