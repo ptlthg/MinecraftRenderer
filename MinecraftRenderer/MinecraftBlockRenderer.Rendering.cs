@@ -9,6 +9,9 @@ using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Advanced;
 using SixLabors.ImageSharp.PixelFormats;
 
+using MinecraftRenderer.Geometry;
+using MinecraftRenderer.Model;
+
 /// <summary>
 /// Main class for rendering Minecraft block models to 2D images.
 /// </summary>
@@ -16,7 +19,7 @@ public sealed partial class MinecraftBlockRenderer
 {
 	private static readonly TransformDefinition DefaultGuiTransform = new()
 	{
-		Rotation = [30f, 45f, 0f],
+		Rotation = [30f, 225f, 0f],
 		Translation = [0f, 0f, 0f],
 		Scale = [0.625f, 0.625f, 0.625f]
 	};
@@ -49,28 +52,21 @@ public sealed partial class MinecraftBlockRenderer
 
 		var displayTransform = BuildDisplayTransform(guiTransform);
 		var displayTransformWithoutScale = BuildDisplayTransform(guiTransform, includeScale: false);
-		var additionalRotation = CreateRotationMatrix(options.YawInDegrees * DegreesToRadians,
-			options.PitchInDegrees * DegreesToRadians, options.RollInDegrees * DegreesToRadians);
+		
+		// The additional rotation specified by the user to rotate the final item
+		var additionalRotation = Matrix4x4.CreateRotationX(options.RollInDegrees * DegreesToRadians)
+		                       * Matrix4x4.CreateRotationY(options.YawInDegrees * DegreesToRadians)
+		                       * Matrix4x4.CreateRotationZ(options.PitchInDegrees * DegreesToRadians);
+		
 		var scaleMatrix = Matrix4x4.CreateScale(options.AdditionalScale);
 		var translationVector = new Vector3(
 			options.AdditionalTranslation.X / 16f,
 			options.AdditionalTranslation.Y / 16f,
 			options.AdditionalTranslation.Z / 16f);
 		var translationMatrix = Matrix4x4.CreateTranslation(translationVector);
-		var orientationCorrection = Matrix4x4.CreateRotationY(MathF.PI / 2f);
 
-		var totalTransform = Matrix4x4.Identity;
-		totalTransform = Matrix4x4.Multiply(totalTransform, displayTransform);
-		totalTransform = Matrix4x4.Multiply(totalTransform, additionalRotation);
-		totalTransform = Matrix4x4.Multiply(totalTransform, scaleMatrix);
-		totalTransform = Matrix4x4.Multiply(totalTransform, translationMatrix);
-		totalTransform = Matrix4x4.Multiply(orientationCorrection, totalTransform);
-
-		var referenceTransform = Matrix4x4.Identity;
-		referenceTransform = Matrix4x4.Multiply(referenceTransform, displayTransformWithoutScale);
-		referenceTransform = Matrix4x4.Multiply(referenceTransform, additionalRotation);
-		referenceTransform = Matrix4x4.Multiply(referenceTransform, translationMatrix);
-		referenceTransform = Matrix4x4.Multiply(orientationCorrection, referenceTransform);
+		var totalTransform = displayTransform * additionalRotation * scaleMatrix * translationMatrix;
+		var referenceTransform = displayTransformWithoutScale * additionalRotation * translationMatrix;
 
 		var applyInventoryLighting = options.UseGuiTransform || options.OverrideGuiTransform is not null;
 		var triangles = BuildTriangles(model, totalTransform, applyInventoryLighting, blockName);
@@ -129,7 +125,7 @@ public sealed partial class MinecraftBlockRenderer
 
 		var canvas = new Image<Rgba32>(options.Size, options.Size, Color.Transparent);
 		var depthBuffer = new float[options.Size * options.Size];
-		Array.Fill(depthBuffer, float.PositiveInfinity);
+		Array.Fill(depthBuffer, float.NegativeInfinity);
 		var triangleOrder = 0;
 		const float DepthBiasPerTriangle = 1e-4f;
 
@@ -173,7 +169,7 @@ public sealed partial class MinecraftBlockRenderer
 
 		const float NormalLengthThreshold = 1e-6f;
 		const float DotCullThreshold = 5e-3f;
-		var cameraForward = new Vector3(0f, 0f, 1f);
+		var cameraForward = new Vector3(0f, 0f, -1f);
 		for (var i = triangles.Count - 1; i >= 0; i--)
 		{
 			var triangle = triangles[i];
@@ -189,7 +185,7 @@ public sealed partial class MinecraftBlockRenderer
 			}
 
 			var dot = Vector3.Dot(normal, cameraForward);
-			if (dot > DotCullThreshold)
+			if (dot < -DotCullThreshold)
 			{
 				triangles.RemoveAt(i);
 			}
@@ -355,17 +351,25 @@ public sealed partial class MinecraftBlockRenderer
 		var rotation = transform.Rotation ?? [0f, 0f, 0f];
 		var translation = transform.Translation ?? [0f, 0f, 0f];
 		var scaleComponents = transform.Scale ?? [1f, 1f, 1f];
+		
 		var scaleX = scaleComponents.Length > 0 ? scaleComponents[0] : 1f;
 		var scaleY = scaleComponents.Length > 1 ? scaleComponents[1] : scaleX;
 		var scaleZ = scaleComponents.Length > 2 ? scaleComponents[2] : scaleX;
 
-		var scaleMatrix = includeScale ? Matrix4x4.CreateScale(scaleX, scaleY, scaleZ) : Matrix4x4.Identity;
-		var rotationMatrix = CreateRotationMatrix(rotation[1] * DegreesToRadians, rotation[0] * DegreesToRadians,
-			rotation[2] * DegreesToRadians);
-		var translationMatrix =
-			Matrix4x4.CreateTranslation(translation[0] / 16f, translation[1] / 16f, translation[2] / 16f);
+		if (!includeScale)
+		{
+			scaleX = 1f;
+			scaleY = 1f;
+			scaleZ = 1f;
+		}
 
-		return scaleMatrix * rotationMatrix * translationMatrix;
+		var itemTransform = new ItemTransform(
+			new Vector3(rotation[0], rotation[1], rotation[2]),
+			new Vector3(translation[0], translation[1], translation[2]),
+			new Vector3(scaleX, scaleY, scaleZ)
+		);
+		
+		return itemTransform.BuildMatrix();
 	}
 
 	private static float ComputeTransformScaleMagnitude(TransformDefinition? transform)

@@ -6,17 +6,10 @@ using System.Numerics;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
+using MinecraftRenderer.Geometry;
+
 public sealed partial class MinecraftBlockRenderer
 {
-	private static readonly Dictionary<BlockFaceDirection, int[]> FaceVertexIndices = new()
-	{
-		{ BlockFaceDirection.South, [7, 6, 5, 4] },
-		{ BlockFaceDirection.North, [0, 1, 2, 3] },
-		{ BlockFaceDirection.East, [6, 2, 1, 5] },
-		{ BlockFaceDirection.West, [3, 7, 4, 0] },
-		{ BlockFaceDirection.Up, [3, 2, 6, 7] },
-		{ BlockFaceDirection.Down, [4, 5, 1, 0] }
-	};
 
 	private List<VisibleTriangle> BuildTriangles(BlockModelInstance model, Matrix4x4 transform,
 		bool applyInventoryLighting,
@@ -90,9 +83,9 @@ public sealed partial class MinecraftBlockRenderer
 
 			var textureRect = ComputeTextureRectangle(faceUv, texture);
 
-			var uvMap = CreateUvMap(element, direction, faceUv, face.Rotation ?? 0);
+			var uvMap = FaceBakery.CreateUvMap(faceUv, face.Rotation ?? 0);
 
-			var indices = FaceVertexIndices[direction];
+			var indices = FaceBakery.FaceVertexIndices[direction];
 			var localFace = new Vector3[4];
 			for (var i = 0; i < 4; i++)
 			{
@@ -222,22 +215,17 @@ public sealed partial class MinecraftBlockRenderer
 	{
 		if (face.Uv.HasValue)
 		{
-			return face.Uv.Value;
+			// The JSON uv might be arbitrary coordinates, but we must make sure
+			// X/Y are min and Z/W are max to work nicely with our Quadrant math.
+			var uv = face.Uv.Value;
+			var minU = MathF.Min(uv.X, uv.Z);
+			var maxU = MathF.Max(uv.X, uv.Z);
+			var minV = MathF.Min(uv.Y, uv.W);
+			var maxV = MathF.Max(uv.Y, uv.W);
+			return new Vector4(minU, minV, maxU, maxV);
 		}
 
-		var from = element.From;
-		var to = element.To;
-
-		return direction switch
-		{
-			BlockFaceDirection.South => new Vector4(from.X, from.Y, to.X, to.Y),
-			BlockFaceDirection.North => new Vector4(16f - to.X, from.Y, 16f - from.X, to.Y),
-			BlockFaceDirection.East => new Vector4(from.Z, from.Y, to.Z, to.Y),
-			BlockFaceDirection.West => new Vector4(16f - to.Z, from.Y, 16f - from.Z, to.Y),
-			BlockFaceDirection.Up => new Vector4(from.X, 16f - to.Z, to.X, 16f - from.Z),
-			BlockFaceDirection.Down => new Vector4(from.X, from.Z, to.X, to.Z),
-			_ => new Vector4(0, 0, 16, 16)
-		};
+		return FaceBakery.DefaultFaceUv(element.From, element.To, direction);
 	}
 
 	private static Rectangle ComputeTextureRectangle(Vector4 uv, Image<Rgba32> texture)
@@ -258,162 +246,4 @@ public sealed partial class MinecraftBlockRenderer
 		return new Rectangle(minX, minY, maxX - minX, maxY - minY);
 	}
 
-	private static Vector2[] CreateUvMap(ModelElement element, BlockFaceDirection direction, Vector4 faceUv,
-		int rotationDegrees)
-	{
-		var corners = GetFaceCornerPositions(element, direction);
-		var absolute = new Vector2[corners.Length];
-
-		for (var i = 0; i < corners.Length; i++)
-		{
-			var corner = corners[i];
-			var uv = CalculateFaceCoordinate(element, direction, faceUv, corner);
-			absolute[i] = uv;
-		}
-
-		ApplyFaceRotationAbsolute(absolute, faceUv, rotationDegrees);
-		return NormalizeFaceCoordinates(absolute, faceUv);
-	}
-
-	private static Vector2 CalculateFaceCoordinate(ModelElement element, BlockFaceDirection direction, Vector4 faceUv,
-		Vector3 corner)
-	{
-		static float SafeRatio(float value, float length)
-			=> length < 1e-5f ? 0f : Clamp01(value / length);
-
-		var du = faceUv.Z - faceUv.X;
-		var dv = faceUv.W - faceUv.Y;
-
-		float uNormalized = direction switch
-		{
-			BlockFaceDirection.South => SafeRatio(corner.X - element.From.X, element.To.X - element.From.X),
-			BlockFaceDirection.North => SafeRatio(corner.X - element.From.X, element.To.X - element.From.X),
-			BlockFaceDirection.East => SafeRatio(corner.Z - element.From.Z, element.To.Z - element.From.Z),
-			BlockFaceDirection.West => SafeRatio(element.To.Z - corner.Z, element.To.Z - element.From.Z),
-			BlockFaceDirection.Up => SafeRatio(corner.X - element.From.X, element.To.X - element.From.X),
-			BlockFaceDirection.Down => SafeRatio(corner.X - element.From.X, element.To.X - element.From.X),
-			_ => 0f
-		};
-
-		float vNormalized = direction switch
-		{
-			BlockFaceDirection.South => SafeRatio(element.To.Y - corner.Y, element.To.Y - element.From.Y),
-			BlockFaceDirection.North => SafeRatio(corner.Y - element.From.Y, element.To.Y - element.From.Y),
-			BlockFaceDirection.East => SafeRatio(element.To.Y - corner.Y, element.To.Y - element.From.Y),
-			BlockFaceDirection.West => SafeRatio(element.To.Y - corner.Y, element.To.Y - element.From.Y),
-			BlockFaceDirection.Up => SafeRatio(corner.Z - element.From.Z, element.To.Z - element.From.Z),
-			BlockFaceDirection.Down => SafeRatio(element.To.Z - corner.Z, element.To.Z - element.From.Z),
-			_ => 0f
-		};
-
-		var u = faceUv.X + du * uNormalized;
-		var v = faceUv.Y + dv * vNormalized;
-		return new Vector2(u, v);
-	}
-
-	private static Vector3[] GetFaceCornerPositions(ModelElement element, BlockFaceDirection direction)
-	{
-		var from = element.From;
-		var to = element.To;
-
-		return direction switch
-		{
-			BlockFaceDirection.South =>
-			[
-				new Vector3(from.X, to.Y, to.Z),
-				new Vector3(to.X, to.Y, to.Z),
-				new Vector3(to.X, from.Y, to.Z),
-				new Vector3(from.X, from.Y, to.Z)
-			],
-			BlockFaceDirection.North =>
-			[
-				new Vector3(to.X, to.Y, from.Z),
-				new Vector3(from.X, to.Y, from.Z),
-				new Vector3(from.X, from.Y, from.Z),
-				new Vector3(to.X, from.Y, from.Z)
-			],
-			BlockFaceDirection.East =>
-			[
-				new Vector3(to.X, to.Y, from.Z),
-				new Vector3(to.X, to.Y, to.Z),
-				new Vector3(to.X, from.Y, to.Z),
-				new Vector3(to.X, from.Y, from.Z)
-			],
-			BlockFaceDirection.West =>
-			[
-				new Vector3(from.X, to.Y, to.Z),
-				new Vector3(from.X, to.Y, from.Z),
-				new Vector3(from.X, from.Y, from.Z),
-				new Vector3(from.X, from.Y, to.Z)
-			],
-			BlockFaceDirection.Up =>
-			[
-				new Vector3(from.X, to.Y, from.Z),
-				new Vector3(to.X, to.Y, from.Z),
-				new Vector3(to.X, to.Y, to.Z),
-				new Vector3(from.X, to.Y, to.Z)
-			],
-			BlockFaceDirection.Down =>
-			[
-				new Vector3(from.X, from.Y, to.Z),
-				new Vector3(to.X, from.Y, to.Z),
-				new Vector3(to.X, from.Y, from.Z),
-				new Vector3(from.X, from.Y, from.Z)
-			],
-			_ => []
-		};
-	}
-
-	private static void ApplyFaceRotationAbsolute(Vector2[] uv, Vector4 faceUv, int rotationDegrees)
-	{
-		var normalized = ((rotationDegrees % 360) + 360) % 360;
-		if (normalized == 0)
-		{
-			return;
-		}
-
-		var steps = normalized / 90;
-		if (steps == 0)
-		{
-			return;
-		}
-
-		var center = new Vector2((faceUv.X + faceUv.Z) * 0.5f, (faceUv.Y + faceUv.W) * 0.5f);
-
-		for (var s = 0; s < steps; s++)
-		{
-			for (var i = 0; i < uv.Length; i++)
-			{
-				var relative = uv[i] - center;
-				relative = new Vector2(relative.Y, -relative.X);
-				uv[i] = relative + center;
-			}
-		}
-	}
-
-	private static Vector2[] NormalizeFaceCoordinates(Vector2[] absoluteUv, Vector4 faceUv)
-	{
-		var uMin = MathF.Min(faceUv.X, faceUv.Z);
-		var uMax = MathF.Max(faceUv.X, faceUv.Z);
-		var vMin = MathF.Min(faceUv.Y, faceUv.W);
-		var vMax = MathF.Max(faceUv.Y, faceUv.W);
-
-		var width = uMax - uMin;
-		var height = vMax - vMin;
-
-		var invWidth = MathF.Abs(width) < 1e-5f ? 0f : 1f / width;
-		var invHeight = MathF.Abs(height) < 1e-5f ? 0f : 1f / height;
-
-		var normalized = new Vector2[absoluteUv.Length];
-		for (var i = 0; i < absoluteUv.Length; i++)
-		{
-			var u = (absoluteUv[i].X - uMin) * invWidth;
-			var v = (absoluteUv[i].Y - vMin) * invHeight;
-			normalized[i] = new Vector2(Clamp01(u), Clamp01(v));
-		}
-
-		return normalized;
-	}
-
-	private static float Clamp01(float value) => value <= 0f ? 0f : value >= 1f ? 1f : value;
 }

@@ -8,6 +8,8 @@ atlases
 /minecraft
 /texturepacks
 /snbt-test-items
+/minecraftsource
+/docs
 # /customdata
 
 ## Ignore Visual Studio temporary files, build results, and
