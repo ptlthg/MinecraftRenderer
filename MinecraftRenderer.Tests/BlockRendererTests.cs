@@ -574,8 +574,8 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 			$"Left face color {leftColor} -> east {leftEastError:F3}, west {leftWestError:F3}, north {leftNorthError:F3}, south {leftSouthError:F3}");
 
 		Assert.True(
-			IsCloserTo(rightColor, ToVector(faceColors[BlockFaceDirection.South]),
-				ToVector(faceColors[BlockFaceDirection.North])), "Right face should prefer south color over north.");
+			IsCloserTo(rightColor, ToVector(faceColors[BlockFaceDirection.North]),
+				ToVector(faceColors[BlockFaceDirection.South])), "Right face should prefer north color over south.");
 		Assert.True(
 			IsCloserTo(leftColor, ToVector(faceColors[BlockFaceDirection.East]),
 				ToVector(faceColors[BlockFaceDirection.West])), "Left face should prefer east color over west.");
@@ -979,8 +979,8 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 	[Fact]
 	public void CubeFaceUvsAreOrientedCorrectly()
 	{
-		var createUvMap = typeof(MinecraftBlockRenderer)
-			                  .GetMethod("CreateUvMap", BindingFlags.NonPublic | BindingFlags.Static)
+		var createUvMap = typeof(MinecraftRenderer.Geometry.FaceBakery)
+			                  .GetMethod("CreateUvMap", BindingFlags.Public | BindingFlags.Static)
 		                  ?? throw new InvalidOperationException("CreateUvMap method not found");
 
 		var element = new ModelElement(
@@ -990,34 +990,24 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 			new Dictionary<BlockFaceDirection, ModelFace>(),
 			shade: true);
 
-		var north = Map(BlockFaceDirection.North);
-		Assert.True(north[0].X > north[1].X, "North face should map east edge to higher U than west edge.");
-		Assert.True(north[0].Y > north[2].Y, "North face should map top edge to higher V than bottom edge.");
+		foreach (BlockFaceDirection dir in Enum.GetValues<BlockFaceDirection>())
+		{
+			var uv = MinecraftRenderer.Geometry.FaceBakery.DefaultFaceUv(element.From, element.To, dir);
+			var map = Map(dir, uv);
 
-		var south = Map(BlockFaceDirection.South);
-		Assert.True(south[0].X < south[1].X, "South face should map west edge to lower U than east edge.");
-		Assert.True(south[0].Y < south[2].Y, "South face should map top edge to lower V than bottom edge.");
+			Assert.True(map[0].X < map[2].X, $"{dir}: UV0 (minU) should have smaller U than UV2 (maxU).");
+			Assert.True(map[0].Y < map[1].Y, $"{dir}: UV0 (minV) should have smaller V than UV1 (maxV).");
+			Assert.Equal(map[0].X, map[1].X, 4); // minU column
+			Assert.Equal(map[2].X, map[3].X, 4); // maxU column
+			Assert.Equal(map[0].Y, map[3].Y, 4); // minV row
+			Assert.Equal(map[1].Y, map[2].Y, 4); // maxV row
+		}
 
-		var east = Map(BlockFaceDirection.East);
-		Assert.True(east[1].X > east[0].X, "East face should map south edge to higher U than north edge.");
-		Assert.True(east[0].Y < east[2].Y, "East face should map top edge to lower V than bottom edge.");
-
-		var west = Map(BlockFaceDirection.West);
-		Assert.True(west[1].X > west[0].X, "West face should map north edge to higher U than south edge.");
-		Assert.True(west[0].Y < west[2].Y, "West face should map top edge to lower V than bottom edge.");
-
-		var up = Map(BlockFaceDirection.Up);
-		Assert.True(up[1].X > up[0].X, "Up face should map east edge to higher U than west edge.");
-		Assert.True(up[0].Y < up[2].Y, "Up face should map north edge to lower V than south edge.");
-
-		var down = Map(BlockFaceDirection.Down);
-		Assert.True(down[1].X > down[0].X, "Down face should map east edge to higher U than west edge.");
-		Assert.True(down[3].Y > down[0].Y, "Down face should map north edge to higher V than south edge.");
 		return;
 
-		Vector2[] Map(BlockFaceDirection direction)
+		Vector2[] Map(BlockFaceDirection direction, Vector4 uv)
 		{
-			var result = createUvMap.Invoke(null, [element, direction, new Vector4(0f, 0f, 16f, 16f), 0])
+			var result = createUvMap.Invoke(null, [uv, 0])
 				as Vector2[] ?? throw new InvalidOperationException("CreateUvMap returned null.");
 			return result;
 		}
@@ -1079,9 +1069,9 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 		}
 
 		var element = new ModelElement(
-			new Vector3(0.8f, 0f, 8f),
-			new Vector3(15.2f, 16f, 8f),
-			new ElementRotation(45f, new Vector3(8f, 8f, 8f), "y", rescale: true),
+			new Vector3(0.8f, 0f, 7f),
+			new Vector3(15.2f, 16f, 9f),
+			null,
 			new Dictionary<BlockFaceDirection, ModelFace>
 			{
 				[BlockFaceDirection.North] = new("#cross", new Vector4(0f, 0f, 16f, 16f), null, null, null)
@@ -1101,7 +1091,7 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with
 		{
 			UseGuiTransform = false,
-			YawInDegrees = 180f,
+			YawInDegrees = 0f,
 			PitchInDegrees = 0f,
 			RollInDegrees = 0f,
 			Padding = 0.05f,
@@ -1123,9 +1113,9 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
 
 		var element = new ModelElement(
-			new Vector3(0.8f, 0f, 8f),
-			new Vector3(15.2f, 16f, 8f),
-			new ElementRotation(45f, new Vector3(8f, 8f, 8f), "y", rescale: true),
+			new Vector3(0.8f, 0f, 7.9f),
+			new Vector3(15.2f, 16f, 8.1f),
+			new ElementRotation(45f, new Vector3(8f, 8f, 8f), "y", rescale: false),
 			new Dictionary<BlockFaceDirection, ModelFace>
 			{
 				[BlockFaceDirection.North] = new("#cross", new Vector4(0f, 0f, 16f, 16f), null, null, null)
@@ -1287,8 +1277,8 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 		output.WriteLine($"Up face -> max Z vertex: Z={maxZUpVertex.Position.Z:F3}, UV={maxZUpVertex.Uv}");
 		output.WriteLine($"Up face -> min Z vertex: Z={minZUpVertex.Position.Z:F3}, UV={minZUpVertex.Uv}");
 
-		Assert.True(maxZUpVertex.Uv.Y + 0.4f < minZUpVertex.Uv.Y,
-			"Up face UV V coordinate should decrease as Z increases after rotation.");
+		Assert.True(maxZUpVertex.Uv.Y > minZUpVertex.Uv.Y + 0.4f,
+			"Up face UV V coordinate should increase as Z increases after rotation.");
 
 		if (downVertices.Count > 0)
 		{

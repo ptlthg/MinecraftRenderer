@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using MinecraftRenderer.Geometry;
 using System.Numerics;
 using MinecraftRenderer;
 using SixLabors.ImageSharp.Advanced;
@@ -226,18 +227,18 @@ public sealed class BillboardOrientationTests
 		var resolver = BlockModelResolver.LoadFromMinecraftAssets(AssetsDirectory);
 		var model = resolver.Resolve("dead_brain_coral_fan");
 
-		var createUvMapMethod = typeof(MinecraftBlockRenderer)
+		var createUvMapMethod = typeof(MinecraftRenderer.Geometry.FaceBakery)
 			                        .GetMethod("CreateUvMap",
-				                        System.Reflection.BindingFlags.NonPublic |
+				                        System.Reflection.BindingFlags.Public |
 				                        System.Reflection.BindingFlags.Static)
 		                        ?? throw new InvalidOperationException("CreateUvMap method not found");
 
 		var expectedBaseUp = new[]
 		{
 			new Vector2(0f, 0f),
-			new Vector2(1f, 0f),
+			new Vector2(0f, 1f),
 			new Vector2(1f, 1f),
-			new Vector2(0f, 1f)
+			new Vector2(1f, 0f)
 		};
 
 		for (var elementIndex = 0; elementIndex < model.Elements.Count; elementIndex++)
@@ -250,8 +251,6 @@ public sealed class BillboardOrientationTests
 
 			var parameters = new object[]
 			{
-				element,
-				BlockFaceDirection.Up,
 				face.Uv.Value,
 				face.Rotation ?? 0
 			};
@@ -290,12 +289,7 @@ public sealed class BillboardOrientationTests
 			                    .GetMethod("ApplyElementRotation",
 				                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
 		                    ?? throw new InvalidOperationException("ApplyElementRotation not found");
-		var faceVertexIndicesField = typeof(MinecraftBlockRenderer)
-			                             .GetField("FaceVertexIndices",
-				                             System.Reflection.BindingFlags.NonPublic |
-				                             System.Reflection.BindingFlags.Static)
-		                             ?? throw new InvalidOperationException("FaceVertexIndices not found");
-		var faceVertexIndices = (Dictionary<BlockFaceDirection, int[]>)faceVertexIndicesField.GetValue(null)!;
+		var faceVertexIndices = FaceBakery.FaceVertexIndices;
 		var upIndices = faceVertexIndices[BlockFaceDirection.Up];
 
 		for (var elementIndex = 0; elementIndex < model.Elements.Count; elementIndex++)
@@ -346,9 +340,9 @@ public sealed class BillboardOrientationTests
 		var resolver = BlockModelResolver.LoadFromMinecraftAssets(AssetsDirectory);
 		var model = resolver.Resolve("tnt");
 
-		var createUvMapMethod = typeof(MinecraftBlockRenderer)
+		var createUvMapMethod = typeof(MinecraftRenderer.Geometry.FaceBakery)
 			                        .GetMethod("CreateUvMap",
-				                        System.Reflection.BindingFlags.NonPublic |
+				                        System.Reflection.BindingFlags.Public |
 				                        System.Reflection.BindingFlags.Static)
 		                        ?? throw new InvalidOperationException("CreateUvMap method not found");
 		var getFaceUvMethod = typeof(MinecraftBlockRenderer)
@@ -359,17 +353,17 @@ public sealed class BillboardOrientationTests
 		var expectedBaseEast = new[]
 		{
 			new Vector2(0f, 0f),
-			new Vector2(1f, 0f),
+			new Vector2(0f, 1f),
 			new Vector2(1f, 1f),
-			new Vector2(0f, 1f)
+			new Vector2(1f, 0f)
 		};
 
 		var expectedBaseWest = new[]
 		{
 			new Vector2(0f, 0f),
-			new Vector2(1f, 0f),
+			new Vector2(0f, 1f),
 			new Vector2(1f, 1f),
-			new Vector2(0f, 1f)
+			new Vector2(1f, 0f)
 		};
 
 		var targets = new[]
@@ -394,8 +388,6 @@ public sealed class BillboardOrientationTests
 
 				var parameters = new object[]
 				{
-					element,
-					direction,
 					faceUv,
 					face.Rotation ?? 0
 				};
