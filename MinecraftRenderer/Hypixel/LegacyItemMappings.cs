@@ -648,7 +648,7 @@ public static class LegacyItemMappings
 			},
 			351 => damage switch {
 				1 => "minecraft:red_dye",
-				2 => "minecraft:cyan_dye",
+				2 => "minecraft:cactus_green",
 				3 => "minecraft:cocoa_beans",
 				4 => "minecraft:lapis_lazuli",
 				5 => "minecraft:purple_dye",
