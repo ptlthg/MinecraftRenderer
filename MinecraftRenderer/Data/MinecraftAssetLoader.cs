@@ -65,16 +65,18 @@ internal static class MinecraftAssetLoader
 
 		var hasAnyModels = false;
 		foreach (var root in namespaceRoots) {
-			foreach (var directory in EnumerateModelDirectories(root.Path)) {
+			var provider = root.Provider;
+			if (provider is null) continue;
+			foreach (var modelDir in EnumerateModelDirectoryNames(provider)) {
 				hasAnyModels = true;
-				foreach (var file in Directory.EnumerateFiles(directory, "*.json", SearchOption.AllDirectories)) {
-					var relativePath = Path.GetRelativePath(directory, file);
+				foreach (var file in provider.EnumerateFiles(modelDir, "*.json", recursive: true)) {
+					var relativePath = ResourceProviderExtensions.GetRelativePath(file, modelDir);
 					var key = NormalizeModelKey(relativePath, root.Namespace);
 					if (string.IsNullOrWhiteSpace(key)) {
 						continue;
 					}
 
-					var json = File.ReadAllText(file);
+					var json = provider.ReadAllText(file);
 					var definition = JsonSerializer.Deserialize<BlockModelDefinition>(json, SerializerOptions) ??
 					                 new BlockModelDefinition();
 					definitions[key] = definition;
@@ -100,17 +102,19 @@ internal static class MinecraftAssetLoader
 		ArgumentException.ThrowIfNullOrWhiteSpace(assetsRoot);
 		ArgumentNullException.ThrowIfNull(models);
 
-		var roots = BuildRootList(assetsRoot, overlayRoots, assetNamespaces);
+		var namespaceRoots = BuildNamespaceRootList(assetsRoot, overlayRoots, assetNamespaces);
 		var entries = new Dictionary<string, BlockRegistry.BlockInfo>(StringComparer.OrdinalIgnoreCase);
 		var hasAnyBlockstates = false;
-		foreach (var root in roots) {
-			foreach (var directory in EnumerateBlockstateDirectories(root)) {
+		foreach (var root in namespaceRoots) {
+			var provider = root.Provider;
+			if (provider is null) continue;
+			foreach (var bsDir in EnumerateBlockstateDirectoryNames(provider)) {
 				hasAnyBlockstates = true;
-				foreach (var file in Directory.EnumerateFiles(directory, "*.json", SearchOption.AllDirectories)) {
-					var relativePath = Path.GetRelativePath(directory, file);
+				foreach (var file in provider.EnumerateFiles(bsDir, "*.json", recursive: true)) {
+					var relativePath = ResourceProviderExtensions.GetRelativePath(file, bsDir);
 					var blockName = NormalizeBlockStateName(relativePath);
 
-					using var stream = File.OpenRead(file);
+					using var stream = provider.OpenRead(file);
 					using var document =
 						JsonDocument.Parse(stream,
 							new JsonDocumentOptions { AllowTrailingCommas = true, MaxDepth = 8192 });
@@ -294,7 +298,8 @@ internal static class MinecraftAssetLoader
 				return;
 			}
 
-			results.Add(new AssetNamespaceRoot(effectiveNamespace, fullPath, "external", false));
+			results.Add(new AssetNamespaceRoot(effectiveNamespace, fullPath, "external", false,
+				new DirectoryResourceProvider(fullPath)));
 		}
 
 		TryAdd(primaryRoot);
@@ -321,18 +326,25 @@ internal static class MinecraftAssetLoader
 				continue;
 			}
 
-			var fullPath = Path.GetFullPath(path);
-			if (!Directory.Exists(fullPath)) {
-				continue;
+			// For provider-backed roots, skip filesystem validation
+			if (root.Provider is null) {
+				var fullPath = Path.GetFullPath(path);
+				if (!Directory.Exists(fullPath)) {
+					continue;
+				}
+
+				path = fullPath;
 			}
 
 			var namespaceKey = string.IsNullOrWhiteSpace(root.Namespace) ? "minecraft" : root.Namespace;
-			var identity = $"{namespaceKey.ToLowerInvariant()}|{fullPath.ToLowerInvariant()}";
+			var identity = $"{namespaceKey.ToLowerInvariant()}|{path.ToLowerInvariant()}";
 			if (!seen.Add(identity)) {
 				continue;
 			}
 
-			results.Add(new AssetNamespaceRoot(namespaceKey, fullPath, root.SourceId, root.IsVanilla));
+			// Ensure a provider is available
+			var provider = root.Provider ?? new DirectoryResourceProvider(Path.GetFullPath(path));
+			results.Add(new AssetNamespaceRoot(namespaceKey, path, root.SourceId, root.IsVanilla, provider));
 		}
 
 		return results;
@@ -350,6 +362,24 @@ internal static class MinecraftAssetLoader
 		}
 	}
 
+	/// <summary>
+	/// Returns relative directory names (e.g. "models", "blockentities/blockModels") that exist
+	/// within the given provider and contain model JSON files.
+	/// </summary>
+	private static IEnumerable<string> EnumerateModelDirectoryNames(IResourceProvider? provider) {
+		if (provider is null) {
+			yield break;
+		}
+
+		if (provider.DirectoryExists("models")) {
+			yield return "models";
+		}
+
+		if (provider.DirectoryExists("blockentities/blockModels")) {
+			yield return "blockentities/blockModels";
+		}
+	}
+
 	private static IEnumerable<string> EnumerateBlockstateDirectories(string root) {
 		var blockstatesRoot = Path.Combine(root, "blockstates");
 		if (Directory.Exists(blockstatesRoot)) {
@@ -362,19 +392,37 @@ internal static class MinecraftAssetLoader
 		}
 	}
 
+	/// <summary>
+	/// Returns relative directory names (e.g. "blockstates", "blockentities/blockStates") that exist
+	/// within the given provider and contain blockstate JSON files.
+	/// </summary>
+	private static IEnumerable<string> EnumerateBlockstateDirectoryNames(IResourceProvider? provider) {
+		if (provider is null) {
+			yield break;
+		}
+
+		if (provider.DirectoryExists("blockstates")) {
+			yield return "blockstates";
+		}
+
+		if (provider.DirectoryExists("blockentities/blockStates")) {
+			yield return "blockentities/blockStates";
+		}
+	}
+
 	private static IEnumerable<ItemDefinitionEntry> EnumerateItemDefinitions(string assetsRoot,
 		IEnumerable<string>? overlayRoots, AssetNamespaceRegistry? assetNamespaces) {
 		var namespaceRoots = BuildNamespaceRootList(assetsRoot, overlayRoots, assetNamespaces,
 			includeAllNamespaces: true);
 
 		foreach (var nsRoot in namespaceRoots) {
-			var itemsRoot = Path.Combine(nsRoot.Path, "items");
-			if (!Directory.Exists(itemsRoot)) {
+			var provider = nsRoot.Provider;
+			if (provider is null || !provider.DirectoryExists("items")) {
 				continue;
 			}
 
-			foreach (var file in Directory.EnumerateFiles(itemsRoot, "*.json", SearchOption.AllDirectories)) {
-				var relativePath = Path.GetRelativePath(itemsRoot, file);
+			foreach (var file in provider.EnumerateFiles("items", "*.json", recursive: true)) {
+				var relativePath = ResourceProviderExtensions.GetRelativePath(file, "items");
 				var itemName = NormalizeItemName(relativePath);
 				if (string.IsNullOrWhiteSpace(itemName)) {
 					continue;
@@ -382,7 +430,7 @@ internal static class MinecraftAssetLoader
 
 				ItemDefinitionEntry? entry = null;
 				try {
-					using var stream = File.OpenRead(file);
+					using var stream = provider.OpenRead(file);
 					using var document =
 						JsonDocument.Parse(stream,
 							new JsonDocumentOptions { AllowTrailingCommas = true, MaxDepth = 8192 });

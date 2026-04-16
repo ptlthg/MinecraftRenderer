@@ -9,6 +9,7 @@ using System.Numerics;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
+using MinecraftRenderer.Assets;
 using MinecraftRenderer.Nbt;
 using MinecraftRenderer.Snbt;
 using MinecraftRenderer.TexturePacks;
@@ -195,6 +196,51 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 
 		return new MinecraftBlockRenderer(modelResolver, textureRepository, blockRegistry, itemRegistry,
 			assetsDirectory, overlayRoots, texturePackRegistry, packContext);
+	}
+
+	/// <summary>
+	/// Creates a renderer from an <see cref="IResourceProvider"/> that points at a Minecraft-style asset tree
+	/// containing <c>models/</c>, <c>blockstates/</c>, and <c>textures/</c> subdirectories.
+	/// This enables loading assets from ZIP archives, JARs, or any other custom storage format.
+	/// </summary>
+	/// <param name="provider">
+	/// The resource provider to load assets from. The caller retains ownership and must dispose it
+	/// after the renderer is no longer needed.
+	/// </param>
+	/// <param name="displayPath">A display-friendly identifier for logging and diagnostics.</param>
+	public static MinecraftBlockRenderer CreateFromResourceProvider(IResourceProvider provider,
+		string? displayPath = null) {
+		ArgumentNullException.ThrowIfNull(provider);
+		var rootPath = displayPath ?? provider.RootPath;
+
+		var registry = new AssetNamespaceRegistry();
+		registry.AddNamespace("minecraft", rootPath, "provider", isVanilla: true, provider);
+
+		if (provider.DirectoryExists("textures")) {
+			var texturesProvider = new SubPathResourceProvider(provider, "textures");
+			registry.AddNamespace("minecraft", rootPath + "/textures", "provider", isVanilla: true,
+				texturesProvider);
+		}
+
+		var overlayRoots = Array.Empty<OverlayRoot>();
+		var packContext = RenderPackContext.Create(null, overlayRoots, null);
+
+		// Override the asset namespaces with our provider-backed registry
+		var providerPackContext = RenderPackContext.CreateFromRegistry(rootPath, overlayRoots, registry);
+
+		var modelResolver =
+			BlockModelResolver.LoadFromMinecraftAssets(rootPath, null, providerPackContext.AssetNamespaces);
+		var blockRegistry =
+			BlockRegistry.LoadFromMinecraftAssets(rootPath, modelResolver.Definitions, null,
+				providerPackContext.AssetNamespaces);
+		var itemRegistry =
+			ItemRegistry.LoadFromMinecraftAssets(rootPath, modelResolver.Definitions, null,
+				providerPackContext.AssetNamespaces);
+		var textureRepository = new TextureRepository(rootPath,
+			assetNamespaces: providerPackContext.AssetNamespaces);
+
+		return new MinecraftBlockRenderer(modelResolver, textureRepository, blockRegistry, itemRegistry,
+			null, overlayRoots, null, providerPackContext);
 	}
 
 	private static IReadOnlyList<OverlayRoot> DiscoverOverlayRoots(string assetsDirectory) {

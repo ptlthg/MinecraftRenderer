@@ -55,20 +55,9 @@ public sealed class TextureRepository : IDisposable
 
 		var colormapRoot = FindColormapRoot();
 		if (colormapRoot is not null) {
-			var grassPath = Path.Combine(colormapRoot, "colormap", "grass.png");
-			if (File.Exists(grassPath)) {
-				GrassColorMap = Image.Load<Rgba32>(grassPath);
-			}
-
-			var foliagePath = Path.Combine(colormapRoot, "colormap", "foliage.png");
-			if (File.Exists(foliagePath)) {
-				FoliageColorMap = Image.Load<Rgba32>(foliagePath);
-			}
-
-			var dryFoliagePath = Path.Combine(colormapRoot, "colormap", "dryfoliage.png");
-			if (File.Exists(dryFoliagePath)) {
-				DryFoliageColorMap = Image.Load<Rgba32>(dryFoliagePath);
-			}
+			GrassColorMap = TryLoadColormapTexture("colormap/grass");
+			FoliageColorMap = TryLoadColormapTexture("colormap/foliage");
+			DryFoliageColorMap = TryLoadColormapTexture("colormap/dryfoliage");
 		}
 
 		if (!string.IsNullOrWhiteSpace(embeddedTextureFile) && File.Exists(embeddedTextureFile)) {
@@ -198,9 +187,10 @@ public sealed class TextureRepository : IDisposable
 		for (var i = _sources.Count - 1; i >= 0; i--) {
 			var source = _sources[i];
 			foreach (var logicalPath in logicalPaths) {
-				if (source.TryResolve(namespaceName, logicalPath, out var candidate)) {
-					var loadedTexture = Image.Load<Rgba32>(candidate);
-					return ProcessAnimatedTexture(normalized, candidate, loadedTexture);
+				if (source.TryResolve(namespaceName, logicalPath, out var resource)) {
+					using var imageStream = resource.OpenImage();
+					var loadedTexture = Image.Load<Rgba32>(imageStream);
+					return ProcessAnimatedTexture(normalized, loadedTexture, resource.OpenMcmeta);
 				}
 			}
 		}
@@ -266,17 +256,32 @@ public sealed class TextureRepository : IDisposable
 		}
 	}
 
-	private IEnumerable<string> EnumerateCandidatePaths(string normalized) {
-		// Legacy method kept for internal helpers that might rely on it, but refactored to use new logic
+	private IEnumerable<ResolvedTextureResource> EnumerateResolvedResources(string normalized) {
 		var (namespaceName, pathWithinNamespace) = ParseNamespace(normalized);
 		foreach (var logicalPath in EnumerateLogicalPaths(pathWithinNamespace)) {
 			for (var i = _sources.Count - 1; i >= 0; i--) {
 				var source = _sources[i];
-				if (source.TryResolve(namespaceName, logicalPath, out var candidate)) {
-					yield return candidate;
+				if (source.TryResolve(namespaceName, logicalPath, out var resource)) {
+					yield return resource;
 				}
 			}
 		}
+	}
+
+	private Image<Rgba32>? TryLoadColormapTexture(string textureRelativePath) {
+		for (var i = _sources.Count - 1; i >= 0; i--) {
+			if (_sources[i].TryResolve("minecraft", textureRelativePath, out var resource)) {
+				try {
+					using var stream = resource.OpenImage();
+					return Image.Load<Rgba32>(stream);
+				}
+				catch (IOException) {
+					continue;
+				}
+			}
+		}
+
+		return null;
 	}
 
 	private static IReadOnlyList<TextureSource> BuildSourceList(string primaryRoot, IEnumerable<string>? overlayRoots,
@@ -324,8 +329,11 @@ public sealed class TextureRepository : IDisposable
 
 	private string? FindColormapRoot() {
 		for (var i = _sources.Count - 1; i >= 0; i--) {
-			if (_sources[i].TryResolve("minecraft", "colormap/grass", out var path)) {
-				return Path.GetDirectoryName(Path.GetDirectoryName(path));
+			if (_sources[i].TryResolve("minecraft", "colormap/grass", out _)) {
+				// For directory-based sources, we need the filesystem path for backward compat.
+				// For provider-based sources, we'll load colormaps via the provider.
+				// Return a marker so that provider-based colormap loading is handled separately.
+				return "provider-resolved";
 			}
 		}
 
@@ -334,7 +342,22 @@ public sealed class TextureRepository : IDisposable
 
 	private abstract class TextureSource
 	{
-		public abstract bool TryResolve(string namespaceName, string relativePath, out string absolutePath);
+		/// <summary>
+		/// Tries to resolve a texture resource. Returns a <see cref="ResolvedTextureResource"/> that
+		/// can open streams for the image and optional .mcmeta sidecar.
+		/// </summary>
+		public abstract bool TryResolve(string namespaceName, string relativePath,
+			out ResolvedTextureResource resource);
+	}
+
+	/// <summary>
+	/// Represents a resolved texture file and optional .mcmeta animation sidecar.
+	/// Provides lazy stream factories so that streams are opened only when needed.
+	/// </summary>
+	private readonly struct ResolvedTextureResource
+	{
+		public required Func<Stream> OpenImage { get; init; }
+		public Func<Stream>? OpenMcmeta { get; init; }
 	}
 
 	private sealed class RegistryTextureSource : TextureSource
@@ -347,22 +370,46 @@ public sealed class TextureRepository : IDisposable
 			_registry = registry;
 		}
 
-		public override bool TryResolve(string namespaceName, string relativePath, out string absolutePath) {
+		public override bool TryResolve(string namespaceName, string relativePath,
+			out ResolvedTextureResource resource) {
 			var roots = _registry.GetRoots(namespaceName, _sourceId);
 			if (roots.Count == 0 && !string.Equals(namespaceName, "minecraft", StringComparison.OrdinalIgnoreCase)) {
 				roots = _registry.GetRoots("minecraft", _sourceId);
 			}
 
-			var withExtension = relativePath.Replace('/', Path.DirectorySeparatorChar) + ".png";
+			var withExtension = relativePath + ".png";
+			var mcmetaExtension = withExtension + ".mcmeta";
 			foreach (var root in roots) {
-				var candidate = Path.Combine(root.Path, withExtension);
+				var provider = root.Provider;
+				if (provider is not null) {
+					if (provider.FileExists(withExtension)) {
+						var p = provider;
+						var imgPath = withExtension;
+						var metaPath = mcmetaExtension;
+						resource = new ResolvedTextureResource {
+							OpenImage = () => p.OpenRead(imgPath),
+							OpenMcmeta = p.FileExists(metaPath) ? () => p.OpenRead(metaPath) : null
+						};
+						return true;
+					}
+
+					continue;
+				}
+
+				// Fallback: raw filesystem path
+				var candidate = Path.Combine(root.Path,
+					withExtension.Replace('/', Path.DirectorySeparatorChar));
 				if (File.Exists(candidate)) {
-					absolutePath = candidate;
+					var path = candidate;
+					resource = new ResolvedTextureResource {
+						OpenImage = () => File.OpenRead(path),
+						OpenMcmeta = File.Exists(path + ".mcmeta") ? () => File.OpenRead(path + ".mcmeta") : null
+					};
 					return true;
 				}
 			}
 
-			absolutePath = null!;
+			resource = default;
 			return false;
 		}
 	}
@@ -375,15 +422,47 @@ public sealed class TextureRepository : IDisposable
 			_root = root;
 		}
 
-		public override bool TryResolve(string namespaceName, string relativePath, out string absolutePath) {
+		public override bool TryResolve(string namespaceName, string relativePath,
+			out ResolvedTextureResource resource) {
 			var withExtension = relativePath.Replace('/', Path.DirectorySeparatorChar) + ".png";
 			var candidate = Path.Combine(_root, withExtension);
 			if (File.Exists(candidate)) {
-				absolutePath = candidate;
+				var path = candidate;
+				resource = new ResolvedTextureResource {
+					OpenImage = () => File.OpenRead(path),
+					OpenMcmeta = File.Exists(path + ".mcmeta") ? () => File.OpenRead(path + ".mcmeta") : null
+				};
 				return true;
 			}
 
-			absolutePath = null!;
+			resource = default;
+			return false;
+		}
+	}
+
+	private sealed class ProviderTextureSource : TextureSource
+	{
+		private readonly IResourceProvider _provider;
+
+		public ProviderTextureSource(IResourceProvider provider) {
+			_provider = provider;
+		}
+
+		public override bool TryResolve(string namespaceName, string relativePath,
+			out ResolvedTextureResource resource) {
+			var withExtension = relativePath + ".png";
+			if (_provider.FileExists(withExtension)) {
+				var p = _provider;
+				var imgPath = withExtension;
+				var metaPath = withExtension + ".mcmeta";
+				resource = new ResolvedTextureResource {
+					OpenImage = () => p.OpenRead(imgPath),
+					OpenMcmeta = p.FileExists(metaPath) ? () => p.OpenRead(metaPath) : null
+				};
+				return true;
+			}
+
+			resource = default;
 			return false;
 		}
 	}
@@ -445,8 +524,9 @@ public sealed class TextureRepository : IDisposable
 		return image;
 	}
 
-	private Image<Rgba32> ProcessAnimatedTexture(string normalizedKey, string texturePath, Image<Rgba32> spriteSheet) {
-		var animation = TryBuildTextureAnimation(texturePath, spriteSheet);
+	private Image<Rgba32> ProcessAnimatedTexture(string normalizedKey, Image<Rgba32> spriteSheet,
+		Func<Stream>? openMcmeta) {
+		var animation = TryBuildTextureAnimation(spriteSheet, openMcmeta);
 		if (animation is null || animation.Frames.Count == 0) {
 			return spriteSheet;
 		}
@@ -457,14 +537,13 @@ public sealed class TextureRepository : IDisposable
 		return firstFrame;
 	}
 
-	private TextureAnimation? TryBuildTextureAnimation(string texturePath, Image<Rgba32> spriteSheet) {
-		var metadataPath = texturePath + ".mcmeta";
-		if (!File.Exists(metadataPath)) {
+	private TextureAnimation? TryBuildTextureAnimation(Image<Rgba32> spriteSheet, Func<Stream>? openMcmeta) {
+		if (openMcmeta is null) {
 			return null;
 		}
 
 		try {
-			using var stream = File.OpenRead(metadataPath);
+			using var stream = openMcmeta();
 			using var document = JsonDocument.Parse(stream);
 
 			if (!document.RootElement.TryGetProperty("animation", out var animationElement) ||
@@ -583,11 +662,10 @@ public sealed class TextureRepository : IDisposable
 	}
 
 	private bool TryLoadTrimPaletteColors(out Rgba32[] colors) {
-		foreach (var candidate in EnumerateCandidatePaths("trims/color_palettes/trim_palette")) {
-			if (!File.Exists(candidate)) continue;
-
+		foreach (var resource in EnumerateResolvedResources("trims/color_palettes/trim_palette")) {
 			try {
-				using var image = Image.Load<Rgba32>(candidate);
+				using var stream = resource.OpenImage();
+				using var image = Image.Load<Rgba32>(stream);
 				if (image.Height <= 0) continue;
 
 				var rowSpan = image.DangerousGetPixelRowMemory(0).Span;

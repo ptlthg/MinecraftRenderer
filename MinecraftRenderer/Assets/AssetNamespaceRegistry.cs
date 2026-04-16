@@ -21,7 +21,7 @@ public sealed class AssetNamespaceRegistry
 
 	/// <summary>
 	/// Adds a namespace root to the registry using the provided insertion order. Duplicate namespace/path pairs
-	/// are ignored to keep iteration stable.
+	/// are ignored to keep iteration stable. A <see cref="DirectoryResourceProvider"/> is created automatically.
 	/// </summary>
 	public void AddNamespace(string namespaceName, string path, string sourceId, bool isVanilla) {
 		if (string.IsNullOrWhiteSpace(namespaceName)) {
@@ -37,12 +37,29 @@ public sealed class AssetNamespaceRegistry
 			return;
 		}
 
-		var identity = $"{namespaceName.ToLowerInvariant()}|{fullPath.ToLowerInvariant()}";
+		var provider = new DirectoryResourceProvider(fullPath);
+		AddNamespace(namespaceName, fullPath, sourceId, isVanilla, provider);
+	}
+
+	/// <summary>
+	/// Adds a namespace root backed by a custom <see cref="IResourceProvider"/>.
+	/// </summary>
+	public void AddNamespace(string namespaceName, string displayPath, string sourceId, bool isVanilla,
+		IResourceProvider provider) {
+		if (string.IsNullOrWhiteSpace(namespaceName)) {
+			namespaceName = "minecraft";
+		}
+
+		if (string.IsNullOrWhiteSpace(displayPath)) {
+			return;
+		}
+
+		var identity = $"{namespaceName.ToLowerInvariant()}|{displayPath.ToLowerInvariant()}";
 		if (!_deduplicationSet.Add(identity)) {
 			return;
 		}
 
-		var root = new AssetNamespaceRoot(namespaceName, fullPath, sourceId, isVanilla);
+		var root = new AssetNamespaceRoot(namespaceName, displayPath, sourceId, isVanilla, provider);
 		_roots.Add(root);
 
 		if (!_rootsByNamespace.TryGetValue(namespaceName, out var bucket)) {
@@ -154,7 +171,10 @@ public sealed class AssetNamespaceRegistry
 /// A single namespace root entry, representing a base path for a specific namespace.
 /// </summary>
 /// <param name="Namespace"></param>
-/// <param name="Path"></param>
+/// <param name="Path">A display/identity path for this root. For directory providers this is the filesystem path.</param>
 /// <param name="SourceId"></param>
 /// <param name="IsVanilla"></param>
-public sealed record AssetNamespaceRoot(string Namespace, string Path, string SourceId, bool IsVanilla);
+/// <param name="Provider">The resource provider that should be used for I/O within this root.</param>
+public sealed record AssetNamespaceRoot(
+	string Namespace, string Path, string SourceId, bool IsVanilla,
+	IResourceProvider? Provider = null);

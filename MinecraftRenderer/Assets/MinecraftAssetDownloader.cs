@@ -164,6 +164,143 @@ public static class MinecraftAssetDownloader
 	}
 
 	/// <summary>
+	/// Downloads the Minecraft client JAR for a specific version and returns an <see cref="IResourceProvider"/>
+	/// that reads assets directly from the archive, without extracting files to disk.
+	/// The JAR is saved to <paramref name="outputPath"/> so subsequent calls with the same version skip the download.
+	/// </summary>
+	/// <param name="version">Minecraft version (e.g., "1.21.9", "1.21.8")</param>
+	/// <param name="outputPath">Directory to store the cached JAR file. Defaults to "./minecraft"</param>
+	/// <param name="acceptEula">Must be true to accept Minecraft's EULA (https://www.minecraft.net/en-us/eula)</param>
+	/// <param name="forceRedownload">If true, re-downloads even if the JAR for this version already exists</param>
+	/// <param name="progress">Optional progress callback (receives percentage 0-100 and status message)</param>
+	/// <returns>
+	/// An <see cref="IResourceProvider"/> scoped to <c>assets/minecraft</c> inside the JAR.
+	/// The caller is responsible for disposing the returned provider when no longer needed.
+	/// </returns>
+	public static async Task<IResourceProvider> DownloadAssetsAsProvider(
+		string version = "1.21.9",
+		string? outputPath = null,
+		bool acceptEula = false,
+		bool forceRedownload = false,
+		IProgress<(int Percentage, string Status)>? progress = null) {
+		if (!acceptEula) {
+			throw new InvalidOperationException(
+				"You must accept Minecraft's EULA to download assets. " +
+				"Review the EULA at: https://www.minecraft.net/en-us/eula " +
+				"Then set acceptEula=true to proceed.");
+		}
+
+		outputPath ??= Path.Combine(Directory.GetCurrentDirectory(), "minecraft");
+		Directory.CreateDirectory(outputPath);
+
+		var jarPath = Path.Combine(outputPath, $"client-{version}.jar");
+		var versionFile = Path.Combine(outputPath, ".version-jar");
+
+		// Check if the JAR already exists and matches the requested version
+		if (!forceRedownload && File.Exists(jarPath) && File.Exists(versionFile)) {
+			var existingVersion = await File.ReadAllTextAsync(versionFile);
+			if (existingVersion.Trim() == version) {
+				progress?.Report((100, $"JAR for version {version} already exists at {jarPath}"));
+				return OpenJarAsProvider(jarPath);
+			}
+		}
+
+		progress?.Report((0, "Fetching version manifest..."));
+
+		var versionManifestJson = await HttpClient.GetStringAsync(VersionManifestUrl);
+		var versionManifest = JsonSerializer.Deserialize<VersionManifest>(versionManifestJson)
+		                      ?? throw new InvalidOperationException("Failed to parse version manifest");
+
+		var versionInfo = versionManifest.Versions.FirstOrDefault(v => v.Id == version)
+		                  ?? throw new InvalidOperationException(
+			                  $"Version {version} not found in Mojang's version manifest");
+
+		progress?.Report((10, $"Found version {version}, fetching version metadata..."));
+
+		var versionMetadataJson = await HttpClient.GetStringAsync(versionInfo.Url);
+		var versionMetadata = JsonSerializer.Deserialize<VersionMetadata>(versionMetadataJson)
+		                      ?? throw new InvalidOperationException("Failed to parse version metadata");
+
+		var clientDownload = versionMetadata.Downloads?.Client
+		                     ?? throw new InvalidOperationException($"No client download found for version {version}");
+
+		progress?.Report((20, $"Downloading client.jar ({clientDownload.Size / 1024 / 1024:F1} MB)..."));
+
+		// Download to a temporary file first, then move on success
+		var tempPath = jarPath + ".tmp";
+		try {
+			using (var clientResponse =
+			       await HttpClient.GetAsync(clientDownload.Url, HttpCompletionOption.ResponseHeadersRead)) {
+				clientResponse.EnsureSuccessStatusCode();
+
+				await using var clientStream = await clientResponse.Content.ReadAsStreamAsync();
+				await using var fileStream = File.Create(tempPath);
+
+				var buffer = new byte[8192];
+				long totalRead = 0;
+				int bytesRead;
+
+				while ((bytesRead = await clientStream.ReadAsync(buffer)) > 0) {
+					await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead));
+					totalRead += bytesRead;
+
+					var percentage = 20 + (int)(totalRead * 60.0 / clientDownload.Size);
+					progress?.Report((percentage,
+						$"Downloading client.jar... {totalRead / 1024 / 1024:F1}/{clientDownload.Size / 1024 / 1024:F1} MB"));
+				}
+			}
+
+			progress?.Report((80, "Verifying download..."));
+
+			using (var sha1 = System.Security.Cryptography.SHA1.Create()) {
+				await using var stream = File.OpenRead(tempPath);
+				var hash = await Task.Run(() => sha1.ComputeHash(stream));
+				var hashString = BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+
+				if (hashString != clientDownload.Sha1.ToLowerInvariant()) {
+					throw new InvalidOperationException(
+						$"SHA1 hash mismatch! Expected {clientDownload.Sha1}, got {hashString}");
+				}
+			}
+
+			// Replace existing JAR atomically
+			File.Move(tempPath, jarPath, overwrite: true);
+		}
+		finally {
+			// Clean up temp file on failure
+			try { if (File.Exists(tempPath)) File.Delete(tempPath); }
+			catch { /* best-effort cleanup */ }
+		}
+
+		await File.WriteAllTextAsync(versionFile, version);
+
+		progress?.Report((100, $"Downloaded {version} JAR to {jarPath}"));
+		return OpenJarAsProvider(jarPath);
+	}
+
+	/// <summary>
+	/// Opens a Minecraft client JAR file and returns an <see cref="IResourceProvider"/> scoped to
+	/// <c>assets/minecraft</c> within the archive.
+	/// </summary>
+	/// <param name="jarPath">Path to the client JAR file.</param>
+	/// <returns>
+	/// An <see cref="IResourceProvider"/> scoped to the <c>assets/minecraft</c> subtree.
+	/// Disposing this provider also disposes the underlying ZIP archive.
+	/// </returns>
+	public static IResourceProvider OpenJarAsProvider(string jarPath) {
+		ArgumentException.ThrowIfNullOrWhiteSpace(jarPath);
+		var fullPath = Path.GetFullPath(jarPath);
+		if (!File.Exists(fullPath)) {
+			throw new FileNotFoundException($"JAR file not found: '{jarPath}'", fullPath);
+		}
+
+		var zipProvider = new ZipResourceProvider(fullPath);
+		return new SubPathResourceProvider(zipProvider, "assets/minecraft") {
+			OwnsInner = true
+		};
+	}
+
+	/// <summary>
 	/// Gets a list of available Minecraft versions from Mojang's servers.
 	/// </summary>
 	/// <param name="includeSnapshots">If true, includes snapshot versions</param>

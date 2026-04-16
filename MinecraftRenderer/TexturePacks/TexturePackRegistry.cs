@@ -5,10 +5,12 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using MinecraftRenderer.Assets;
 
 public sealed class TexturePackRegistry
 {
@@ -45,23 +47,63 @@ public sealed class TexturePackRegistry
 				$"Texture pack '{directory}' is missing a valid 'id' field in meta.json.");
 		}
 
-		var namespaceRoots = ResolveNamespaceRoots(fullPath);
-		if (!namespaceRoots.TryGetValue("minecraft", out var assetsPath)) {
-			throw new DirectoryNotFoundException(
-				$"Texture pack at '{fullPath}' does not contain an 'assets/minecraft' directory.");
-		}
+		// Detect zip-backed pack: a .zip file sitting alongside meta.json
+		var zipFile = FindPackZip(fullPath);
 
-		var packMcMetaPath = Path.Combine(fullPath, "pack.mcmeta");
+		IResourceProvider? provider = null;
+		IReadOnlyDictionary<string, IResourceProvider>? namespaceProviders = null;
+		IReadOnlyDictionary<string, string> namespaceRoots;
+		string? assetsPath;
+		long sizeBytes;
 		int? packFormat = null;
-		if (File.Exists(packMcMetaPath)) {
-			packFormat = ParsePackFormat(packMcMetaPath);
+		bool supportsCit;
+
+		if (zipFile is not null) {
+			// Zip-backed pack
+			provider = new ZipResourceProvider(zipFile);
+			try {
+				(namespaceRoots, namespaceProviders) = ResolveNamespaceRootsFromProvider(provider, fullPath);
+				if (!namespaceRoots.TryGetValue("minecraft", out assetsPath)) {
+					throw new DirectoryNotFoundException(
+						$"Texture pack ZIP at '{zipFile}' does not contain an 'assets/minecraft' directory.");
+				}
+
+				sizeBytes = new FileInfo(zipFile).Length;
+
+				// Check for pack.mcmeta inside the zip
+				if (provider.FileExists("pack.mcmeta")) {
+					packFormat = ParsePackFormatFromProvider(provider);
+				}
+
+				supportsCit = metaDescriptor.SupportsCit
+				              || namespaceRoots.ContainsKey("cit")
+				              || provider.DirectoryExists("assets/minecraft/optifine/cit");
+			}
+			catch {
+				provider.Dispose();
+				throw;
+			}
+		}
+		else {
+			// Traditional directory-based pack
+			namespaceRoots = ResolveNamespaceRoots(fullPath);
+			if (!namespaceRoots.TryGetValue("minecraft", out assetsPath)) {
+				throw new DirectoryNotFoundException(
+					$"Texture pack at '{fullPath}' does not contain an 'assets/minecraft' directory.");
+			}
+
+			var packMcMetaPath = Path.Combine(fullPath, "pack.mcmeta");
+			if (File.Exists(packMcMetaPath)) {
+				packFormat = ParsePackFormat(packMcMetaPath);
+			}
+
+			sizeBytes = namespaceRoots.Values.Sum(static path => CalculateDirectorySize(path));
+			supportsCit = metaDescriptor.SupportsCit
+			              || namespaceRoots.ContainsKey("cit")
+			              || Directory.Exists(Path.Combine(assetsPath!, "optifine", "cit"));
 		}
 
 		var lastWriteTimeUtc = Directory.GetLastWriteTimeUtc(fullPath);
-		var sizeBytes = namespaceRoots.Values.Sum(static path => CalculateDirectorySize(path));
-		var supportsCit = metaDescriptor.SupportsCit
-		                  || namespaceRoots.ContainsKey("cit")
-		                  || Directory.Exists(Path.Combine(assetsPath, "optifine", "cit"));
 
 		var resourceMeta = new ResourcePackMeta(
 			metaDescriptor.Id!,
@@ -80,15 +122,19 @@ public sealed class TexturePackRegistry
 			resourceMeta.Id,
 			resourceMeta.Name,
 			fullPath,
-			assetsPath,
+			assetsPath!,
 			namespaceRoots,
 			resourceMeta,
 			lastWriteTimeUtc,
 			sizeBytes,
 			supportsCit,
-			fingerprint);
+			fingerprint) {
+			Provider = provider,
+			NamespaceProviders = namespaceProviders
+		};
 
 		if (!_packs.TryAdd(resourceMeta.Id, registered)) {
+			DisposePackProviders(provider, namespaceProviders);
 			throw new InvalidOperationException(
 				$"A texture pack with id '{resourceMeta.Id}' has already been registered.");
 		}
@@ -306,6 +352,100 @@ public sealed class TexturePackRegistry
 
 		namespaces["minecraft"] = Path.GetFullPath(minecraftPath);
 		return namespaces;
+	}
+
+	/// <summary>
+	/// Resolves namespace roots from a provider-backed pack (e.g. ZIP archive).
+	/// Returns both display-path roots and per-namespace scoped providers.
+	/// </summary>
+	private static (IReadOnlyDictionary<string, string> roots, IReadOnlyDictionary<string, IResourceProvider> providers)
+		ResolveNamespaceRootsFromProvider(IResourceProvider provider, string displayRoot) {
+		if (!provider.DirectoryExists("assets")) {
+			throw new DirectoryNotFoundException(
+				$"Texture pack at '{displayRoot}' does not contain an 'assets' directory.");
+		}
+
+		var namespaces = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+		var nsProviders = new Dictionary<string, IResourceProvider>(StringComparer.OrdinalIgnoreCase);
+
+		try {
+			foreach (var nsDir in provider.EnumerateDirectories("assets", "*", recursive: false)) {
+				// nsDir is like "assets/minecraft"
+				var name = nsDir.Contains('/')
+					? nsDir[(nsDir.LastIndexOf('/') + 1)..]
+					: nsDir;
+
+				if (string.IsNullOrWhiteSpace(name) || namespaces.ContainsKey(name)) {
+					continue;
+				}
+
+				var displayPath = Path.Combine(displayRoot, "assets", name);
+				namespaces.Add(name, displayPath);
+				nsProviders.Add(name, new SubPathResourceProvider(provider, nsDir));
+			}
+
+			if (!namespaces.ContainsKey("minecraft")) {
+				throw new DirectoryNotFoundException(
+					$"Texture pack at '{displayRoot}' does not contain an 'assets/minecraft' directory.");
+			}
+
+			return (namespaces, nsProviders);
+		}
+		catch {
+			foreach (var p in nsProviders.Values) {
+				p.Dispose();
+			}
+
+			throw;
+		}
+	}
+
+	/// <summary>
+	/// Finds the first .zip file in the directory that could be a resource pack archive.
+	/// Returns null if the pack has a traditional <c>assets/</c> directory structure.
+	/// </summary>
+	private static string? FindPackZip(string packDirectory) {
+		// If the directory has an assets/ folder, treat as traditional directory-based pack
+		if (Directory.Exists(Path.Combine(packDirectory, "assets"))) {
+			return null;
+		}
+
+		// Prefer pack.zip specifically, then fall back to the first other .zip found
+		var preferredZip = Path.Combine(packDirectory, "pack.zip");
+		if (File.Exists(preferredZip)) {
+			return Path.GetFullPath(preferredZip);
+		}
+
+		var zipFiles = Directory.GetFiles(packDirectory, "*.zip", SearchOption.TopDirectoryOnly);
+		return zipFiles.Length > 0 ? Path.GetFullPath(zipFiles[0]) : null;
+	}
+
+	private static int? ParsePackFormatFromProvider(IResourceProvider provider) {
+		try {
+			var json = provider.ReadAllText("pack.mcmeta");
+			using var document = JsonDocument.Parse(json);
+			if (document.RootElement.TryGetProperty("pack", out var packElement) &&
+			    packElement.TryGetProperty("pack_format", out var formatElement) &&
+			    formatElement.ValueKind == JsonValueKind.Number) {
+				return formatElement.GetInt32();
+			}
+		}
+		catch (JsonException) {
+			// Ignore malformed pack.mcmeta.
+		}
+
+		return null;
+	}
+
+	private static void DisposePackProviders(IResourceProvider? provider,
+		IReadOnlyDictionary<string, IResourceProvider>? namespaceProviders) {
+		if (namespaceProviders is not null) {
+			foreach (var p in namespaceProviders.Values) {
+				p.Dispose();
+			}
+		}
+
+		provider?.Dispose();
 	}
 
 	private static int? ParsePackFormat(string packMcMetaPath) {

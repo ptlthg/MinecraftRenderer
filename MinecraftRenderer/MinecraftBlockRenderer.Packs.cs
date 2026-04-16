@@ -931,14 +931,15 @@ public sealed partial class MinecraftBlockRenderer
 	private sealed class RenderPackContext
 	{
 		private RenderPackContext(string assetsRoot, IReadOnlyList<OverlayRoot> overlayRoots,
-			IReadOnlyList<string> packIds, string packStackHash, IReadOnlyList<RegisteredResourcePack> packs) {
+			IReadOnlyList<string> packIds, string packStackHash, IReadOnlyList<RegisteredResourcePack> packs,
+			AssetNamespaceRegistry? overrideRegistry = null) {
 			AssetsRoot = assetsRoot;
 			OverlayRoots = overlayRoots;
 			PackIds = packIds;
 			PackStackHash = packStackHash;
 			Packs = packs;
 			SearchRoots = BuildSearchRoots();
-			AssetNamespaces = BuildAssetNamespaces();
+			AssetNamespaces = overrideRegistry ?? BuildAssetNamespaces();
 		}
 
 		public string AssetsRoot { get; }
@@ -971,6 +972,16 @@ public sealed partial class MinecraftBlockRenderer
 
 			foreach (var overlay in OverlayRoots) {
 				AddOverlayNamespaces(registry, overlay);
+			}
+
+			// Register provider-backed pack namespaces (zip-backed packs whose overlay paths
+			// don't exist on the filesystem and were skipped by AddOverlayNamespaces above)
+			foreach (var pack in Packs) {
+				if (pack.NamespaceProviders is null) {
+					continue;
+				}
+
+				RegisterProviderNamespaces(registry, pack);
 			}
 
 			return registry;
@@ -1016,6 +1027,24 @@ public sealed partial class MinecraftBlockRenderer
 			}
 		}
 
+		private static void RegisterProviderNamespaces(AssetNamespaceRegistry registry,
+			RegisteredResourcePack pack) {
+			if (pack.NamespaceProviders is null) {
+				return;
+			}
+
+			foreach (var (namespaceName, nsProvider) in pack.NamespaceProviders) {
+				var displayPath = pack.NamespaceRoots.TryGetValue(namespaceName, out var path) ? path : pack.RootPath;
+				registry.AddNamespace(namespaceName, displayPath, pack.Id, isVanilla: false, nsProvider);
+
+				if (nsProvider.DirectoryExists("textures")) {
+					var texturesProvider = new SubPathResourceProvider(nsProvider, "textures");
+					registry.AddNamespace(namespaceName, displayPath + "/textures", pack.Id, isVanilla: false,
+						texturesProvider);
+				}
+			}
+		}
+
 		public static RenderPackContext Create(string? assetsDirectory, IReadOnlyList<OverlayRoot> baseOverlayRoots,
 			TexturePackStack? packStack) {
 			var overlays = new List<OverlayRoot>(baseOverlayRoots);
@@ -1030,6 +1059,15 @@ public sealed partial class MinecraftBlockRenderer
 			var packs = packStack?.Packs ?? [];
 
 			return new RenderPackContext(assetsRoot, overlays, packIds, packStackHash, packs);
+		}
+
+		/// <summary>
+		/// Creates a context from a pre-built <see cref="AssetNamespaceRegistry"/> (e.g. backed by providers).
+		/// </summary>
+		public static RenderPackContext CreateFromRegistry(string assetsRoot,
+			IReadOnlyList<OverlayRoot> overlayRoots, AssetNamespaceRegistry registry) {
+			return new RenderPackContext(assetsRoot, overlayRoots, [], VanillaPackId, [],
+				overrideRegistry: registry);
 		}
 	}
 
