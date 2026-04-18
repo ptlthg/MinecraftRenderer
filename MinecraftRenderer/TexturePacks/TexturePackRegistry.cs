@@ -109,8 +109,14 @@ public sealed class TexturePackRegistry
 						throw new InvalidOperationException($"Unexpected archive kind: {archive.Kind}.");
 				}
 
-				// Detect if this is a catharsis pack (has a .cats file)
-				var isCatharsisPack = catsFile is not null;
+				// Detect if this is a catharsis pack: either a .cats binary, or a ZIP whose
+				// pack.mcmeta declares the catharsis:pack/v1 section.
+				string? mcmetaJsonForCatharsis = provider.FileExists("pack.mcmeta")
+					? provider.ReadAllText("pack.mcmeta")
+					: null;
+				var isCatharsisPack = catsFile is not null
+				                      || (mcmetaJsonForCatharsis is not null
+				                          && IsCatharsisPackMcmeta(mcmetaJsonForCatharsis));
 
 				(namespaceRoots, namespaceProviders) =
 					ResolveNamespaceRootsFromProvider(provider, fullPath, requireMinecraft: !isCatharsisPack);
@@ -123,8 +129,8 @@ public sealed class TexturePackRegistry
 				sizeBytes = new FileInfo(archive.Path).Length;
 
 				// Check for pack.mcmeta inside the archive
-				if (provider.FileExists("pack.mcmeta")) {
-					packFormat = ParsePackFormatFromProvider(provider);
+				if (mcmetaJsonForCatharsis is not null) {
+					packFormat = ParsePackFormatFromJson(mcmetaJsonForCatharsis);
 				}
 
 				if (provider.FileExists("config.catharsis.json")) {
@@ -136,10 +142,9 @@ public sealed class TexturePackRegistry
 				              || provider.DirectoryExists("assets/minecraft/optifine/cit");
 
 				// For catharsis packs, resolve overlay directories from embedded config
-				if (isCatharsisPack && provider.FileExists("pack.mcmeta")) {
+				if (isCatharsisPack && mcmetaJsonForCatharsis is not null) {
 					try {
-						var mcmetaJson = provider.ReadAllText("pack.mcmeta");
-						catharsisOverlays = CatharsisPackConfig.ResolveEnabledOverlays(mcmetaJson,
+						catharsisOverlays = CatharsisPackConfig.ResolveEnabledOverlays(mcmetaJsonForCatharsis,
 							catharsisConfigJson,
 							overrides: catharsisConfigOverrides,
 							enableAll: false);
@@ -148,7 +153,7 @@ public sealed class TexturePackRegistry
 							var overlayProviders =
 								new List<(string Namespace, string DisplayPath, IResourceProvider Provider)>();
 
-							// Detect if the .cats binary uses a prefix for overlay directories.
+							// Detect if the archive uses a prefix for overlay directories.
 							// Catharsis packs may store overlays as e.g. "fsr_item_melee" in the
 							// archive while pack.mcmeta references them as just "item_melee".
 							var overlayDirPrefix = DetectCatharsisOverlayPrefix(provider, catharsisOverlays);
@@ -158,9 +163,11 @@ public sealed class TexturePackRegistry
 									? overlayDirPrefix + overlayDir
 									: overlayDir;
 
-								var overlayProvider =
-									new CatsResourceProvider(catsFile!, archive.Path + "/" + actualDir,
-										prefix: actualDir);
+								// For .cats archives use CatsResourceProvider; for plain ZIPs use SubPathResourceProvider.
+								IResourceProvider overlayProvider = catsFile is not null
+									? new CatsResourceProvider(catsFile, archive.Path + "/" + actualDir, prefix: actualDir)
+									: new SubPathResourceProvider(provider, actualDir);
+
 								if (!overlayProvider.DirectoryExists("assets")) {
 									continue;
 								}
@@ -740,8 +747,15 @@ public sealed class TexturePackRegistry
 	}
 
 	private static int? ParsePackFormatFromProvider(IResourceProvider provider) {
+		if (!provider.FileExists("pack.mcmeta")) {
+			return null;
+		}
+
+		return ParsePackFormatFromJson(provider.ReadAllText("pack.mcmeta"));
+	}
+
+	private static int? ParsePackFormatFromJson(string json) {
 		try {
-			var json = provider.ReadAllText("pack.mcmeta");
 			using var document = JsonDocument.Parse(json);
 			if (document.RootElement.TryGetProperty("pack", out var packElement) &&
 			    packElement.TryGetProperty("pack_format", out var formatElement) &&
@@ -754,6 +768,22 @@ public sealed class TexturePackRegistry
 		}
 
 		return null;
+	}
+
+	/// <summary>
+	/// Returns <c>true</c> if the given <c>pack.mcmeta</c> JSON declares a <c>catharsis:pack/v1</c> section,
+	/// indicating that this is a catharsis pack distributed as a plain ZIP with an extracted directory layout.
+	/// </summary>
+	private static bool IsCatharsisPackMcmeta(string mcmetaJson) {
+		try {
+			using var document = JsonDocument.Parse(mcmetaJson, new JsonDocumentOptions {
+				CommentHandling = JsonCommentHandling.Skip
+			});
+			return document.RootElement.TryGetProperty("catharsis:pack/v1", out _);
+		}
+		catch (JsonException) {
+			return false;
+		}
 	}
 
 	private void RecordRegistrationSource(RegistrationSource source) {

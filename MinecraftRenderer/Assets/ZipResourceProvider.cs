@@ -156,25 +156,33 @@ public sealed class ZipResourceProvider : IResourceProvider
 
 			// Directory entries end with '/' and have zero length
 			if (path.EndsWith('/')) {
-				directories.Add(path.TrimEnd('/'));
+				var dirPath = path.TrimEnd('/');
+				directories.Add(dirPath);
+
+				// Index parent directories of explicit directory entries too
+				IndexParentDirectories(dirPath, directories);
 				continue;
 			}
 
 			entries[path] = entry;
 
 			// Also index all parent directories (zips don't always have explicit directory entries)
-			var lastSlash = path.LastIndexOf('/');
-			while (lastSlash > 0) {
-				var parentDir = path[..lastSlash];
-				if (!directories.Add(parentDir)) {
-					break; // Already visited this ancestor
-				}
-
-				lastSlash = parentDir.LastIndexOf('/');
-			}
+			IndexParentDirectories(path, directories);
 		}
 
 		return (entries, directories);
+	}
+
+	private static void IndexParentDirectories(string path, HashSet<string> directories) {
+		var lastSlash = path.LastIndexOf('/');
+		while (lastSlash > 0) {
+			var parentDir = path[..lastSlash];
+			if (!directories.Add(parentDir)) {
+				break; // Already visited this ancestor
+			}
+
+			lastSlash = parentDir.LastIndexOf('/');
+		}
 	}
 
 	private static string NormalizePath(string path) {
