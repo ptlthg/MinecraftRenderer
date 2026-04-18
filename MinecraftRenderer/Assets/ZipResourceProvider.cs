@@ -13,56 +13,46 @@ using System.Text.RegularExpressions;
 /// </summary>
 public sealed class ZipResourceProvider : IResourceProvider
 {
-	private readonly ZipArchive _archive;
-	private readonly Stream? _ownedStream;
 	private readonly string _rootPath;
-	private readonly bool _ownsArchive;
-	private readonly Dictionary<string, ZipArchiveEntry> _entryIndex;
+	private readonly Dictionary<string, byte[]> _entryData;
 	private readonly HashSet<string> _directoryIndex;
-	private bool _disposed;
 
 	/// <summary>
-	/// Opens a ZIP archive from a file path.
+	/// Opens a ZIP archive from a file path, eagerly decompresses all entries into memory,
+	/// then closes the archive. The resulting provider is fully thread-safe.
 	/// </summary>
 	public ZipResourceProvider(string zipFilePath) {
 		ArgumentException.ThrowIfNullOrWhiteSpace(zipFilePath);
 		_rootPath = Path.GetFullPath(zipFilePath);
-		_ownedStream = File.OpenRead(_rootPath);
 
-		try {
-			_archive = new ZipArchive(_ownedStream, ZipArchiveMode.Read, leaveOpen: false);
-		}
-		catch {
-			_ownedStream.Dispose();
-			throw;
-		}
-
-		(_entryIndex, _directoryIndex) = BuildIndex(_archive);
+		using var stream = File.OpenRead(_rootPath);
+		using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: false);
+		(_entryData, _directoryIndex) = BuildIndex(archive);
 	}
 
 	/// <summary>
-	/// Wraps an existing <see cref="ZipArchive"/>. The caller retains ownership of the archive
-	/// unless <paramref name="ownsArchive"/> is <c>true</c>, in which case this provider will
-	/// dispose the archive when it is itself disposed.
+	/// Reads all entries from an existing <see cref="ZipArchive"/> into memory.
+	/// The archive is NOT disposed by this provider regardless of <paramref name="ownsArchive"/>;
+	/// all data is copied eagerly so the archive can be closed immediately after construction.
 	/// </summary>
 	public ZipResourceProvider(ZipArchive archive, string displayPath, bool ownsArchive = false) {
 		ArgumentNullException.ThrowIfNull(archive);
-		_archive = archive;
 		_rootPath = displayPath;
-		_ownsArchive = ownsArchive;
-		(_entryIndex, _directoryIndex) = BuildIndex(_archive);
+		(_entryData, _directoryIndex) = BuildIndex(archive);
+
+		if (ownsArchive) {
+			archive.Dispose();
+		}
 	}
 
 	public string RootPath => _rootPath;
 
 	public bool FileExists(string relativePath) {
-		ObjectDisposedException.ThrowIf(_disposed, this);
 		var normalized = NormalizePath(relativePath);
-		return _entryIndex.ContainsKey(normalized);
+		return _entryData.ContainsKey(normalized);
 	}
 
 	public bool DirectoryExists(string relativePath) {
-		ObjectDisposedException.ThrowIf(_disposed, this);
 		if (string.IsNullOrWhiteSpace(relativePath)) {
 			return true; // root always exists
 		}
@@ -72,35 +62,19 @@ public sealed class ZipResourceProvider : IResourceProvider
 	}
 
 	public Stream OpenRead(string relativePath) {
-		ObjectDisposedException.ThrowIf(_disposed, this);
 		var normalized = NormalizePath(relativePath);
-		if (!_entryIndex.TryGetValue(normalized, out var entry)) {
+		if (!_entryData.TryGetValue(normalized, out var data)) {
 			throw new FileNotFoundException($"File not found in ZIP archive: '{relativePath}'", relativePath);
 		}
 
-		// ZipArchiveEntry.Open() returns a non-seekable stream.
-		// Many consumers (e.g. ImageSharp) need a seekable stream, so copy into a MemoryStream.
-		var zipStream = entry.Open();
-		var memoryStream = new MemoryStream();
-		try {
-			zipStream.CopyTo(memoryStream);
-			memoryStream.Position = 0;
-			zipStream.Dispose();
-			return memoryStream;
-		}
-		catch {
-			memoryStream.Dispose();
-			zipStream.Dispose();
-			throw;
-		}
+		return new MemoryStream(data, writable: false);
 	}
 
 	public IEnumerable<string> EnumerateFiles(string directory, string searchPattern, bool recursive) {
-		ObjectDisposedException.ThrowIf(_disposed, this);
 		var prefix = NormalizePath(directory).TrimEnd('/');
 		var pattern = GlobToRegex(searchPattern);
 
-		foreach (var (path, _) in _entryIndex) {
+		foreach (var (path, _) in _entryData) {
 			if (!IsWithinDirectory(path, prefix, recursive)) {
 				continue;
 			}
@@ -113,7 +87,6 @@ public sealed class ZipResourceProvider : IResourceProvider
 	}
 
 	public IEnumerable<string> EnumerateDirectories(string directory, string searchPattern, bool recursive) {
-		ObjectDisposedException.ThrowIf(_disposed, this);
 		var prefix = NormalizePath(directory).TrimEnd('/');
 		var pattern = GlobToRegex(searchPattern);
 
@@ -130,22 +103,12 @@ public sealed class ZipResourceProvider : IResourceProvider
 	}
 
 	public void Dispose() {
-		if (_disposed) {
-			return;
-		}
-
-		_disposed = true;
-
-		// File-path constructor: _ownedStream is disposed by ZipArchive (leaveOpen: false).
-		// Archive constructor: only dispose if we own it.
-		if (_ownedStream is not null || _ownsArchive) {
-			_archive.Dispose();
-		}
+		// No-op: all data is held in managed byte arrays, no external resources.
 	}
 
-	private static (Dictionary<string, ZipArchiveEntry> entries, HashSet<string> directories) BuildIndex(
+	private static (Dictionary<string, byte[]> entries, HashSet<string> directories) BuildIndex(
 		ZipArchive archive) {
-		var entries = new Dictionary<string, ZipArchiveEntry>(StringComparer.OrdinalIgnoreCase);
+		var entries = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
 		var directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
 		foreach (var entry in archive.Entries) {
@@ -164,7 +127,7 @@ public sealed class ZipResourceProvider : IResourceProvider
 				continue;
 			}
 
-			entries[path] = entry;
+			entries[path] = ReadEntryBytes(entry);
 
 			// Also index all parent directories (zips don't always have explicit directory entries)
 			IndexParentDirectories(path, directories);
@@ -183,6 +146,13 @@ public sealed class ZipResourceProvider : IResourceProvider
 
 			lastSlash = parentDir.LastIndexOf('/');
 		}
+	}
+
+	private static byte[] ReadEntryBytes(ZipArchiveEntry entry) {
+		using var stream = entry.Open();
+		using var ms = new MemoryStream();
+		stream.CopyTo(ms);
+		return ms.ToArray();
 	}
 
 	private static string NormalizePath(string path) {
