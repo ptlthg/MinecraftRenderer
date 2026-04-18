@@ -104,6 +104,18 @@ public sealed class TexturePackTests : IDisposable
 		return packRoot;
 	}
 
+	private static void UpdateTestPack(string packRoot, Rgba32 color, string version)
+	{
+		var packId = Path.GetFileName(packRoot);
+		File.WriteAllText(Path.Combine(packRoot, "meta.json"),
+			$"{{\n  \"id\": \"{packId}\",\n  \"name\": \"{packId}\",\n  \"version\": \"{version}\",\n  \"description\": \"Test pack\",\n  \"authors\": [\"tests\"]\n}}\n");
+
+		var texturesDir = Path.Combine(packRoot, "assets", "minecraft", "textures", "block");
+		Directory.CreateDirectory(texturesDir);
+		using var image = new Image<Rgba32>(16, 16, color);
+		image.Save(Path.Combine(texturesDir, "stone.png"));
+	}
+
 	[Fact]
 	public void RegisterAllPacksRegistersPacksUnderRoot()
 	{
@@ -127,6 +139,29 @@ public sealed class TexturePackTests : IDisposable
 		Assert.Equal(2, recursive.Count);
 		Assert.True(recursiveRegistry.TryGetPack("top-pack", out _));
 		Assert.True(recursiveRegistry.TryGetPack("nested-pack", out _));
+	}
+
+	[Fact]
+	public void ReloadRegisteredPacksReplaysTrackedRoots()
+	{
+		var packsRoot = Path.Combine(_tempRoot, "reload-root");
+		Directory.CreateDirectory(packsRoot);
+
+		var removedPackRoot = CreateTestPack("removed-pack", new Rgba32(30, 60, 90, 255), rootOverride: packsRoot);
+		var registry = TexturePackRegistry.Create();
+		var initial = registry.RegisterAllPacks(packsRoot);
+		Assert.Single(initial);
+		Assert.True(registry.TryGetPack("removed-pack", out _));
+
+		Directory.Delete(removedPackRoot, recursive: true);
+		CreateTestPack("new-pack", new Rgba32(210, 80, 30, 255), rootOverride: packsRoot);
+
+		var reloaded = registry.ReloadRegisteredPacks(out var failures);
+
+		Assert.Empty(failures);
+		Assert.Single(reloaded);
+		Assert.False(registry.TryGetPack("removed-pack", out _));
+		Assert.True(registry.TryGetPack("new-pack", out _));
 	}
 
 	[Fact]
@@ -314,6 +349,86 @@ public sealed class TexturePackTests : IDisposable
 		Assert.True(cache.TryGetValue(stack.Fingerprint, out var packRenderer));
 		using var iconFromPackRenderer = packRenderer.GetTexturePackIcon("icon-pack");
 		Assert.NotNull(iconFromPackRenderer);
+	}
+
+	[Fact]
+	public void GetLoadedResourcePacksReturnsMetadataAndIcons()
+	{
+		var iconPackRoot = CreateTestPack("listed-icon-pack", new Rgba32(64, 128, 200, 255), includePackPng: true,
+			packIconColor: new Rgba32(12, 200, 90, 255));
+		var missingIconPackRoot = CreateTestPack("listed-no-icon-pack", new Rgba32(180, 60, 120, 255),
+			includePackPng: false);
+
+		var registry = TexturePackRegistry.Create();
+		registry.RegisterPack(iconPackRoot);
+		registry.RegisterPack(missingIconPackRoot);
+
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory, registry);
+		var loadedPacks = renderer.GetLoadedResourcePacks();
+
+		try
+		{
+			Assert.Equal(2, loadedPacks.Count);
+
+			var iconPack = Assert.Single(loadedPacks, static pack => pack.Pack.Id == "listed-icon-pack");
+			Assert.Equal("1.0.0", iconPack.Meta.Version);
+			Assert.NotNull(iconPack.Icon);
+			Assert.Equal(32, iconPack.Icon!.Width);
+
+			var noIconPack = Assert.Single(loadedPacks, static pack => pack.Pack.Id == "listed-no-icon-pack");
+			Assert.Equal("Test pack", noIconPack.Meta.Description);
+			Assert.Null(noIconPack.Icon);
+		}
+		finally
+		{
+			foreach (var pack in loadedPacks)
+			{
+				pack.Dispose();
+			}
+		}
+	}
+
+	[Fact]
+	public void ReloadResourcePacksReturnsFreshRendererWithUpdatedPackContent()
+	{
+		var packRoot = CreateTestPack("reload-pack", new Rgba32(220, 40, 40, 255));
+		var registry = TexturePackRegistry.Create();
+		registry.RegisterPack(packRoot);
+
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory, registry);
+		var packOptions = MinecraftBlockRenderer.BlockRenderOptions.Default with
+		{
+			PackIds = new[] { "reload-pack" },
+			Size = 128
+		};
+
+		using var beforeReload = renderer.RenderBlock("stone", packOptions);
+		var beforeResourceId = renderer.ComputeResourceId("stone", packOptions);
+
+		UpdateTestPack(packRoot, new Rgba32(30, 210, 120, 255), "2.0.0");
+
+		using var reloadedRenderer = renderer.ReloadResourcePacks(out var failures);
+		Assert.Empty(failures);
+		Assert.NotSame(renderer, reloadedRenderer);
+
+		using var afterReload = reloadedRenderer.RenderBlock("stone", packOptions);
+		var afterResourceId = reloadedRenderer.ComputeResourceId("stone", packOptions);
+		AssertFalseImageEqual(beforeReload, afterReload);
+		Assert.NotEqual(beforeResourceId.PackStackHash, afterResourceId.PackStackHash);
+
+		var loadedPacks = reloadedRenderer.GetLoadedResourcePacks();
+		try
+		{
+			var reloadedPack = Assert.Single(loadedPacks, static pack => pack.Pack.Id == "reload-pack");
+			Assert.Equal("2.0.0", reloadedPack.Meta.Version);
+		}
+		finally
+		{
+			foreach (var pack in loadedPacks)
+			{
+				pack.Dispose();
+			}
+		}
 	}
 
 	private static void AssertFalseImageEqual(Image<Rgba32> baseline, Image<Rgba32> candidate)

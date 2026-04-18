@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Linq;
 using System.Reflection;
 using MinecraftRenderer;
 using MinecraftRenderer.Nbt;
@@ -14,12 +13,20 @@ public sealed class HypixelPackTests
     private static readonly string AssetsDirectory =
         Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "minecraft"));
 
+    private static readonly string TexturePacksDirectory =
+        Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "texturepacks"));
+
     private static readonly string HypixelPackPath =
-        @"g:\Programming\MinecraftRenderer\texturepacks\Hypixel+ 0.23.4 for 1.21.8";
+        Path.Combine(TexturePacksDirectory, "Hypixel+ 0.23.4 for 1.21.8");
+
+    private static readonly string FurfSkyPackPath =
+        Path.Combine(TexturePacksDirectory, "fursky");
 
     [Fact]
     public void HypixelPlayerHeadSelectorLoadsAndResolvesCorrectly()
     {
+        if (!Directory.Exists(HypixelPackPath)) return;
+
         // Arrange
         var registry = TexturePackRegistry.Create();
         registry.RegisterPack(HypixelPackPath);
@@ -76,5 +83,132 @@ public sealed class HypixelPackTests
         Console.WriteLine($"✅ AATROX_BATPHONE resolved to: {resolvedModel}");
         
         // Test succeeds if we can resolve the model - model loading is a separate concern
+    }
+
+    [Fact]
+    public void FurfSkyAdvancedGardeningAxeResolvesEnabledOverlayModel()
+    {
+        if (!Directory.Exists(FurfSkyPackPath)) return;
+
+        var registry = TexturePackRegistry.Create();
+        registry.RegisterPack(FurfSkyPackPath);
+
+        using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory, registry, new[] { "fursky" });
+
+        var itemData = new MinecraftBlockRenderer.ItemRenderData(
+            CustomData: new NbtCompound(new[]
+            {
+                new KeyValuePair<string, NbtTag>("id", new NbtString("ADVANCED_GARDENING_AXE"))
+            }));
+
+        var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { PackIds = new[] { "fursky" }, ItemData = itemData };
+        var result = renderer.RenderGuiItemWithResourceId("minecraft:diamond_axe", options);
+
+        Assert.Equal("fursky", result.ResourceId.SourcePackId);
+        Assert.Equal("item_tool:item/advanced_gardening_axe", result.ResourceId.Model);
+    }
+
+    [Fact]
+    public void FurfSkySkyblockOverrideCanResolveMinecraftNamespaceModel()
+    {
+        if (!Directory.Exists(FurfSkyPackPath)) return;
+
+        var registry = TexturePackRegistry.Create();
+        registry.RegisterPack(FurfSkyPackPath);
+
+        using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory, registry, new[] { "fursky" });
+
+        var suspiciousStewOptions = MinecraftBlockRenderer.BlockRenderOptions.Default with {
+            PackIds = new[] { "fursky" },
+            ItemData = new MinecraftBlockRenderer.ItemRenderData(
+                CustomData: new NbtCompound(new[] {
+                    new KeyValuePair<string, NbtTag>("id", new NbtString("SUSPICIOUS_STEW"))
+                }))
+        };
+
+        var suspiciousStew = renderer.RenderGuiItemWithResourceId("minecraft:player_head", suspiciousStewOptions);
+        Assert.Equal("minecraft:item/suspicious_stew", suspiciousStew.ResourceId.Model);
+
+        var enchantedBoneBlockOptions = MinecraftBlockRenderer.BlockRenderOptions.Default with {
+            PackIds = new[] { "fursky" },
+            ItemData = new MinecraftBlockRenderer.ItemRenderData(
+                CustomData: new NbtCompound(new[] {
+                    new KeyValuePair<string, NbtTag>("id", new NbtString("ENCHANTED_BONE_BLOCK"))
+                }))
+        };
+
+        var enchantedBoneBlock = renderer.RenderGuiItemWithResourceId("minecraft:chiseled_quartz_block", enchantedBoneBlockOptions);
+        Assert.Equal("minecraft:block/bone_block", enchantedBoneBlock.ResourceId.Model);
+    }
+
+    [Fact]
+    public void FurfSkyBookOfProgressionUsesRarityDataType()
+    {
+        if (!Directory.Exists(FurfSkyPackPath)) return;
+
+        var registry = TexturePackRegistry.Create();
+        registry.RegisterPack(FurfSkyPackPath);
+
+        using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory, registry, new[] { "fursky" });
+
+        var itemData = new MinecraftBlockRenderer.ItemRenderData(
+            CustomData: new NbtCompound(new[]
+            {
+                new KeyValuePair<string, NbtTag>("id", new NbtString("BOOK_OF_PROGRESSION")),
+                new KeyValuePair<string, NbtTag>("upgradedRarity", new NbtString("LEGENDARY"))
+            }));
+
+        var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { PackIds = new[] { "fursky" }, ItemData = itemData };
+        var result = renderer.RenderGuiItemWithResourceId("minecraft:book", options);
+
+        Assert.Equal("fursky", result.ResourceId.SourcePackId);
+        Assert.Equal("item_accessory:item/book_of_progression_legendary", result.ResourceId.Model);
+    }
+
+    [Fact]
+    public void FurfSkyMidasSwordFallsBackToBasePaidVariant()
+    {
+        if (!Directory.Exists(FurfSkyPackPath)) return;
+
+        var registry = TexturePackRegistry.Create();
+        registry.RegisterPack(FurfSkyPackPath);
+
+        using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory, registry, new[] { "fursky" });
+
+        var itemData = new MinecraftBlockRenderer.ItemRenderData(
+            CustomData: new NbtCompound(new[]
+            {
+                new KeyValuePair<string, NbtTag>("id", new NbtString("MIDAS_SWORD"))
+            }));
+
+        var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { PackIds = new[] { "fursky" }, ItemData = itemData };
+        var result = renderer.RenderGuiItemWithResourceId("minecraft:golden_sword", options);
+
+        Assert.Equal("fursky", result.ResourceId.SourcePackId);
+        Assert.Equal("item_melee:item/midas_sword_0", result.ResourceId.Model);
+    }
+
+    [Fact]
+    public void FurfSkyMidasSwordUsesModifierDataTypeWhenPresent()
+    {
+        if (!Directory.Exists(FurfSkyPackPath)) return;
+
+        var registry = TexturePackRegistry.Create();
+        registry.RegisterPack(FurfSkyPackPath);
+
+        using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory, registry, new[] { "fursky" });
+
+        var itemData = new MinecraftBlockRenderer.ItemRenderData(
+            CustomData: new NbtCompound(new[]
+            {
+                new KeyValuePair<string, NbtTag>("id", new NbtString("MIDAS_SWORD")),
+                new KeyValuePair<string, NbtTag>("modifier", new NbtString("GILDED"))
+            }));
+
+        var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { PackIds = new[] { "fursky" }, ItemData = itemData };
+        var result = renderer.RenderGuiItemWithResourceId("minecraft:golden_sword", options);
+
+        Assert.Equal("fursky", result.ResourceId.SourcePackId);
+        Assert.Equal("item_melee:item/midas_sword_gilded_0", result.ResourceId.Model);
     }
 }

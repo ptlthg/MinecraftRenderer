@@ -209,6 +209,22 @@ public sealed partial class MinecraftBlockRenderer
 		}
 	}
 
+	public sealed class LoadedResourcePackInfo : IDisposable
+	{
+		internal LoadedResourcePackInfo(RegisteredResourcePack pack, Image<Rgba32>? icon) {
+			Pack = pack ?? throw new ArgumentNullException(nameof(pack));
+			Icon = icon;
+		}
+
+		public RegisteredResourcePack Pack { get; }
+		public ResourcePackMeta Meta => Pack.Meta;
+		public Image<Rgba32>? Icon { get; }
+
+		public void Dispose() {
+			Icon?.Dispose();
+		}
+	}
+
 	private const string VanillaPackId = "vanilla";
 
 	private static readonly string RendererVersion =
@@ -335,6 +351,49 @@ public sealed partial class MinecraftBlockRenderer
 		PreloadTexturePackStacks(stacksToPreload);
 	}
 
+	/// <summary>
+	/// Returns the resource packs currently available to this renderer, including their metadata and loaded pack icons.
+	/// Callers own the returned icons and should dispose each result when finished.
+	/// </summary>
+	public IReadOnlyList<LoadedResourcePackInfo> GetLoadedResourcePacks() {
+		EnsureNotDisposed();
+
+		var packs = GetLoadedResourcePackSnapshot()
+			.OrderBy(static pack => pack.DisplayName, StringComparer.OrdinalIgnoreCase)
+			.ThenBy(static pack => pack.Id, StringComparer.OrdinalIgnoreCase)
+			.ToArray();
+		var results = new List<LoadedResourcePackInfo>(packs.Length);
+		foreach (var pack in packs) {
+			results.Add(new LoadedResourcePackInfo(pack, LoadPackIcon(pack)));
+		}
+
+		return results;
+	}
+
+	/// <summary>
+	/// Reloads the texture pack registry from disk and returns a fresh renderer built from the updated pack state.
+	/// When this renderer has no associated registry, the current instance is returned unchanged.
+	/// </summary>
+	public MinecraftBlockRenderer ReloadResourcePacks()
+		=> ReloadResourcePacks(out _);
+
+	/// <summary>
+	/// Reloads the texture pack registry from disk and returns a fresh renderer built from the updated pack state.
+	/// When this renderer has no associated registry, the current instance is returned unchanged.
+	/// </summary>
+	public MinecraftBlockRenderer ReloadResourcePacks(out IReadOnlyList<TexturePackRegistry.PackRegistrationFailure> failures) {
+		EnsureNotDisposed();
+
+		if (_packRegistry is null || string.IsNullOrWhiteSpace(_assetsDirectory)) {
+			failures = [];
+			return this;
+		}
+
+		_packRegistry.ReloadRegisteredPacks(out failures);
+		var defaultPackIds = _packContext.PackIds.Count > 0 ? _packContext.PackIds.ToArray() : null;
+		return CreateFromMinecraftAssets(_assetsDirectory, _packRegistry, defaultPackIds);
+	}
+
 	public Image<Rgba32>? GetTexturePackIcon(string packId) {
 		ArgumentException.ThrowIfNullOrWhiteSpace(packId);
 		EnsureNotDisposed();
@@ -361,6 +420,37 @@ public sealed partial class MinecraftBlockRenderer
 
 		if (!TryResolveRegisteredPack(packId, out var pack)) {
 			return null;
+		}
+
+		return LoadPackIcon(pack);
+	}
+
+	private IReadOnlyCollection<RegisteredResourcePack> GetLoadedResourcePackSnapshot() {
+		if (_packRegistry is not null) {
+			return _packRegistry.GetRegisteredPacks();
+		}
+
+		return _packContext.Packs.Count > 0
+			? _packContext.Packs.ToArray()
+			: Array.Empty<RegisteredResourcePack>();
+	}
+
+	private static Image<Rgba32>? LoadPackIcon(RegisteredResourcePack pack) {
+		if (pack.Provider is { } provider) {
+			if (!provider.FileExists("pack.png")) {
+				return null;
+			}
+
+			try {
+				using var stream = provider.OpenRead("pack.png");
+				return Image.Load<Rgba32>(stream);
+			}
+			catch (ImageFormatException) {
+				return null;
+			}
+			catch (NotSupportedException) {
+				return null;
+			}
 		}
 
 		var iconPath = Path.Combine(pack.RootPath, "pack.png");
@@ -818,6 +908,23 @@ public sealed partial class MinecraftBlockRenderer
 				packId = root.SourceId;
 				return !root.IsVanilla;
 			}
+
+			// Check provider-backed roots (e.g. .cats archives or ZIP packs)
+			if (root.Provider is { } provider && provider is not DirectoryResourceProvider) {
+				var providerRelative = relativePath.Replace(Path.DirectorySeparatorChar, '/');
+				string providerCandidate;
+				if (basePath.EndsWith(category, StringComparison.OrdinalIgnoreCase)) {
+					providerCandidate = providerRelative + extension;
+				}
+				else {
+					providerCandidate = category + "/" + providerRelative + extension;
+				}
+
+				if (provider.FileExists(providerCandidate)) {
+					packId = root.SourceId;
+					return !root.IsVanilla;
+				}
+			}
 		}
 
 		return false;
@@ -1041,6 +1148,19 @@ public sealed partial class MinecraftBlockRenderer
 					var texturesProvider = new SubPathResourceProvider(nsProvider, "textures");
 					registry.AddNamespace(namespaceName, displayPath + "/textures", pack.Id, isVanilla: false,
 						texturesProvider);
+				}
+			}
+
+			// Register catharsis overlay namespace providers (higher priority, registered after base)
+			if (pack.OverlayNamespaceProviders is not null) {
+				foreach (var (namespaceName, displayPath, nsProvider) in pack.OverlayNamespaceProviders) {
+					registry.AddNamespace(namespaceName, displayPath, pack.Id, isVanilla: false, nsProvider);
+
+					if (nsProvider.DirectoryExists("textures")) {
+						var texturesProvider = new SubPathResourceProvider(nsProvider, "textures");
+						registry.AddNamespace(namespaceName, displayPath + "/textures", pack.Id, isVanilla: false,
+							texturesProvider);
+					}
 				}
 			}
 		}

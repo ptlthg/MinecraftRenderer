@@ -88,6 +88,26 @@ That project also uses the [SkyblockRepo](https://www.nuget.org/packages/Skybloc
 
 Optional `customdata/` overlays located next to the assets tree are detected automatically. Texture pack registries can be supplied via `TexturePackRegistry` to build layered pack stacks.
 
+When you create the renderer with a `TexturePackRegistry`, you can inspect the currently loaded packs and refresh them from disk without rebuilding the registry yourself:
+
+```csharp
+var registry = TexturePackRegistry.Create();
+registry.RegisterAllPacks(Path.Combine(Environment.CurrentDirectory, "texturepacks"), searchRecursively: true);
+
+using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(assetsPath, registry);
+
+var loadedPacks = renderer.GetLoadedResourcePacks();
+foreach (var pack in loadedPacks)
+{
+	Console.WriteLine($"{pack.Pack.Id} ({pack.Meta.Version})");
+	pack.Dispose();
+}
+
+using var reloadedRenderer = renderer.ReloadResourcePacks(out var reloadFailures);
+```
+
+`GetLoadedResourcePacks` returns the registered pack metadata plus loaded `pack.png` icons. `ReloadResourcePacks` returns a fresh renderer instance built from the updated registry state, so dispose the old renderer when you swap to the reloaded one.
+
 The library ships with `MinecraftAssetDownloader` to fetch and unzip asset files directly from Mojang:
 
 ```csharp

@@ -594,12 +594,13 @@ public sealed partial class MinecraftBlockRenderer
 		var displayContext = DetermineDisplayContext(options);
 		string? dynamicModel = null;
 		if (itemInfo?.Selector is not null) {
-			var selectorContext = new ItemModelContext(options.ItemData, displayContext);
+			var selectorContext = new ItemModelContext(options.ItemData, displayContext, itemName);
 			dynamicModel = itemInfo.Selector.Resolve(selectorContext);
 		}
 
 		// Check for Firmament-style firmskyblock models based on SkyBlock ID
 		string? firmamentModel = TryGetFirmamentModel(options.ItemData);
+		string? skyblockItemModel = TryGetSkyblockItemModel(itemName, options.ItemData, displayContext);
 
 		var primaryModel = itemInfo?.Model;
 		string fallbackModel;
@@ -647,6 +648,7 @@ public sealed partial class MinecraftBlockRenderer
 
 		// Firmament models take priority
 		AppendCandidates(firmamentModel, includeItemNameFallback: false);
+		AppendCandidates(skyblockItemModel, includeItemNameFallback: false);
 		AppendCandidates(dynamicModel, includeItemNameFallback: false);
 		AppendCandidates(primaryModel);
 		AppendCandidates(fallbackModel);
@@ -1192,6 +1194,43 @@ public sealed partial class MinecraftBlockRenderer
 		// Example: "ABIPHONE_XIII_PRO" -> "firmskyblock:item/abiphone_xiii_pro"
 		var encodedId = EncodeFirmamentId(skyblockId!);
 		return $"firmskyblock:item/{encodedId}";
+	}
+
+	/// <summary>
+	/// Tries to resolve a model for a SkyBlock item by looking up its encoded ID in the item registry.
+	/// Catharsis/Fabric packs register item definitions under the SkyBlock ID (e.g. <c>skyblock:items/aspect_of_the_dragon.json</c>)
+	/// which get loaded as item entries keyed by the SkyBlock ID with a model reference to the pack's actual model.
+	/// </summary>
+	private string? TryGetSkyblockItemModel(string itemName, ItemRenderData? itemData, string displayContext) {
+		if (itemData?.CustomData is null || _itemRegistry is null) {
+			return null;
+		}
+
+		if (!TryGetString(itemData.CustomData, "id", out var skyblockId) || string.IsNullOrWhiteSpace(skyblockId)) {
+			return null;
+		}
+
+		var encodedId = EncodeFirmamentId(skyblockId!);
+		if (_itemRegistry.TryGetInfo(encodedId, out var info)) {
+			string? model = null;
+
+			if (info.Selector is not null) {
+				var selectorContext = new ItemModelContext(itemData, displayContext, itemName);
+				model = info.Selector.Resolve(selectorContext);
+			}
+
+			if (string.IsNullOrWhiteSpace(model)) {
+				model = info.Model;
+			}
+
+			if (string.IsNullOrWhiteSpace(model) || !model.Contains(':')) {
+				return null;
+			}
+
+			return model;
+		}
+
+		return null;
 	}
 
 	/// <summary>

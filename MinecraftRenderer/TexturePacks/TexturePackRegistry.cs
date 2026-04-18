@@ -14,8 +14,10 @@ using MinecraftRenderer.Assets;
 
 public sealed class TexturePackRegistry
 {
+	private readonly object _registrationSync = new();
 	private readonly ConcurrentDictionary<string, RegisteredResourcePack>
 		_packs = new(StringComparer.OrdinalIgnoreCase);
+	private readonly List<RegistrationSource> _registrationSources = [];
 
 	private TexturePackRegistry() { }
 
@@ -29,7 +31,18 @@ public sealed class TexturePackRegistry
 	/// <param name="Exception">The exception that caused the failure, if any.</param>
 	public sealed record PackRegistrationFailure(string Directory, string Reason, Exception? Exception = null);
 
+	private readonly record struct RegistrationSource(string Path, bool SearchRecursively, bool RegisterSinglePack);
+
 	public RegisteredResourcePack RegisterPack(string directory) {
+		lock (_registrationSync) {
+			var pack = RegisterPackCore(directory);
+			RecordRegistrationSource(new RegistrationSource(pack.RootPath, SearchRecursively: false,
+				RegisterSinglePack: true));
+			return pack;
+		}
+	}
+
+	private RegisteredResourcePack RegisterPackCore(string directory) {
 		ArgumentException.ThrowIfNullOrWhiteSpace(directory);
 		var fullPath = Path.GetFullPath(directory);
 		if (!Directory.Exists(fullPath)) {
@@ -47,40 +60,155 @@ public sealed class TexturePackRegistry
 				$"Texture pack '{directory}' is missing a valid 'id' field in meta.json.");
 		}
 
-		// Detect zip-backed pack: a .zip file sitting alongside meta.json
-		var zipFile = FindPackZip(fullPath);
+		var catharsisConfigOverrides = NormalizeCatharsisConfigOverrides(metaDescriptor.CatharsisConfig);
+
+		// Detect archive-backed pack: .cats, .cats.zip, or .zip sitting alongside meta.json
+		var archive = FindPackArchive(fullPath);
 
 		IResourceProvider? provider = null;
 		IReadOnlyDictionary<string, IResourceProvider>? namespaceProviders = null;
 		IReadOnlyDictionary<string, string> namespaceRoots;
-		string? assetsPath;
+		string? assetsPath = null;
 		long sizeBytes;
 		int? packFormat = null;
 		bool supportsCit;
+		IReadOnlyList<string>? catharsisOverlays = null;
+		IReadOnlyList<(string Namespace, string DisplayPath, IResourceProvider Provider)>?
+			overlayNsProvidersList = null;
+		string? catharsisConfigJson = null;
 
-		if (zipFile is not null) {
-			// Zip-backed pack
-			provider = new ZipResourceProvider(zipFile);
+		if (archive is not null) {
+			// Archive-backed pack
+			CatsFile? catsFile = null;
 			try {
-				(namespaceRoots, namespaceProviders) = ResolveNamespaceRootsFromProvider(provider, fullPath);
-				if (!namespaceRoots.TryGetValue("minecraft", out assetsPath)) {
-					throw new DirectoryNotFoundException(
-						$"Texture pack ZIP at '{zipFile}' does not contain an 'assets/minecraft' directory.");
+				switch (archive.Kind) {
+					case PackArchiveKind.CatsFile:
+						catsFile = new CatsFile(archive.Path);
+						provider = new CatsResourceProvider(catsFile, archive.Path);
+						break;
+					case PackArchiveKind.CatsZip: {
+						using var zipStream = File.OpenRead(archive.Path);
+						using var zipArchive = new ZipArchive(zipStream, ZipArchiveMode.Read);
+						var packEntry = zipArchive.GetEntry("pack.cats");
+						if (packEntry is null) {
+							throw new InvalidOperationException(
+								$".cats.zip file at '{archive.Path}' does not contain pack.cats.");
+						}
+
+						using var entryStream = packEntry.Open();
+						using var memoryStream = new MemoryStream();
+						entryStream.CopyTo(memoryStream);
+						catsFile = new CatsFile(memoryStream.ToArray());
+						provider = new CatsResourceProvider(catsFile, archive.Path);
+						break;
+					}
+					case PackArchiveKind.Zip:
+						provider = new ZipResourceProvider(archive.Path);
+						break;
+					default:
+						throw new InvalidOperationException($"Unexpected archive kind: {archive.Kind}.");
 				}
 
-				sizeBytes = new FileInfo(zipFile).Length;
+				// Detect if this is a catharsis pack (has a .cats file)
+				var isCatharsisPack = catsFile is not null;
 
-				// Check for pack.mcmeta inside the zip
+				(namespaceRoots, namespaceProviders) =
+					ResolveNamespaceRootsFromProvider(provider, fullPath, requireMinecraft: !isCatharsisPack);
+
+				if (!isCatharsisPack && !namespaceRoots.TryGetValue("minecraft", out assetsPath)) {
+					throw new DirectoryNotFoundException(
+						$"Texture pack archive at '{archive.Path}' does not contain an 'assets/minecraft' directory.");
+				}
+
+				sizeBytes = new FileInfo(archive.Path).Length;
+
+				// Check for pack.mcmeta inside the archive
 				if (provider.FileExists("pack.mcmeta")) {
 					packFormat = ParsePackFormatFromProvider(provider);
+				}
+
+				if (provider.FileExists("config.catharsis.json")) {
+					catharsisConfigJson = provider.ReadAllText("config.catharsis.json");
 				}
 
 				supportsCit = metaDescriptor.SupportsCit
 				              || namespaceRoots.ContainsKey("cit")
 				              || provider.DirectoryExists("assets/minecraft/optifine/cit");
+
+				// For catharsis packs, resolve overlay directories from embedded config
+				if (isCatharsisPack && provider.FileExists("pack.mcmeta")) {
+					try {
+						var mcmetaJson = provider.ReadAllText("pack.mcmeta");
+						catharsisOverlays = CatharsisPackConfig.ResolveEnabledOverlays(mcmetaJson,
+							catharsisConfigJson,
+							overrides: catharsisConfigOverrides,
+							enableAll: false);
+
+						if (catharsisOverlays.Count > 0) {
+							var overlayProviders =
+								new List<(string Namespace, string DisplayPath, IResourceProvider Provider)>();
+
+							// Detect if the .cats binary uses a prefix for overlay directories.
+							// Catharsis packs may store overlays as e.g. "fsr_item_melee" in the
+							// archive while pack.mcmeta references them as just "item_melee".
+							var overlayDirPrefix = DetectCatharsisOverlayPrefix(provider, catharsisOverlays);
+
+							foreach (var overlayDir in catharsisOverlays) {
+								var actualDir = overlayDirPrefix is not null
+									? overlayDirPrefix + overlayDir
+									: overlayDir;
+
+								var overlayProvider =
+									new CatsResourceProvider(catsFile!, archive.Path + "/" + actualDir,
+										prefix: actualDir);
+								if (!overlayProvider.DirectoryExists("assets")) {
+									continue;
+								}
+
+								try {
+									var (_, overlayNsProviders) =
+										ResolveNamespaceRootsFromProvider(overlayProvider,
+											fullPath + "/" + actualDir, requireMinecraft: false);
+									foreach (var (ns, nsProvider) in overlayNsProviders) {
+										overlayProviders.Add((ns,
+											Path.Combine(fullPath, actualDir, "assets", ns), nsProvider));
+									}
+								}
+								catch {
+									// Overlay doesn't have valid assets structure
+								}
+							}
+
+							overlayNsProvidersList = overlayProviders;
+						}
+					}
+					catch {
+						// Ignore catharsis config parsing failures
+					}
+				}
+
+				// For catharsis packs, determine assetsPath from base or overlays
+				if (isCatharsisPack && assetsPath is null) {
+					if (namespaceRoots.TryGetValue("minecraft", out assetsPath)) {
+						// Base provider has minecraft namespace
+					}
+					else {
+						// Check if any overlay provides the minecraft namespace
+						var mcOverlay = overlayNsProvidersList?.FirstOrDefault(o =>
+							o.Namespace.Equals("minecraft", StringComparison.OrdinalIgnoreCase));
+						if (mcOverlay is { Namespace: not null } overlay) {
+							assetsPath = overlay.DisplayPath;
+						}
+						else {
+							throw new DirectoryNotFoundException(
+								$"Catharsis pack at '{archive.Path}' does not provide 'minecraft' namespace " +
+								$"in either base assets or enabled overlays.");
+						}
+					}
+				}
 			}
 			catch {
-				provider.Dispose();
+				provider?.Dispose();
 				throw;
 			}
 		}
@@ -130,11 +258,14 @@ public sealed class TexturePackRegistry
 			supportsCit,
 			fingerprint) {
 			Provider = provider,
-			NamespaceProviders = namespaceProviders
+			NamespaceProviders = namespaceProviders,
+			IsCatharsisPack = catharsisOverlays is not null,
+			CatharsisOverlays = catharsisOverlays,
+			OverlayNamespaceProviders = overlayNsProvidersList
 		};
 
 		if (!_packs.TryAdd(resourceMeta.Id, registered)) {
-			DisposePackProviders(provider, namespaceProviders);
+			DisposePackProviders(provider, namespaceProviders, overlayNsProvidersList);
 			throw new InvalidOperationException(
 				$"A texture pack with id '{resourceMeta.Id}' has already been registered.");
 		}
@@ -150,6 +281,19 @@ public sealed class TexturePackRegistry
 	/// <param name="failure">When unsuccessful, details about the failure; otherwise null.</param>
 	/// <returns>True if registration succeeded, false otherwise.</returns>
 	public bool TryRegisterPack(string directory, out RegisteredResourcePack? pack,
+		out PackRegistrationFailure? failure) {
+		lock (_registrationSync) {
+			var succeeded = TryRegisterPackCore(directory, out pack, out failure);
+			if (succeeded && pack is not null) {
+				RecordRegistrationSource(new RegistrationSource(pack.RootPath, SearchRecursively: false,
+					RegisterSinglePack: true));
+			}
+
+			return succeeded;
+		}
+	}
+
+	private bool TryRegisterPackCore(string directory, out RegisteredResourcePack? pack,
 		out PackRegistrationFailure? failure) {
 		pack = null;
 		failure = null;
@@ -172,7 +316,7 @@ public sealed class TexturePackRegistry
 				return false;
 			}
 
-			pack = RegisterPack(directory);
+			pack = RegisterPackCore(directory);
 			return true;
 		}
 		catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException
@@ -205,8 +349,22 @@ public sealed class TexturePackRegistry
 	/// <returns>A list of packs that were successfully registered.</returns>
 	public IReadOnlyList<RegisteredResourcePack> RegisterAllPacks(string rootDirectory,
 		bool searchRecursively, out IReadOnlyList<PackRegistrationFailure> failures) {
+		lock (_registrationSync) {
+			var results = RegisterAllPacksCore(rootDirectory, searchRecursively, out failures, out var normalizedRoot);
+			if (!string.IsNullOrWhiteSpace(normalizedRoot)) {
+				RecordRegistrationSource(new RegistrationSource(normalizedRoot, searchRecursively,
+					RegisterSinglePack: false));
+			}
+
+			return results;
+		}
+	}
+
+	private IReadOnlyList<RegisteredResourcePack> RegisterAllPacksCore(string rootDirectory,
+		bool searchRecursively, out IReadOnlyList<PackRegistrationFailure> failures, out string? normalizedRoot) {
 		var failureList = new List<PackRegistrationFailure>();
 		failures = failureList;
+		normalizedRoot = null;
 
 		if (string.IsNullOrWhiteSpace(rootDirectory)) {
 			return [];
@@ -225,11 +383,13 @@ public sealed class TexturePackRegistry
 			return [];
 		}
 
+		normalizedRoot = fullRoot;
+
 		var results = new List<RegisteredResourcePack>();
 		var searchOption = searchRecursively ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
 
 		if (File.Exists(Path.Combine(fullRoot, "meta.json"))) {
-			if (TryRegisterPack(fullRoot, out var rootPack, out var rootFailure)) {
+			if (TryRegisterPackCore(fullRoot, out var rootPack, out var rootFailure)) {
 				results.Add(rootPack!);
 			}
 			else if (rootFailure is not null) {
@@ -259,7 +419,7 @@ public sealed class TexturePackRegistry
 				continue;
 			}
 
-			if (TryRegisterPack(candidate, out var pack, out var failure)) {
+			if (TryRegisterPackCore(candidate, out var pack, out var failure)) {
 				if (pack is not null && !results.Contains(pack)) {
 					results.Add(pack);
 				}
@@ -278,6 +438,61 @@ public sealed class TexturePackRegistry
 	/// <returns>An immutable snapshot of the registered texture packs.</returns>
 	public IReadOnlyCollection<RegisteredResourcePack> GetRegisteredPacks()
 		=> _packs.Values.ToArray();
+
+	/// <summary>
+	/// Reloads all tracked texture pack registration sources from disk.
+	/// </summary>
+	/// <param name="failures">When the method returns, contains details about any packs that failed to reload.</param>
+	/// <returns>An immutable snapshot of the packs that are loaded after the reload completes.</returns>
+	public IReadOnlyCollection<RegisteredResourcePack> ReloadRegisteredPacks(out IReadOnlyList<PackRegistrationFailure> failures) {
+		lock (_registrationSync) {
+			if (_registrationSources.Count == 0) {
+				failures = [];
+				return _packs.Values.ToArray();
+			}
+
+			var reloadedRegistry = Create();
+			var failureList = new List<PackRegistrationFailure>();
+			var sourceSnapshot = _registrationSources.ToArray();
+
+			foreach (var source in sourceSnapshot) {
+				if (source.RegisterSinglePack) {
+					if (!reloadedRegistry.TryRegisterPackCore(source.Path, out _, out var failure) &&
+					    failure is not null) {
+						failureList.Add(failure);
+					}
+
+					continue;
+				}
+
+				reloadedRegistry.RegisterAllPacksCore(source.Path, source.SearchRecursively,
+					out var sourceFailures, out _);
+				if (sourceFailures.Count > 0) {
+					failureList.AddRange(sourceFailures);
+				}
+			}
+
+			var previousPacks = _packs.Values.ToArray();
+			_packs.Clear();
+			foreach (var pack in reloadedRegistry._packs.Values) {
+				_packs[pack.Id] = pack;
+			}
+
+			failures = failureList;
+			foreach (var pack in previousPacks) {
+				DisposeRegisteredPack(pack);
+			}
+
+			return _packs.Values.ToArray();
+		}
+	}
+
+	/// <summary>
+	/// Reloads all tracked texture pack registration sources from disk.
+	/// </summary>
+	/// <returns>An immutable snapshot of the packs that are loaded after the reload completes.</returns>
+	public IReadOnlyCollection<RegisteredResourcePack> ReloadRegisteredPacks()
+		=> ReloadRegisteredPacks(out _);
 
 	public bool TryGetPack(string id, out RegisteredResourcePack pack)
 		=> _packs.TryGetValue(id, out pack!);
@@ -325,6 +540,73 @@ public sealed class TexturePackRegistry
 		return descriptor;
 	}
 
+	private static IReadOnlyDictionary<string, string>? NormalizeCatharsisConfigOverrides(
+		Dictionary<string, JsonElement>? rawOverrides) {
+		if (rawOverrides is null || rawOverrides.Count == 0) {
+			return null;
+		}
+
+		var normalized = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+		foreach (var (id, value) in rawOverrides) {
+			if (string.IsNullOrWhiteSpace(id)) {
+				continue;
+			}
+
+			switch (value.ValueKind) {
+				case JsonValueKind.String: {
+					var stringValue = value.GetString();
+					if (!string.IsNullOrWhiteSpace(stringValue)) {
+						normalized[id] = stringValue;
+					}
+
+					break;
+				}
+				case JsonValueKind.True:
+					normalized[id] = "true";
+					break;
+				case JsonValueKind.False:
+					normalized[id] = "false";
+					break;
+				case JsonValueKind.Number:
+					normalized[id] = value.GetRawText();
+					break;
+			}
+		}
+
+		return normalized.Count > 0 ? normalized : null;
+	}
+
+	/// <summary>
+	/// Detects a common directory prefix for overlay directories in a catharsis .cats archive.
+	/// Catharsis packs may store overlays as e.g. "fsr_item_melee" in the archive tree while
+	/// <c>fabric:overlays</c> in <c>pack.mcmeta</c> references them as just "item_melee".
+	/// </summary>
+	/// <returns>The detected prefix (e.g. "fsr_"), or null if directories match as-is.</returns>
+	private static string? DetectCatharsisOverlayPrefix(IResourceProvider provider,
+		IReadOnlyList<string> overlayNames) {
+		if (overlayNames.Count == 0) {
+			return null;
+		}
+
+		// Check if the first overlay directory exists directly (no prefix needed)
+		if (provider.DirectoryExists(overlayNames[0])) {
+			return null;
+		}
+
+		// Enumerate root-level directories to find a match with a prefix
+		var testName = overlayNames[0];
+		var suffix = "_" + testName;
+
+		foreach (var dir in provider.EnumerateDirectories("", "*", recursive: false)) {
+			var dirName = dir.Contains('/') ? dir[(dir.LastIndexOf('/') + 1)..] : dir;
+			if (dirName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) {
+				return dirName[..^testName.Length]; // e.g. "fsr_"
+			}
+		}
+
+		return null;
+	}
+
 	private static IReadOnlyDictionary<string, string> ResolveNamespaceRoots(string root) {
 		var assetsRoot = Path.Combine(root, "assets");
 		if (!Directory.Exists(assetsRoot)) {
@@ -359,7 +641,8 @@ public sealed class TexturePackRegistry
 	/// Returns both display-path roots and per-namespace scoped providers.
 	/// </summary>
 	private static (IReadOnlyDictionary<string, string> roots, IReadOnlyDictionary<string, IResourceProvider> providers)
-		ResolveNamespaceRootsFromProvider(IResourceProvider provider, string displayRoot) {
+		ResolveNamespaceRootsFromProvider(IResourceProvider provider, string displayRoot,
+			bool requireMinecraft = true) {
 		if (!provider.DirectoryExists("assets")) {
 			throw new DirectoryNotFoundException(
 				$"Texture pack at '{displayRoot}' does not contain an 'assets' directory.");
@@ -384,7 +667,7 @@ public sealed class TexturePackRegistry
 				nsProviders.Add(name, new SubPathResourceProvider(provider, nsDir));
 			}
 
-			if (!namespaces.ContainsKey("minecraft")) {
+			if (requireMinecraft && !namespaces.ContainsKey("minecraft")) {
 				throw new DirectoryNotFoundException(
 					$"Texture pack at '{displayRoot}' does not contain an 'assets/minecraft' directory.");
 			}
@@ -401,23 +684,59 @@ public sealed class TexturePackRegistry
 	}
 
 	/// <summary>
-	/// Finds the first .zip file in the directory that could be a resource pack archive.
+	/// The type of pack archive detected on disk.
+	/// </summary>
+	private enum PackArchiveKind
+	{
+		Zip,
+		CatsFile,
+		CatsZip
+	}
+
+	/// <summary>
+	/// Describes a detected pack archive (ZIP, .cats, or .cats.zip).
+	/// </summary>
+	private sealed record PackArchiveInfo(PackArchiveKind Kind, string Path);
+
+	/// <summary>
+	/// Finds the first archive file in the directory that could be a resource pack.
+	/// Detects .cats files, .cats.zip files, and traditional .zip files.
 	/// Returns null if the pack has a traditional <c>assets/</c> directory structure.
 	/// </summary>
-	private static string? FindPackZip(string packDirectory) {
+	private static PackArchiveInfo? FindPackArchive(string packDirectory) {
 		// If the directory has an assets/ folder, treat as traditional directory-based pack
 		if (Directory.Exists(Path.Combine(packDirectory, "assets"))) {
 			return null;
 		}
 
+		// Check for bare pack.cats first
+		var packCats = Path.Combine(packDirectory, "pack.cats");
+		if (File.Exists(packCats)) {
+			return new PackArchiveInfo(PackArchiveKind.CatsFile, Path.GetFullPath(packCats));
+		}
+
+		// Check for .cats.zip files (catharsis packs wrapped in ZIP for hosting compatibility)
+		var catsZipFiles = Directory.GetFiles(packDirectory, "*.cats.zip", SearchOption.TopDirectoryOnly);
+		if (catsZipFiles.Length > 0) {
+			return new PackArchiveInfo(PackArchiveKind.CatsZip, Path.GetFullPath(catsZipFiles[0]));
+		}
+
+		// Check for bare .cats files
+		var catsFiles = Directory.GetFiles(packDirectory, "*.cats", SearchOption.TopDirectoryOnly);
+		if (catsFiles.Length > 0) {
+			return new PackArchiveInfo(PackArchiveKind.CatsFile, Path.GetFullPath(catsFiles[0]));
+		}
+
 		// Prefer pack.zip specifically, then fall back to the first other .zip found
 		var preferredZip = Path.Combine(packDirectory, "pack.zip");
 		if (File.Exists(preferredZip)) {
-			return Path.GetFullPath(preferredZip);
+			return new PackArchiveInfo(PackArchiveKind.Zip, Path.GetFullPath(preferredZip));
 		}
 
 		var zipFiles = Directory.GetFiles(packDirectory, "*.zip", SearchOption.TopDirectoryOnly);
-		return zipFiles.Length > 0 ? Path.GetFullPath(zipFiles[0]) : null;
+		return zipFiles.Length > 0
+			? new PackArchiveInfo(PackArchiveKind.Zip, Path.GetFullPath(zipFiles[0]))
+			: null;
 	}
 
 	private static int? ParsePackFormatFromProvider(IResourceProvider provider) {
@@ -437,11 +756,27 @@ public sealed class TexturePackRegistry
 		return null;
 	}
 
+	private void RecordRegistrationSource(RegistrationSource source) {
+		if (!_registrationSources.Contains(source)) {
+			_registrationSources.Add(source);
+		}
+	}
+
+	private static void DisposeRegisteredPack(RegisteredResourcePack pack)
+		=> DisposePackProviders(pack.Provider, pack.NamespaceProviders, pack.OverlayNamespaceProviders);
+
 	private static void DisposePackProviders(IResourceProvider? provider,
-		IReadOnlyDictionary<string, IResourceProvider>? namespaceProviders) {
+		IReadOnlyDictionary<string, IResourceProvider>? namespaceProviders,
+		IReadOnlyList<(string Namespace, string DisplayPath, IResourceProvider Provider)>? overlayNamespaceProviders) {
 		if (namespaceProviders is not null) {
 			foreach (var p in namespaceProviders.Values) {
 				p.Dispose();
+			}
+		}
+
+		if (overlayNamespaceProviders is not null) {
+			foreach (var (_, _, overlayProvider) in overlayNamespaceProviders) {
+				overlayProvider.Dispose();
 			}
 		}
 
@@ -511,5 +846,6 @@ public sealed class TexturePackRegistry
 		public string[]? Authors { get; set; }
 		public string? DownloadUrl { get; set; }
 		public bool SupportsCit { get; set; }
+		public Dictionary<string, JsonElement>? CatharsisConfig { get; set; }
 	}
 }

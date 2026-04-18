@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
+using System.Text.Json;
 using MinecraftRenderer.Nbt;
 using MinecraftRenderer.TexturePacks;
 using SixLabors.ImageSharp;
@@ -170,6 +172,111 @@ public sealed class ItemModelSelectorTests : IDisposable
 		Assert.Equal(packColor.R, pixel.R);
 		Assert.Equal(packColor.G, pixel.G);
 		Assert.Equal(packColor.B, pixel.B);
+	}
+
+	[Fact]
+	public void UnsupportedCatharsisSelectFallsBackToFirstCase()
+	{
+		using var document = JsonDocument.Parse(
+			"""
+{
+	"model": {
+		"type": "select",
+		"property": "catharsis:data_type",
+		"data_type": "midas_weapon_paid",
+		"cases": [
+			{
+				"when": "first",
+				"model": {
+					"type": "model",
+					"model": "minecraft:item/first_case"
+				}
+			},
+			{
+				"when": "second",
+				"model": {
+					"type": "model",
+					"model": "minecraft:item/second_case"
+				}
+			}
+		],
+		"fallback": {
+			"type": "model",
+			"model": "minecraft:item/fallback_case"
+		}
+	}
+}
+""");
+
+		var resolved = ResolveSelector(document, itemName: "golden_sword");
+
+		Assert.Equal("minecraft:item/first_case", resolved);
+	}
+
+	[Fact]
+	public void UnsupportedCatharsisRangeDispatchFallsBackToFirstEntry()
+	{
+		using var document = JsonDocument.Parse(
+			"""
+{
+	"model": {
+		"type": "range_dispatch",
+		"property": "catharsis:data_type",
+		"data_type": "midas_weapon_paid",
+		"entries": [
+			{
+				"threshold": 0,
+				"model": {
+					"type": "model",
+					"model": "minecraft:item/entry_zero"
+				}
+			},
+			{
+				"threshold": 1000000,
+				"model": {
+					"type": "model",
+					"model": "minecraft:item/entry_million"
+				}
+			}
+		],
+		"fallback": {
+			"type": "model",
+			"model": "minecraft:item/fallback_case"
+		}
+	}
+}
+""");
+
+		var resolved = ResolveSelector(document, itemName: "golden_sword");
+
+		Assert.Equal("minecraft:item/entry_zero", resolved);
+	}
+
+	private static string? ResolveSelector(JsonDocument document,
+		MinecraftBlockRenderer.ItemRenderData? itemData = null,
+		string displayContext = "gui",
+		string? itemName = null)
+	{
+		var assembly = typeof(MinecraftBlockRenderer).Assembly;
+		var parserType = assembly.GetType("MinecraftRenderer.ItemModelSelectorParser");
+		Assert.NotNull(parserType);
+
+		var parseMethod = parserType!.GetMethod("ParseFromRoot", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static);
+		Assert.NotNull(parseMethod);
+
+		var selector = parseMethod!.Invoke(null, new object[] { document.RootElement });
+		Assert.NotNull(selector);
+
+		var contextType = assembly.GetType("MinecraftRenderer.ItemModelContext");
+		Assert.NotNull(contextType);
+
+		var context = Activator.CreateInstance(contextType!, itemData, displayContext, itemName);
+		Assert.NotNull(context);
+
+		var resolveMethod = selector!.GetType().GetMethod("Resolve", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance);
+		Assert.NotNull(resolveMethod);
+
+		return (string?)resolveMethod!.Invoke(selector, new[] { context });
 	}
 
 
