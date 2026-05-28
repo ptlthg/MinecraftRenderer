@@ -2,6 +2,7 @@ namespace MinecraftRenderer.TexturePacks;
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text.Json;
 
 /// <summary>
@@ -10,6 +11,39 @@ using System.Text.Json;
 /// </summary>
 public static class CatharsisPackConfig
 {
+	private readonly record struct ConfigValue(IReadOnlyList<string> Values, bool? BooleanValue = null)
+	{
+		public static ConfigValue Boolean(bool value) => new([value ? "true" : "false"], value);
+
+		public static ConfigValue Single(string value) {
+			var normalized = value.Trim();
+			if (bool.TryParse(normalized, out var boolValue)) {
+				return Boolean(boolValue);
+			}
+
+			return new ConfigValue([normalized]);
+		}
+
+		public static ConfigValue Many(IEnumerable<string> values)
+			=> new(values.Where(static value => !string.IsNullOrWhiteSpace(value))
+				.Select(static value => value.Trim())
+				.ToArray());
+
+		public bool Matches(string? requiredValue) {
+			if (requiredValue is null) {
+				return BooleanValue == true;
+			}
+
+			return Values.Any(value => string.Equals(value, requiredValue, StringComparison.OrdinalIgnoreCase));
+		}
+	}
+
+	private readonly record struct IntRange(int MinInclusive, int MaxInclusive)
+	{
+		public bool Intersects(IntRange other)
+			=> MinInclusive <= other.MaxInclusive && other.MinInclusive <= MaxInclusive;
+	}
+
 	/// <summary>
 	/// Parses the <c>pack.mcmeta</c> JSON from a catharsis pack and returns the list of
 	/// overlay directory names that should be enabled based on their default config values.
@@ -78,7 +112,7 @@ public static class CatharsisPackConfig
 		}
 	}
 
-	private static void ApplyOverrides(Dictionary<string, string> defaults,
+	private static void ApplyOverrides(Dictionary<string, ConfigValue> defaults,
 		IReadOnlyDictionary<string, string>? overrides) {
 		if (overrides is null || overrides.Count == 0) {
 			return;
@@ -89,16 +123,16 @@ public static class CatharsisPackConfig
 				continue;
 			}
 
-			defaults[id] = value;
+			defaults[id] = ConfigValue.Single(value);
 		}
 	}
 
 	/// <summary>
-	/// Parses the <c>catharsis:pack/v1.config</c> section to build a map of option id → default value.
-	/// Boolean options map to "true"/"false", dropdown options map to the default option's value string.
+	/// Parses the Catharsis config section to build a map of option id to default value.
+	/// Boolean options keep boolean semantics, dropdown/color options keep one scalar value, and select options keep all selected values.
 	/// </summary>
-	private static Dictionary<string, string> ParseConfigDefaults(JsonElement root, string? configJson) {
-		var defaults = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+	private static Dictionary<string, ConfigValue> ParseConfigDefaults(JsonElement root, string? configJson) {
+		var defaults = new Dictionary<string, ConfigValue>(StringComparer.OrdinalIgnoreCase);
 
 		if (!string.IsNullOrWhiteSpace(configJson)) {
 			if (TryParseConfigOptionsJson(configJson, defaults)) {
@@ -138,7 +172,7 @@ public static class CatharsisPackConfig
 		return defaults;
 	}
 
-	private static bool TryParseConfigOptionsJson(string configJson, Dictionary<string, string> defaults) {
+	private static bool TryParseConfigOptionsJson(string configJson, Dictionary<string, ConfigValue> defaults) {
 		try {
 			using var document = JsonDocument.Parse(configJson, new JsonDocumentOptions {
 				CommentHandling = JsonCommentHandling.Skip
@@ -156,7 +190,7 @@ public static class CatharsisPackConfig
 		}
 	}
 
-	private static void ParseOptionsArray(JsonElement optionsArray, Dictionary<string, string> defaults) {
+	private static void ParseOptionsArray(JsonElement optionsArray, Dictionary<string, ConfigValue> defaults) {
 		foreach (var option in optionsArray.EnumerateArray()) {
 			if (!option.TryGetProperty("type", out var typeElement)) {
 				continue;
@@ -176,7 +210,7 @@ public static class CatharsisPackConfig
 		}
 	}
 
-	private static void ParseSingleOption(JsonElement option, Dictionary<string, string> defaults) {
+	private static void ParseSingleOption(JsonElement option, Dictionary<string, ConfigValue> defaults) {
 		if (!option.TryGetProperty("type", out var typeElement)) {
 			return;
 		}
@@ -202,7 +236,7 @@ public static class CatharsisPackConfig
 				defaultValue = true;
 			}
 
-			defaults[id] = defaultValue ? "true" : "false";
+			defaults[id] = ConfigValue.Boolean(defaultValue);
 		}
 		else if (string.Equals(type, "dropdown", StringComparison.OrdinalIgnoreCase)) {
 			// Find the option with default: true
@@ -212,8 +246,9 @@ public static class CatharsisPackConfig
 				string? firstValue = null;
 
 				foreach (var dropdownOption in dropdownOptions.EnumerateArray()) {
-					var value = dropdownOption.TryGetProperty("value", out var valElement)
-						? valElement.GetString()
+					var value = dropdownOption.TryGetProperty("value", out var valElement) &&
+					            TryReadScalar(valElement, out var scalarValue)
+						? scalarValue
 						: null;
 
 					firstValue ??= value;
@@ -225,7 +260,32 @@ public static class CatharsisPackConfig
 					}
 				}
 
-				defaults[id] = defaultValue ?? firstValue ?? "off";
+				defaults[id] = ConfigValue.Single(defaultValue ?? firstValue ?? "off");
+			}
+		}
+		else if (string.Equals(type, "select", StringComparison.OrdinalIgnoreCase)) {
+			var selected = new List<string>();
+			if (option.TryGetProperty("options", out var selectOptions) &&
+			    selectOptions.ValueKind == JsonValueKind.Array) {
+				foreach (var selectOption in selectOptions.EnumerateArray()) {
+					if (!selectOption.TryGetProperty("selected", out var selectedElement) ||
+					    selectedElement.ValueKind != JsonValueKind.True) {
+						continue;
+					}
+
+					if (selectOption.TryGetProperty("value", out var valueElement) &&
+					    TryReadScalar(valueElement, out var scalarValue)) {
+						selected.Add(scalarValue);
+					}
+				}
+			}
+
+			defaults[id] = ConfigValue.Many(selected);
+		}
+		else if (string.Equals(type, "color", StringComparison.OrdinalIgnoreCase)) {
+			if (option.TryGetProperty("default", out var defaultElement) &&
+			    TryReadScalar(defaultElement, out var defaultValue)) {
+				defaults[id] = ConfigValue.Single(defaultValue);
 			}
 		}
 	}
@@ -235,7 +295,7 @@ public static class CatharsisPackConfig
 	/// whose conditions evaluate to true given the config defaults.
 	/// </summary>
 	private static IReadOnlyList<string> EvaluateOverlayEntries(JsonElement root,
-		Dictionary<string, string> defaults, bool enableAll = false) {
+		Dictionary<string, ConfigValue> defaults, bool enableAll = false) {
 		if (!root.TryGetProperty("fabric:overlays", out var overlaysSection)) {
 			return [];
 		}
@@ -268,7 +328,7 @@ public static class CatharsisPackConfig
 				continue;
 			}
 
-			if (EvaluateCondition(condition, defaults)) {
+			if (EvaluateCondition(condition, defaults, root)) {
 				enabled.Add(directory);
 			}
 		}
@@ -279,7 +339,8 @@ public static class CatharsisPackConfig
 	/// <summary>
 	/// Evaluates a single overlay condition against config defaults.
 	/// </summary>
-	private static bool EvaluateCondition(JsonElement condition, Dictionary<string, string> defaults) {
+	private static bool EvaluateCondition(JsonElement condition, Dictionary<string, ConfigValue> defaults,
+		JsonElement root) {
 		if (!condition.TryGetProperty("condition", out var conditionType)) {
 			return false;
 		}
@@ -290,19 +351,24 @@ public static class CatharsisPackConfig
 			return EvaluateCatharsisConfigCondition(condition, defaults);
 		}
 
+		if (string.Equals(type, "catharsis:version", StringComparison.OrdinalIgnoreCase)) {
+			return EvaluateCatharsisVersionCondition(condition, root);
+		}
+
 		if (string.Equals(type, "fabric:not", StringComparison.OrdinalIgnoreCase)) {
 			if (condition.TryGetProperty("value", out var inner)) {
-				return !EvaluateCondition(inner, defaults);
+				return !EvaluateCondition(inner, defaults, root);
 			}
 
 			return false;
 		}
 
-		if (string.Equals(type, "fabric:all_of", StringComparison.OrdinalIgnoreCase)) {
+		if (string.Equals(type, "fabric:all_of", StringComparison.OrdinalIgnoreCase) ||
+		    string.Equals(type, "fabric:and", StringComparison.OrdinalIgnoreCase)) {
 			if (condition.TryGetProperty("values", out var valuesArray) &&
 			    valuesArray.ValueKind == JsonValueKind.Array) {
 				foreach (var inner in valuesArray.EnumerateArray()) {
-					if (!EvaluateCondition(inner, defaults)) {
+					if (!EvaluateCondition(inner, defaults, root)) {
 						return false;
 					}
 				}
@@ -313,11 +379,12 @@ public static class CatharsisPackConfig
 			return false;
 		}
 
-		if (string.Equals(type, "fabric:any_of", StringComparison.OrdinalIgnoreCase)) {
+		if (string.Equals(type, "fabric:any_of", StringComparison.OrdinalIgnoreCase) ||
+		    string.Equals(type, "fabric:or", StringComparison.OrdinalIgnoreCase)) {
 			if (condition.TryGetProperty("values", out var valuesArray) &&
 			    valuesArray.ValueKind == JsonValueKind.Array) {
 				foreach (var inner in valuesArray.EnumerateArray()) {
-					if (EvaluateCondition(inner, defaults)) {
+					if (EvaluateCondition(inner, defaults, root)) {
 						return true;
 					}
 				}
@@ -336,7 +403,7 @@ public static class CatharsisPackConfig
 	/// Otherwise, checks if the boolean config option is true.
 	/// </summary>
 	private static bool EvaluateCatharsisConfigCondition(JsonElement condition,
-		Dictionary<string, string> defaults) {
+		Dictionary<string, ConfigValue> defaults) {
 		if (!condition.TryGetProperty("id", out var idElement)) {
 			return false;
 		}
@@ -348,8 +415,7 @@ public static class CatharsisPackConfig
 
 		// Check if a specific value match is required
 		if (condition.TryGetProperty("value", out var valueElement)) {
-			var requiredValue = valueElement.GetString();
-			if (requiredValue is null) {
+			if (!TryReadScalar(valueElement, out var requiredValue)) {
 				return false;
 			}
 
@@ -357,14 +423,140 @@ public static class CatharsisPackConfig
 				return false;
 			}
 
-			return string.Equals(currentValue, requiredValue, StringComparison.OrdinalIgnoreCase);
+			return currentValue.Matches(requiredValue);
 		}
 
-		// Boolean check: config option must be "true"
-		if (!defaults.TryGetValue(id, out var boolValue)) {
+		if (!defaults.TryGetValue(id, out var value)) {
 			return false; // Option not found → treated as disabled
 		}
 
-		return string.Equals(boolValue, "true", StringComparison.OrdinalIgnoreCase);
+		return value.Matches(requiredValue: null);
 	}
+
+	private static bool EvaluateCatharsisVersionCondition(JsonElement condition, JsonElement root) {
+		var type = condition.TryGetProperty("type", out var typeElement) && typeElement.ValueKind == JsonValueKind.String
+			? NormalizeVersionType(typeElement.GetString())
+			: "minecraft";
+
+		if (!string.Equals(type, "packformat", StringComparison.OrdinalIgnoreCase)) {
+			// The renderer does not know the active Minecraft runtime version; avoid enabling
+			// Minecraft-version-specific overlays unless they also use a pack format condition.
+			return false;
+		}
+
+		if (!condition.TryGetProperty("packFormatRange", out var rangeElement) ||
+		    !TryParseRange(rangeElement, out var requiredRange)) {
+			return true;
+		}
+
+		var declaredRange = ParseDeclaredPackFormatRange(root);
+		return declaredRange is not null && declaredRange.Value.Intersects(requiredRange);
+	}
+
+	private static IntRange? ParseDeclaredPackFormatRange(JsonElement root) {
+		if (!root.TryGetProperty("pack", out var packElement) || packElement.ValueKind != JsonValueKind.Object) {
+			return null;
+		}
+
+		if (packElement.TryGetProperty("pack_format", out var packFormatElement) &&
+		    TryReadInt(packFormatElement, out var packFormat)) {
+			return new IntRange(packFormat, packFormat);
+		}
+
+		var minFormat = 0;
+		var maxFormat = 0;
+		var hasMin = packElement.TryGetProperty("min_format", out var minElement) &&
+		             TryReadInt(minElement, out minFormat);
+		var hasMax = packElement.TryGetProperty("max_format", out var maxElement) &&
+		             TryReadInt(maxElement, out maxFormat);
+
+		return (hasMin, hasMax) switch {
+			(true, true) => new IntRange(Math.Min(minFormat, maxFormat), Math.Max(minFormat, maxFormat)),
+			(true, false) => new IntRange(minFormat, minFormat),
+			(false, true) => new IntRange(maxFormat, maxFormat),
+			_ => null
+		};
+	}
+
+	private static bool TryParseRange(JsonElement element, out IntRange range) {
+		range = default;
+		if (element.ValueKind != JsonValueKind.Object) {
+			return false;
+		}
+
+		var minInclusive = 0;
+		var maxInclusive = 0;
+		var hasMin = element.TryGetProperty("min_inclusive", out var minElement) &&
+		             TryReadInt(minElement, out minInclusive);
+		var hasMax = element.TryGetProperty("max_inclusive", out var maxElement) &&
+		             TryReadInt(maxElement, out maxInclusive);
+		if (!hasMin && !hasMax) {
+			return false;
+		}
+
+		var min = hasMin ? minInclusive : int.MinValue;
+		var max = hasMax ? maxInclusive : int.MaxValue;
+		range = new IntRange(Math.Min(min, max), Math.Max(min, max));
+		return true;
+	}
+
+	private static bool TryReadScalar(JsonElement element, out string value) {
+		switch (element.ValueKind) {
+			case JsonValueKind.String:
+				value = element.GetString() ?? string.Empty;
+				return !string.IsNullOrWhiteSpace(value);
+			case JsonValueKind.Number:
+				if (element.TryGetInt64(out var longValue)) {
+					value = longValue.ToString(CultureInfo.InvariantCulture);
+					return true;
+				}
+
+				if (element.TryGetDouble(out var doubleValue)) {
+					value = doubleValue.ToString(CultureInfo.InvariantCulture);
+					return true;
+				}
+
+				break;
+			case JsonValueKind.True:
+				value = "true";
+				return true;
+			case JsonValueKind.False:
+				value = "false";
+				return true;
+		}
+
+		value = string.Empty;
+		return false;
+	}
+
+	private static bool TryReadInt(JsonElement element, out int value) {
+		if (element.ValueKind == JsonValueKind.Number) {
+			if (element.TryGetInt32(out value)) {
+				return true;
+			}
+
+			if (element.TryGetDouble(out var doubleValue) &&
+			    doubleValue >= int.MinValue &&
+			    doubleValue <= int.MaxValue &&
+			    Math.Abs(doubleValue - Math.Round(doubleValue)) < 1e-6) {
+				value = (int)Math.Round(doubleValue);
+				return true;
+			}
+		}
+
+		if (element.ValueKind == JsonValueKind.String &&
+		    int.TryParse(element.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out value)) {
+			return true;
+		}
+
+		value = default;
+		return false;
+	}
+
+	private static string NormalizeVersionType(string? value)
+		=> string.IsNullOrWhiteSpace(value)
+			? string.Empty
+			: value.Replace("_", string.Empty, StringComparison.Ordinal)
+				.Replace("-", string.Empty, StringComparison.Ordinal)
+				.Trim();
 }

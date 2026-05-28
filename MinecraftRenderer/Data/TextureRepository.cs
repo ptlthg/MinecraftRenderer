@@ -149,7 +149,7 @@ public sealed class TextureRepository : IDisposable
 							? tintedVector
 							: Vector4.Lerp(pixelVector, tintedVector, clampedBlend);
 
-						row[x].FromVector4(finalVector);
+						row[x] = Rgba32.FromVector4(finalVector);
 					}
 				}
 			});

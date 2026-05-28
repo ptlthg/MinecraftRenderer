@@ -746,7 +746,7 @@ internal static class MinecraftAssetLoader
 			a = 0xFF;
 		}
 
-		return new Color(new Rgba32(r, g, b, a == 0 ? (byte)0xFF : a));
+		return Color.FromPixel(new Rgba32(r, g, b, a == 0 ? (byte)0xFF : a));
 	}
 
 	private static string? ResolveModelReferenceFromItemDefinition(JsonElement root) {

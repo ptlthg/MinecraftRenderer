@@ -1,5 +1,7 @@
 # Added
 .env
+.lic
+sixlabors.lic
 !.env.example
 appsettings.*.json
 .idea

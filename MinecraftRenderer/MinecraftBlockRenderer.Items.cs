@@ -213,7 +213,7 @@ public sealed partial class MinecraftBlockRenderer
 		string NormalizedTextureId,
 		TextureRepository.TextureAnimation Animation);
 
-	private static readonly Color DefaultLeatherArmorColor = new(new Rgba32(0xA0, 0x65, 0x40));
+	private static readonly Color DefaultLeatherArmorColor = Color.FromPixel(new Rgba32(0xA0, 0x65, 0x40));
 
 	private static readonly Dictionary<string, Color> LegacyDefaultTintOverrides = new(StringComparer.OrdinalIgnoreCase) {
 		["leather_helmet"] = DefaultLeatherArmorColor,
@@ -268,15 +268,23 @@ public sealed partial class MinecraftBlockRenderer
 			}
 		}
 
-		var (model, modelCandidates, resolvedModelName) = ResolveItemModel(normalizedItemKey, itemInfo, options);
+		var (model, modelCandidates, resolvedModelName, compositeModelNames) = ResolveItemModel(normalizedItemKey, itemInfo, options);
 		if (capture is not null) {
 			capture.Model = model;
 			capture.ModelCandidates = modelCandidates;
 			capture.ResolvedModelName = resolvedModelName;
+			capture.CompositeModelNames = compositeModelNames;
 		}
 
 		if (IsBannerItem(normalizedItemKey) || (resolvedModelName != null && IsBannerItem(resolvedModelName))) {
 			options = options with { AdditionalScale = options.AdditionalScale * 0.8f };
+		}
+
+		postScale = GetPostRenderScale(normalizedItemKey) ?? GetPostRenderScale(resolvedModelName);
+
+		if (compositeModelNames.Count > 1 &&
+		    TryRenderCompositeItemModels(normalizedItemKey, itemInfo, compositeModelNames, options, out var compositeRender)) {
+			return FinalizeGuiResult(compositeRender);
 		}
 
 		if (options.OverrideGuiTransform is null && options.UseGuiTransform && model is not null) {
@@ -286,8 +294,6 @@ public sealed partial class MinecraftBlockRenderer
 				options = options with { OverrideGuiTransform = guiOverride };
 			}
 		}
-
-		postScale = GetPostRenderScale(normalizedItemKey) ?? GetPostRenderScale(resolvedModelName);
 
 		var shouldPreferHead = ShouldPreferPlayerHeadRenderer(itemName, model, modelCandidates, options,
 			out var preparedOptions);
@@ -588,19 +594,26 @@ public sealed partial class MinecraftBlockRenderer
 		return new NbtCompound(map.Select(static kvp => new KeyValuePair<string, NbtTag>(kvp.Key, kvp.Value)));
 	}
 
-	private (BlockModelInstance? Model, IReadOnlyList<string> Candidates, string? ResolvedModelName) ResolveItemModel(
+	private (BlockModelInstance? Model, IReadOnlyList<string> Candidates, string? ResolvedModelName,
+		IReadOnlyList<string> CompositeModelNames) ResolveItemModel(
 		string itemName,
 		ItemRegistry.ItemInfo? itemInfo, BlockRenderOptions options) {
 		var displayContext = DetermineDisplayContext(options);
 		string? dynamicModel = null;
+		IReadOnlyList<string> dynamicModels = [];
 		if (itemInfo?.Selector is not null) {
 			var selectorContext = new ItemModelContext(options.ItemData, displayContext, itemName);
-			dynamicModel = itemInfo.Selector.Resolve(selectorContext);
+			dynamicModels = itemInfo.Selector.ResolveAll(selectorContext)
+				.Where(static model => !string.IsNullOrWhiteSpace(model))
+				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.ToArray();
+			dynamicModel = dynamicModels.Count > 0 ? dynamicModels[0] : null;
 		}
 
 		// Check for Firmament-style firmskyblock models based on SkyBlock ID
 		string? firmamentModel = TryGetFirmamentModel(options.ItemData);
-		string? skyblockItemModel = TryGetSkyblockItemModel(itemName, options.ItemData, displayContext);
+		var skyblockItemModels = TryGetSkyblockItemModels(itemName, options.ItemData, displayContext);
+		var skyblockItemModel = skyblockItemModels.Count > 0 ? skyblockItemModels[0] : null;
 
 		var primaryModel = itemInfo?.Model;
 		string fallbackModel;
@@ -684,11 +697,115 @@ public sealed partial class MinecraftBlockRenderer
 			}
 		}
 
-		return (model, candidates, resolvedModelName);
+		var compositeModelNames = ResolveCompositeModelNames(resolvedModelName, skyblockItemModels, dynamicModels);
+		return (model, candidates, resolvedModelName, compositeModelNames);
+	}
+
+	private static IReadOnlyList<string> ResolveCompositeModelNames(string? resolvedModelName,
+		IReadOnlyList<string> skyblockItemModels, IReadOnlyList<string> dynamicModels) {
+		if (skyblockItemModels.Count > 1 && ContainsResolvedModel(skyblockItemModels, resolvedModelName)) {
+			return skyblockItemModels;
+		}
+
+		if (dynamicModels.Count > 1 && ContainsResolvedModel(dynamicModels, resolvedModelName)) {
+			return dynamicModels;
+		}
+
+		return [];
+	}
+
+	private static bool ContainsResolvedModel(IReadOnlyList<string> modelNames, string? resolvedModelName) {
+		if (string.IsNullOrWhiteSpace(resolvedModelName)) {
+			return false;
+		}
+
+		var normalizedResolved = NormalizeModelIdentifier(resolvedModelName);
+		return modelNames.Any(modelName =>
+			string.Equals(NormalizeModelIdentifier(modelName), normalizedResolved, StringComparison.OrdinalIgnoreCase));
 	}
 
 	private static string DetermineDisplayContext(BlockRenderOptions options)
 		=> options.UseGuiTransform ? "gui" : "none";
+
+	private bool TryRenderCompositeItemModels(string itemName, ItemRegistry.ItemInfo? itemInfo,
+		IReadOnlyList<string> modelNames, BlockRenderOptions options, out Image<Rgba32> rendered) {
+		rendered = null!;
+		if (modelNames.Count <= 1) {
+			return false;
+		}
+
+		var canvas = new Image<Rgba32>(options.Size, options.Size);
+		var renderedAny = false;
+
+		try {
+			foreach (var modelName in modelNames) {
+				if (string.IsNullOrWhiteSpace(modelName)) {
+					continue;
+				}
+
+				var model = ResolveModelOrNull(modelName);
+				if (model is null) {
+					continue;
+				}
+
+				var childOptions = options;
+				if (childOptions.OverrideGuiTransform is null && childOptions.UseGuiTransform) {
+					var guiOverride = model.GetDisplayTransform("gui");
+					if (guiOverride is not null) {
+						childOptions = childOptions with { OverrideGuiTransform = guiOverride };
+					}
+				}
+
+				Image<Rgba32>? layer = null;
+				try {
+					var modelCandidates = new[] { modelName };
+					if (ShouldPreferPlayerHeadRenderer(itemName, model, modelCandidates, childOptions,
+						    out var preparedOptions) &&
+					    TryRenderPlayerHead(itemName, model, modelCandidates, preparedOptions, out var headRender)) {
+						layer = headRender;
+					}
+					else if (TryRenderGuiTextureLayers(itemName, itemInfo, model, childOptions, out var flatRender)) {
+						layer = flatRender;
+					}
+					else if (TryRenderBedItem(itemName, model, childOptions, out var bedComposite)) {
+						layer = bedComposite;
+					}
+					else if (!HasExplicitFlatHeadOverride(model, modelCandidates, childOptions) &&
+					         TryRenderPlayerHead(itemName, model, modelCandidates, childOptions, out var headComposite)) {
+						layer = headComposite;
+					}
+					else if (model.Elements.Count > 0) {
+						layer = RenderModel(model, childOptions, itemName);
+					}
+					else if (TryRenderBlockEntityFallback(itemName, itemInfo, model, modelCandidates, childOptions,
+						         out var blockRender)) {
+						layer = blockRender;
+					}
+					else {
+						layer = RenderFallbackTexture(itemName, itemInfo, model, childOptions);
+					}
+
+					canvas.Mutate(ctx => ctx.DrawImage(layer, Point.Empty, 1f));
+					renderedAny = true;
+				}
+				finally {
+					layer?.Dispose();
+				}
+			}
+		}
+		catch {
+			canvas.Dispose();
+			throw;
+		}
+
+		if (!renderedAny) {
+			canvas.Dispose();
+			return false;
+		}
+
+		rendered = canvas;
+		return true;
+	}
 
 	private bool TryRenderGuiTextureLayers(string itemName, ItemRegistry.ItemInfo? itemInfo, BlockModelInstance? model,
 		BlockRenderOptions options, out Image<Rgba32> rendered) {
@@ -1201,36 +1318,35 @@ public sealed partial class MinecraftBlockRenderer
 	/// Catharsis/Fabric packs register item definitions under the SkyBlock ID (e.g. <c>skyblock:items/aspect_of_the_dragon.json</c>)
 	/// which get loaded as item entries keyed by the SkyBlock ID with a model reference to the pack's actual model.
 	/// </summary>
-	private string? TryGetSkyblockItemModel(string itemName, ItemRenderData? itemData, string displayContext) {
+	private IReadOnlyList<string> TryGetSkyblockItemModels(string itemName, ItemRenderData? itemData, string displayContext) {
 		if (itemData?.CustomData is null || _itemRegistry is null) {
-			return null;
+			return [];
 		}
 
 		if (!TryGetString(itemData.CustomData, "id", out var skyblockId) || string.IsNullOrWhiteSpace(skyblockId)) {
-			return null;
+			return [];
 		}
 
 		var encodedId = EncodeFirmamentId(skyblockId!);
 		if (_itemRegistry.TryGetInfo(encodedId, out var info)) {
-			string? model = null;
+			IReadOnlyList<string> models = [];
 
 			if (info.Selector is not null) {
 				var selectorContext = new ItemModelContext(itemData, displayContext, itemName);
-				model = info.Selector.Resolve(selectorContext);
+				models = info.Selector.ResolveAll(selectorContext);
 			}
 
-			if (string.IsNullOrWhiteSpace(model)) {
-				model = info.Model;
+			if (models.Count == 0 && !string.IsNullOrWhiteSpace(info.Model)) {
+				models = [info.Model];
 			}
 
-			if (string.IsNullOrWhiteSpace(model) || !model.Contains(':')) {
-				return null;
-			}
-
-			return model;
+			return models
+				.Where(static model => !string.IsNullOrWhiteSpace(model) && model.Contains(':'))
+				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.ToArray();
 		}
 
-		return null;
+		return [];
 	}
 
 	/// <summary>
@@ -2065,7 +2181,7 @@ public sealed partial class MinecraftBlockRenderer
 
 	private Image<Rgba32> RenderFlatItem(IReadOnlyList<string> layerTextureIds, BlockRenderOptions options,
 		string? tintContext) {
-		var canvas = new Image<Rgba32>(options.Size, options.Size, Color.Transparent);
+		var canvas = new Image<Rgba32>(options.Size, options.Size);
 		ItemRegistry.ItemInfo? itemInfo = null;
 		string? normalizedItemKey = null;
 
@@ -2276,7 +2392,7 @@ public sealed partial class MinecraftBlockRenderer
 					pixelVector.Y = MathF.Min(pixelVector.Y * tintVector.Y, 1f);
 					pixelVector.Z = MathF.Min(pixelVector.Z * tintVector.Z, 1f);
 					pixelVector.W = alpha;
-					row[x].FromVector4(pixelVector);
+					row[x] = Rgba32.FromVector4(pixelVector);
 				}
 			}
 		});

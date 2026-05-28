@@ -75,7 +75,7 @@ public sealed partial class MinecraftBlockRenderer
 
 		if (triangles.Count == 0)
 		{
-			return new Image<Rgba32>(options.Size, options.Size, Color.Transparent);
+			return new Image<Rgba32>(options.Size, options.Size);
 		}
 
 		triangles.Sort((a, b) =>
@@ -120,7 +120,7 @@ public sealed partial class MinecraftBlockRenderer
 			? new PerspectiveParams(options.PerspectiveAmount, 10f, 10f)
 			: null;
 
-		var canvas = new Image<Rgba32>(options.Size, options.Size, Color.Transparent);
+		var canvas = new Image<Rgba32>(options.Size, options.Size);
 		var depthBuffer = new float[options.Size * options.Size];
 		Array.Fill(depthBuffer, float.NegativeInfinity);
 		var triangleOrder = 0;

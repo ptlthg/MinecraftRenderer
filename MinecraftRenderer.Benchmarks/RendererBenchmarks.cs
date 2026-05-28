@@ -54,7 +54,7 @@ public class RendererBenchmarks
 		});
 
 		var texturePackDirectory = LocateTexturePackDirectory();
-		var hypixelPackPath = Path.Combine(texturePackDirectory, "Hypixel+ 0.23.4 for 1.21.8");
+		var hypixelPackPath = LocateTexturePackPath(texturePackDirectory, "hypixelplus", "hplus");
 		if (!Directory.Exists(hypixelPackPath))
 		{
 			throw new DirectoryNotFoundException(
@@ -210,13 +210,41 @@ public class RendererBenchmarks
 		throw new DirectoryNotFoundException("Unable to find the texture pack directory for benchmarks.");
 	}
 
+	private static string LocateTexturePackPath(string texturePackDirectory, string packId, string fallbackDirectoryName)
+	{
+		var fallbackPath = Path.Combine(texturePackDirectory, fallbackDirectoryName);
+		foreach (var directory in Directory.EnumerateDirectories(texturePackDirectory))
+		{
+			var metaPath = Path.Combine(directory, "meta.json");
+			if (!File.Exists(metaPath))
+			{
+				continue;
+			}
+
+			var meta = File.ReadAllText(metaPath);
+			if (meta.Contains($"\"id\": \"{packId}\"", StringComparison.OrdinalIgnoreCase) ||
+			    meta.Contains($"\"id\":\"{packId}\"", StringComparison.OrdinalIgnoreCase))
+			{
+				return directory;
+			}
+		}
+
+		return fallbackPath;
+	}
+
 	private static string LocateAssetsDirectory()
 	{
 		var current = new DirectoryInfo(AppContext.BaseDirectory);
 		while (current is not null)
 		{
 			var candidate = Path.Combine(current.FullName, "minecraft");
-			if (Directory.Exists(candidate))
+			var nestedAssets = Path.Combine(candidate, "assets", "minecraft");
+			if (IsMinecraftAssetsRoot(nestedAssets))
+			{
+				return nestedAssets;
+			}
+
+			if (IsMinecraftAssetsRoot(candidate))
 			{
 				return candidate;
 			}
@@ -226,4 +254,9 @@ public class RendererBenchmarks
 
 		throw new DirectoryNotFoundException("Unable to find the minecraft assets directory for benchmarks.");
 	}
+
+	private static bool IsMinecraftAssetsRoot(string path)
+		=> Directory.Exists(Path.Combine(path, "models"))
+		   && Directory.Exists(Path.Combine(path, "blockstates"))
+		   && Directory.Exists(Path.Combine(path, "textures"));
 }

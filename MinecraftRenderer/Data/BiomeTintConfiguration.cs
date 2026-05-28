@@ -78,7 +78,7 @@ internal sealed class BiomeTintConfiguration
 			}
 
 			var normalized = key.Trim().ToLowerInvariant();
-			result[normalized] = new Color(new Rgb24(r, g, b));
+			result[normalized] = Color.FromPixel(new Rgb24(r, g, b));
 		}
 
 		return result;

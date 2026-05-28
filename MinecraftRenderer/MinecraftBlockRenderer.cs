@@ -509,7 +509,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		}
 
 		if (string.IsNullOrWhiteSpace(textureId) || face is null) {
-			return new Image<Rgba32>(size, size, Color.Transparent);
+			return new Image<Rgba32>(size, size);
 		}
 
 		Image<Rgba32> texture;
@@ -579,22 +579,22 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 	}
 
 	private static readonly Dictionary<string, Color> ColorMap = new(StringComparer.OrdinalIgnoreCase) {
-		{ "white", new Color(new Rgb24(249, 255, 254)) },
-		{ "orange", new Color(new Rgb24(249, 128, 29)) },
-		{ "magenta", new Color(new Rgb24(199, 78, 189)) },
-		{ "light_blue", new Color(new Rgb24(58, 179, 218)) },
-		{ "yellow", new Color(new Rgb24(254, 216, 61)) },
-		{ "lime", new Color(new Rgb24(128, 199, 31)) },
-		{ "pink", new Color(new Rgb24(243, 139, 170)) },
-		{ "gray", new Color(new Rgb24(71, 79, 82)) },
-		{ "light_gray", new Color(new Rgb24(157, 157, 151)) },
-		{ "cyan", new Color(new Rgb24(22, 156, 156)) },
-		{ "purple", new Color(new Rgb24(137, 50, 184)) },
-		{ "blue", new Color(new Rgb24(60, 68, 170)) },
-		{ "brown", new Color(new Rgb24(131, 84, 50)) },
-		{ "green", new Color(new Rgb24(94, 124, 22)) },
-		{ "red", new Color(new Rgb24(176, 46, 38)) },
-		{ "black", new Color(new Rgb24(29, 29, 33)) }
+		{ "white", Color.FromPixel(new Rgb24(249, 255, 254)) },
+		{ "orange", Color.FromPixel(new Rgb24(249, 128, 29)) },
+		{ "magenta", Color.FromPixel(new Rgb24(199, 78, 189)) },
+		{ "light_blue", Color.FromPixel(new Rgb24(58, 179, 218)) },
+		{ "yellow", Color.FromPixel(new Rgb24(254, 216, 61)) },
+		{ "lime", Color.FromPixel(new Rgb24(128, 199, 31)) },
+		{ "pink", Color.FromPixel(new Rgb24(243, 139, 170)) },
+		{ "gray", Color.FromPixel(new Rgb24(71, 79, 82)) },
+		{ "light_gray", Color.FromPixel(new Rgb24(157, 157, 151)) },
+		{ "cyan", Color.FromPixel(new Rgb24(22, 156, 156)) },
+		{ "purple", Color.FromPixel(new Rgb24(137, 50, 184)) },
+		{ "blue", Color.FromPixel(new Rgb24(60, 68, 170)) },
+		{ "brown", Color.FromPixel(new Rgb24(131, 84, 50)) },
+		{ "green", Color.FromPixel(new Rgb24(94, 124, 22)) },
+		{ "red", Color.FromPixel(new Rgb24(176, 46, 38)) },
+		{ "black", Color.FromPixel(new Rgb24(29, 29, 33)) }
 	};
 
 	private static readonly Lazy<BiomeTintConfiguration> BiomeTintConfigurationLazy =
@@ -732,12 +732,12 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 	private static bool TryExtractChannelColor(NbtCompound compound, out Color color) {
 		if (TryGetByte(compound, "red", out var r) && TryGetByte(compound, "green", out var g) &&
 		    TryGetByte(compound, "blue", out var b)) {
-			color = new Color(new Rgba32(r, g, b, 255));
+			color = Color.FromPixel(new Rgba32(r, g, b, 255));
 			return true;
 		}
 
 		if (TryGetByte(compound, "r", out r) && TryGetByte(compound, "g", out g) && TryGetByte(compound, "b", out b)) {
-			color = new Color(new Rgba32(r, g, b, 255));
+			color = Color.FromPixel(new Rgba32(r, g, b, 255));
 			return true;
 		}
 
@@ -780,7 +780,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		var r = (byte)((value >> 16) & 0xFF);
 		var g = (byte)((value >> 8) & 0xFF);
 		var b = (byte)(value & 0xFF);
-		return new Color(new Rgba32(r, g, b, 255));
+		return Color.FromPixel(new Rgba32(r, g, b, 255));
 	}
 
 	private Image<Rgba32> GetBiomeTintedTexture(string textureId, BiomeTintKind kind) {
@@ -816,7 +816,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		var rainfall = Math.Clamp(downfall * temperature, 0f, 1f);
 		var x = Math.Clamp((int)MathF.Round((1f - temperature) * (colormap.Width - 1)), 0, colormap.Width - 1);
 		var y = Math.Clamp((int)MathF.Round((1f - rainfall) * (colormap.Height - 1)), 0, colormap.Height - 1);
-		return colormap[x, y];
+		return Color.FromPixel(colormap[x, y]);
 	}
 
 	private static string NormalizeResourceKey(string? identifier) {
@@ -966,7 +966,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 					var finalVector = originalVector * tintVector;
 					finalVector.W = originalVector.W;
 
-					row[x].FromVector4(finalVector);
+					row[x] = Rgba32.FromVector4(finalVector);
 				}
 			}
 		});

@@ -6,6 +6,7 @@ using MinecraftRenderer.Assets;
 using MinecraftRenderer.Nbt;
 using MinecraftRenderer.TexturePacks;
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats;
 using SixLabors.ImageSharp.Formats.Gif;
 using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.Formats.Webp;
@@ -114,7 +115,7 @@ public sealed partial class MinecraftBlockRenderer
 				FileFormat = WebpFileFormatType.Lossless,
 				Quality = 100,
 				Method = WebpEncodingMethod.BestQuality,
-				TransparentColorMode = WebpTransparentColorMode.Preserve
+				TransparentColorMode = TransparentColorMode.Preserve
 			};
 			image.Save(path, encoder);
 		}
@@ -128,7 +129,7 @@ public sealed partial class MinecraftBlockRenderer
 				FileFormat = WebpFileFormatType.Lossless,
 				Quality = 100,
 				Method = WebpEncodingMethod.BestQuality,
-				TransparentColorMode = WebpTransparentColorMode.Preserve
+				TransparentColorMode = TransparentColorMode.Preserve
 			};
 			await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 4096,
 				useAsync: true);
@@ -172,33 +173,33 @@ public sealed partial class MinecraftBlockRenderer
 		private static void ApplyDefaultFrameMetadata(ImageFrame<Rgba32> frame, AnimationFrame source) {
 			var frameDelayTicks = Math.Max(1, (int)Math.Round(source.DurationMs / 10f));
 			var gifMetadata = frame.Metadata.GetGifMetadata();
-			gifMetadata.DisposalMethod = GifDisposalMethod.RestoreToBackground;
+			gifMetadata.DisposalMode = FrameDisposalMode.RestoreToBackground;
 			gifMetadata.FrameDelay = frameDelayTicks;
 
 			var pngMetadata = frame.Metadata.GetPngMetadata();
-			pngMetadata.DisposalMethod = PngDisposalMethod.RestoreToBackground;
+			pngMetadata.DisposalMode = FrameDisposalMode.RestoreToBackground;
 			pngMetadata.FrameDelay = Rational.FromDouble(frameDelayTicks);
 
 			var webpMetadata = frame.Metadata.GetWebpMetadata();
-			webpMetadata.DisposalMethod = WebpDisposalMethod.RestoreToBackground;
+			webpMetadata.DisposalMode = FrameDisposalMode.RestoreToBackground;
 			webpMetadata.FrameDelay = (uint)Math.Max(1, source.DurationMs);
 		}
 
 		private static void ApplyGifMetadata(ImageFrame<Rgba32> frame, AnimationFrame source) {
 			var gifMetadata = frame.Metadata.GetGifMetadata();
-			gifMetadata.DisposalMethod = GifDisposalMethod.RestoreToBackground;
+			gifMetadata.DisposalMode = FrameDisposalMode.RestoreToBackground;
 			gifMetadata.FrameDelay = Math.Max(1, (int)Math.Round(source.DurationMs / 10f));
 		}
 
 		private static void ApplyPngMetadata(ImageFrame<Rgba32> frame, AnimationFrame source) {
 			var pngMetadata = frame.Metadata.GetPngMetadata();
-			pngMetadata.DisposalMethod = PngDisposalMethod.RestoreToBackground;
+			pngMetadata.DisposalMode = FrameDisposalMode.RestoreToBackground;
 			pngMetadata.FrameDelay = Rational.FromDouble(Math.Max(1, (int)Math.Round(source.DurationMs / 10f)));
 		}
 
 		private static void ApplyWebpMetadata(ImageFrame<Rgba32> frame, AnimationFrame source) {
 			var webpMetadata = frame.Metadata.GetWebpMetadata();
-			webpMetadata.DisposalMethod = WebpDisposalMethod.RestoreToBackground;
+			webpMetadata.DisposalMode = FrameDisposalMode.RestoreToBackground;
 			webpMetadata.FrameDelay = (uint)Math.Max(1, source.DurationMs);
 		}
 
@@ -560,12 +561,14 @@ public sealed partial class MinecraftBlockRenderer
 			string? effectiveModelIdentifier = null;
 			IReadOnlyList<string>? modelCandidates = null;
 			string? resolvedModelName = null;
+			IReadOnlyList<string>? compositeModelNames = null;
 
 			if (preResolvedItem is not null &&
 			    string.Equals(preResolvedItem.LookupTarget, lookupTarget, StringComparison.OrdinalIgnoreCase)) {
 				effectiveModel = preResolvedItem.Model;
 				modelCandidates = preResolvedItem.ModelCandidates;
 				resolvedModelName = preResolvedItem.ResolvedModelName;
+				compositeModelNames = preResolvedItem.CompositeModelNames;
 				if (preResolvedItem.ItemInfo is not null) {
 					info = preResolvedItem.ItemInfo;
 				}
@@ -573,19 +576,42 @@ public sealed partial class MinecraftBlockRenderer
 			else {
 				// Always use ResolveItemModel for consistent resolution logic
 				// (it handles selectors, Firmament models, and all other item model types)
-				(effectiveModel, modelCandidates, resolvedModelName) = ResolveItemModel(lookupTarget, info, options);
+				(effectiveModel, modelCandidates, resolvedModelName, compositeModelNames) =
+					ResolveItemModel(lookupTarget, info, options);
 			}
 
 			effectiveModelIdentifier = resolvedModelName ?? effectiveModel?.Name;
 
-			if (effectiveModel is null && !string.IsNullOrWhiteSpace(resolvedModelName)) {
+			if (compositeModelNames is { Count: > 1 }) {
+				var identifiers = new List<string>();
+				foreach (var compositeModelName in compositeModelNames) {
+					var compositeModel = ResolveModelOrNull(compositeModelName);
+					if (compositeModel is null) {
+						continue;
+					}
+
+					var identifier = NormalizeModelIdentifier(compositeModelName);
+					identifiers.Add(identifier);
+					primaryModelIdentifier ??= identifier;
+					foreach (var texture in CollectResolvedTextures(compositeModel)) {
+						resolvedTextures.Add(texture);
+					}
+				}
+
+				if (identifiers.Count > 0) {
+					modelPath = "composite:" + string.Join("+", identifiers);
+					referenceModel = identifiers[0];
+				}
+			}
+
+			if (modelPath is null && effectiveModel is null && !string.IsNullOrWhiteSpace(resolvedModelName)) {
 				effectiveModel = ResolveModelOrNull(resolvedModelName);
 				if (effectiveModel is not null && string.IsNullOrWhiteSpace(effectiveModelIdentifier)) {
 					effectiveModelIdentifier = resolvedModelName;
 				}
 			}
 
-			if (effectiveModel is null && modelCandidates is not null) {
+			if (modelPath is null && effectiveModel is null && modelCandidates is not null) {
 				foreach (var candidate in modelCandidates) {
 					var candidateModel = ResolveModelOrNull(candidate);
 					if (candidateModel is null) {
@@ -598,7 +624,7 @@ public sealed partial class MinecraftBlockRenderer
 				}
 			}
 
-			if (effectiveModel is not null) {
+			if (modelPath is null && effectiveModel is not null) {
 				var identifier = NormalizeModelIdentifier(effectiveModelIdentifier ?? effectiveModel.Name);
 				primaryModelIdentifier = identifier;
 				modelPath = identifier;
@@ -620,6 +646,11 @@ public sealed partial class MinecraftBlockRenderer
 			if (options.ItemData?.Profile is not null &&
 			    TryExtractProfileTextureId(options.ItemData.Profile, out var profileTexture)) {
 				resolvedTextures.Add(profileTexture);
+			}
+
+			if (IsPlayerHeadItem(lookupTarget) &&
+			    TryGetSkullResolverTextureKey(lookupTarget, options, out var skullResolverTexture)) {
+				resolvedTextures.Add(skullResolverTexture);
 			}
 
 			if (resolvedTextures.Count == 0 && referenceModel is not null) {
@@ -679,12 +710,50 @@ public sealed partial class MinecraftBlockRenderer
 		return string.Join(',', textures.OrderBy(static t => t, StringComparer.OrdinalIgnoreCase));
 	}
 
+	private static bool IsPlayerHeadItem(string itemName)
+		=> string.Equals(NormalizeItemTextureKey(itemName), "player_head", StringComparison.OrdinalIgnoreCase);
+
+	private static bool TryGetSkullResolverTextureKey(string itemName, BlockRenderOptions options, out string textureKey) {
+		textureKey = string.Empty;
+		if (options.SkullTextureResolver is null) {
+			return false;
+		}
+
+		var itemData = options.ItemData;
+		if (itemData?.CustomData is not null && TryGetHeadTextureOverride(itemData.CustomData, out _)) {
+			return false;
+		}
+
+		string? customDataId = null;
+		if (itemData?.CustomData is not null && TryGetString(itemData.CustomData, "id", out var idValue)) {
+			customDataId = idValue;
+		}
+
+		var context = new SkullResolverContext(
+			ItemId: itemName,
+			ItemData: itemData,
+			CustomDataId: customDataId,
+			Profile: itemData?.Profile,
+			CustomData: itemData?.CustomData
+		);
+
+		var resolvedTexture = options.SkullTextureResolver(context);
+		if (string.IsNullOrWhiteSpace(resolvedTexture)) {
+			return false;
+		}
+
+		var hash = SHA256.HashData(Encoding.UTF8.GetBytes(resolvedTexture));
+		textureKey = "skull_resolver:" + Convert.ToHexString(hash);
+		return true;
+	}
+
 	private sealed record ItemModelResolution(
 		string LookupTarget,
 		ItemRegistry.ItemInfo? ItemInfo,
 		BlockModelInstance? Model,
 		IReadOnlyList<string>? ModelCandidates,
-		string? ResolvedModelName);
+		string? ResolvedModelName,
+		IReadOnlyList<string>? CompositeModelNames);
 
 	private sealed class ItemRenderCapture
 	{
@@ -694,6 +763,7 @@ public sealed partial class MinecraftBlockRenderer
 		public BlockModelInstance? Model { get; set; }
 		public IReadOnlyList<string>? ModelCandidates { get; set; }
 		public string? ResolvedModelName { get; set; }
+		public IReadOnlyList<string>? CompositeModelNames { get; set; }
 		public BlockRenderOptions FinalOptions { get; set; }
 
 		public ItemModelResolution? ToResolution() {
@@ -701,7 +771,8 @@ public sealed partial class MinecraftBlockRenderer
 				return null;
 			}
 
-			return new ItemModelResolution(NormalizedItemKey, ItemInfo, Model, ModelCandidates, ResolvedModelName);
+			return new ItemModelResolution(NormalizedItemKey, ItemInfo, Model, ModelCandidates, ResolvedModelName,
+				CompositeModelNames);
 		}
 	}
 
@@ -739,12 +810,13 @@ public sealed partial class MinecraftBlockRenderer
 			}
 		}
 
-		if (data.CustomData is not null) {
-			builder.Append(";custom=");
-			builder.Append(BuildCustomDataKey(data.CustomData));
+		if (data.CustomData is not null && TryGetHeadTextureOverride(data.CustomData, out var headTexture)) {
+			builder.Append(";custom_texture=");
+			var hash = SHA256.HashData(Encoding.UTF8.GetBytes(headTexture));
+			builder.Append(Convert.ToHexString(hash));
 		}
 		else {
-			builder.Append(";custom=none");
+			builder.Append(";custom_texture=none");
 		}
 
 		if (data.Profile is not null) {

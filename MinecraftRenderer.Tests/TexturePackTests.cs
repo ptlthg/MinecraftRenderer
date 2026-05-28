@@ -286,7 +286,7 @@ public sealed class TexturePackTests : IDisposable
 		var tintedOptions = baselineOptions with
 		{
 			ItemData = new MinecraftBlockRenderer.ItemRenderData(
-				Layer0Tint: new Color(new Rgba32(80, 25, 180, 255)))
+				Layer0Tint: Color.FromPixel(new Rgba32(80, 25, 180, 255)))
 		};
 
 		var testCases = new[]

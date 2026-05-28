@@ -138,7 +138,7 @@ public class MinecraftHeadRenderer
 		visibleTriangles.Sort((a, b) => b.Depth.CompareTo(a.Depth));
 
 		// Create output image
-		var canvas = new Image<Rgba32>(options.Size, options.Size, Color.Transparent);
+		var canvas = new Image<Rgba32>(options.Size, options.Size);
 		var scale = options.Size / 1.75f;
 		var offset = new Vector2(options.Size / 2f);
 		var depthBuffer = new float[options.Size * options.Size];

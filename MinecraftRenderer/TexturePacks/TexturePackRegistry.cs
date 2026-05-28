@@ -758,9 +758,8 @@ public sealed class TexturePackRegistry
 		try {
 			using var document = JsonDocument.Parse(json);
 			if (document.RootElement.TryGetProperty("pack", out var packElement) &&
-			    packElement.TryGetProperty("pack_format", out var formatElement) &&
-			    formatElement.ValueKind == JsonValueKind.Number) {
-				return formatElement.GetInt32();
+			    TryReadPackFormat(packElement, out var packFormat)) {
+				return packFormat;
 			}
 		}
 		catch (JsonException) {
@@ -817,9 +816,8 @@ public sealed class TexturePackRegistry
 		try {
 			using var document = JsonDocument.Parse(File.ReadAllText(packMcMetaPath));
 			if (document.RootElement.TryGetProperty("pack", out var packElement) &&
-			    packElement.TryGetProperty("pack_format", out var formatElement) &&
-			    formatElement.ValueKind == JsonValueKind.Number) {
-				return formatElement.GetInt32();
+			    TryReadPackFormat(packElement, out var packFormat)) {
+				return packFormat;
 			}
 		}
 		catch (JsonException) {
@@ -827,6 +825,49 @@ public sealed class TexturePackRegistry
 		}
 
 		return null;
+	}
+
+	private static bool TryReadPackFormat(JsonElement packElement, out int packFormat) {
+		if (packElement.TryGetProperty("pack_format", out var formatElement) &&
+		    TryReadInt(formatElement, out packFormat)) {
+			return true;
+		}
+
+		if (packElement.TryGetProperty("min_format", out var minFormatElement) &&
+		    TryReadInt(minFormatElement, out packFormat)) {
+			return true;
+		}
+
+		if (packElement.TryGetProperty("max_format", out var maxFormatElement) &&
+		    TryReadInt(maxFormatElement, out packFormat)) {
+			return true;
+		}
+
+		packFormat = 0;
+		return false;
+	}
+
+	private static bool TryReadInt(JsonElement element, out int value) {
+		if (element.ValueKind == JsonValueKind.Number) {
+			if (element.TryGetInt32(out value)) {
+				return true;
+			}
+
+			if (element.TryGetDouble(out var doubleValue) &&
+			    doubleValue is >= int.MinValue and <= int.MaxValue &&
+			    Math.Abs(doubleValue - Math.Round(doubleValue)) < 1e-6) {
+				value = (int)Math.Round(doubleValue);
+				return true;
+			}
+		}
+
+		if (element.ValueKind == JsonValueKind.String &&
+		    int.TryParse(element.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out value)) {
+			return true;
+		}
+
+		value = 0;
+		return false;
 	}
 
 	private static long CalculateDirectorySize(string path) {

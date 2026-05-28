@@ -6,6 +6,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text.Json;
 using MinecraftRenderer.Nbt;
+using SixLabors.ImageSharp.PixelFormats;
 
 internal readonly record struct ItemModelContext(
 	MinecraftBlockRenderer.ItemRenderData? ItemData,
@@ -20,46 +21,89 @@ internal readonly record struct ItemModelContext(
 internal abstract class ItemModelSelector
 {
 	public abstract string? Resolve(ItemModelContext context);
+
+	public virtual IReadOnlyList<string> ResolveAll(ItemModelContext context) {
+		var resolved = Resolve(context);
+		return string.IsNullOrWhiteSpace(resolved) ? [] : [resolved];
+	}
 }
 
 internal static class CatharsisDataTypeResolver
 {
+	private static readonly HashSet<string> KnownSelectDataTypes = new(StringComparer.OrdinalIgnoreCase)
+	{
+		"rarity",
+		"modifier",
+		"selected_arrow",
+		"fungi_cutter_mode"
+	};
+
+	private static readonly HashSet<string> KnownNumericDataTypes = new(StringComparer.OrdinalIgnoreCase)
+	{
+		"dungeonbreaker_charges",
+		"fuel",
+		"midas_weapon_paid",
+		"pelts_earned",
+		"snowballs",
+		"thunder_charge",
+		"water_level"
+	};
+
 	public static bool SupportsSelectValue(string? dataType) {
 		if (string.IsNullOrWhiteSpace(dataType)) {
 			return false;
 		}
 
-		return NormalizeDataType(dataType) switch {
-			"rarity" => true,
-			"modifier" => true,
-			_ => false
-		};
+		return KnownSelectDataTypes.Contains(NormalizeDataType(dataType));
 	}
 
 	public static bool SupportsNumericValue(string? dataType)
-		=> false;
+		=> !string.IsNullOrWhiteSpace(dataType) && KnownNumericDataTypes.Contains(NormalizeDataType(dataType));
 
 	public static bool EvaluateCondition(string? dataType, ItemModelContext context) {
 		if (string.IsNullOrWhiteSpace(dataType)) {
 			return false;
 		}
 
-		// May be implemented in the future
-		return NormalizeDataType(dataType) switch {
-			"has_skin_fallback" => false,
-			_ => false
+		var normalized = NormalizeDataType(dataType);
+		return normalized switch {
+			"has_skin_fallback" => HasSkinFallback(context),
+			"has_dye_fallback" => HasDyeFallback(context),
+			_ => TryGetDataTypeTag(context.ItemData?.CustomData, normalized, out var tag) &&
+			     TryGetBooleanValue(tag, out var value) && value
+		};
+	}
+
+	public static bool IsPresent(string? dataType, ItemModelContext context) {
+		if (string.IsNullOrWhiteSpace(dataType)) {
+			return false;
+		}
+
+		var normalized = NormalizeDataType(dataType);
+		return normalized switch {
+			"has_skin_fallback" => HasSkinFallback(context),
+			"helmet_skin" => HasSkinFallback(context),
+			"has_dye_fallback" => HasDyeFallback(context),
+			"applied_dye" => HasDyeFallback(context),
+			"rarity" => GetSelectValue(dataType, context) is not null,
+			"modifier" => GetSelectValue(dataType, context) is not null,
+			_ => TryGetDataTypeTag(context.ItemData?.CustomData, normalized, out _)
 		};
 	}
 
 	public static string? GetSelectValue(string? dataType, ItemModelContext context) {
-		if (context.ItemData?.CustomData is not { } customData || !SupportsSelectValue(dataType)) {
+		if (context.ItemData?.CustomData is not { } customData || string.IsNullOrWhiteSpace(dataType) ||
+		    !SupportsSelectValue(dataType)) {
 			return null;
 		}
 
-		return NormalizeDataType(dataType!) switch {
+		var normalized = NormalizeDataType(dataType);
+		return normalized switch {
 			"rarity" => NormalizeStringValue(GetFirstString(customData, "upgradedRarity", "rarity", "tier")),
 			"modifier" => NormalizeStringValue(GetFirstString(customData, "modifier", "reforge", "prefix")),
-			_ => null
+			_ => TryGetDataTypeTag(customData, normalized, out var tag)
+				? NormalizeStringValue(GetStringValue(tag))
+				: null
 		};
 	}
 
@@ -68,11 +112,236 @@ internal static class CatharsisDataTypeResolver
 			return null;
 		}
 
-		return null; // May be implemented in the future
+		if (context.ItemData?.CustomData is not { } customData) {
+			return 0.0;
+		}
+
+		return TryGetDataTypeTag(customData, NormalizeDataType(dataType!), out var tag) && TryGetNumericValue(tag, out var value)
+			? value
+			: 0.0;
+	}
+
+	public static bool HasGemstones(ItemModelContext context, int amount, string? slot, string? quality) {
+		if (context.ItemData?.CustomData is not { } customData) {
+			return false;
+		}
+
+		if (!TryGetDataTypeTag(customData, "gems", out var gemsTag) || gemsTag is not NbtCompound gems) {
+			return false;
+		}
+
+		var required = Math.Max(1, amount);
+		var matched = 0;
+		foreach (var (key, value) in gems) {
+			if (string.Equals(key, "unlocked_slots", StringComparison.OrdinalIgnoreCase)) {
+				continue;
+			}
+
+			if (!HasSocketedGemstone(value)) {
+				continue;
+			}
+
+			if (!MatchesGemstoneSlot(key, value, slot)) {
+				continue;
+			}
+
+			if (!MatchesGemstoneQuality(value, quality)) {
+				continue;
+			}
+
+			matched++;
+			if (matched >= required) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	private static bool HasSkinFallback(ItemModelContext context) {
+		if (context.ItemData?.Profile is not null) {
+			return true;
+		}
+
+		var customData = context.ItemData?.CustomData;
+		if (customData is null) {
+			return false;
+		}
+
+		return HasNonEmptyString(customData, "helmet_skin", "skin", "skin_texture", "texture", "textures");
+	}
+
+	private static bool HasDyeFallback(ItemModelContext context)
+		=> context.ItemData?.Layer0Tint is not null
+		   || (context.ItemData?.AdditionalLayerTints is not null && context.ItemData.AdditionalLayerTints.Count > 0);
+
+	private static bool HasSocketedGemstone(NbtTag tag)
+		=> tag switch {
+			NbtString str => !string.IsNullOrWhiteSpace(str.Value),
+			NbtCompound compound => !string.IsNullOrWhiteSpace(GetFirstString(compound, "quality", "gemstone", "type")),
+			_ => false
+		};
+
+	private static bool MatchesGemstoneSlot(string key, NbtTag tag, string? expectedSlot) {
+		if (string.IsNullOrWhiteSpace(expectedSlot)) {
+			return true;
+		}
+
+		var expected = NormalizeGemstoneToken(expectedSlot);
+		if (string.IsNullOrWhiteSpace(expected)) {
+			return true;
+		}
+
+		if (string.Equals(expected, "UNIVERSAL", StringComparison.OrdinalIgnoreCase)) {
+			return true;
+		}
+
+		var normalizedKey = NormalizeGemstoneToken(key);
+		if (normalizedKey == expected ||
+		    normalizedKey.StartsWith(expected, StringComparison.OrdinalIgnoreCase) ||
+		    normalizedKey.Contains(expected, StringComparison.OrdinalIgnoreCase)) {
+			return true;
+		}
+
+		if (tag is NbtCompound compound) {
+			var compoundSlot = NormalizeGemstoneToken(GetFirstString(compound, "slot", "gemstone", "type"));
+			return compoundSlot == expected ||
+			       compoundSlot.Contains(expected, StringComparison.OrdinalIgnoreCase);
+		}
+
+		return false;
+	}
+
+	private static bool MatchesGemstoneQuality(NbtTag tag, string? expectedQuality) {
+		if (string.IsNullOrWhiteSpace(expectedQuality)) {
+			return true;
+		}
+
+		var expected = NormalizeGemstoneToken(expectedQuality);
+		var actual = tag switch {
+			NbtString str => str.Value,
+			NbtCompound compound => GetFirstString(compound, "quality"),
+			_ => null
+		};
+
+		return NormalizeGemstoneToken(actual) == expected;
+	}
+
+	private static bool TryGetDataTypeTag(NbtCompound? compound, string normalizedDataType, out NbtTag tag) {
+		tag = null!;
+		if (compound is null || string.IsNullOrWhiteSpace(normalizedDataType)) {
+			return false;
+		}
+
+		foreach (var (key, value) in compound) {
+			if (string.Equals(NormalizeDataType(key), normalizedDataType, StringComparison.OrdinalIgnoreCase)) {
+				tag = value;
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	private static bool HasNonEmptyString(NbtCompound compound, params string[] keys)
+		=> keys.Any(key => !string.IsNullOrWhiteSpace(GetFirstString(compound, key)));
+
+	private static string? GetStringValue(NbtTag tag)
+		=> tag switch {
+			NbtString str => str.Value,
+			NbtInt i => i.Value.ToString(CultureInfo.InvariantCulture),
+			NbtLong l => l.Value.ToString(CultureInfo.InvariantCulture),
+			NbtShort s => s.Value.ToString(CultureInfo.InvariantCulture),
+			NbtByte b => b.Value.ToString(CultureInfo.InvariantCulture),
+			NbtDouble d => d.Value.ToString(CultureInfo.InvariantCulture),
+			NbtFloat f => f.Value.ToString(CultureInfo.InvariantCulture),
+			_ => null
+		};
+
+	private static bool TryGetNumericValue(NbtTag tag, out double value) {
+		switch (tag) {
+			case NbtInt i:
+				value = i.Value;
+				return true;
+			case NbtLong l:
+				value = l.Value;
+				return true;
+			case NbtShort s:
+				value = s.Value;
+				return true;
+			case NbtByte b:
+				value = b.Value;
+				return true;
+			case NbtFloat f:
+				value = f.Value;
+				return true;
+			case NbtDouble d:
+				value = d.Value;
+				return true;
+			case NbtString str when double.TryParse(str.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out value):
+				return true;
+			default:
+				value = 0;
+				return false;
+		}
+	}
+
+	private static bool TryGetBooleanValue(NbtTag tag, out bool value) {
+		switch (tag) {
+			case NbtByte b:
+				value = b.Value != 0;
+				return true;
+			case NbtShort s:
+				value = s.Value != 0;
+				return true;
+			case NbtInt i:
+				value = i.Value != 0;
+				return true;
+			case NbtLong l:
+				value = l.Value != 0;
+				return true;
+			case NbtFloat f:
+				value = Math.Abs(f.Value) > float.Epsilon;
+				return true;
+			case NbtDouble d:
+				value = Math.Abs(d.Value) > double.Epsilon;
+				return true;
+			case NbtString str:
+				var text = str.Value.Trim();
+				if (bool.TryParse(text, out value)) {
+					return true;
+				}
+
+				if (long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var longValue)) {
+					value = longValue != 0;
+					return true;
+				}
+
+				break;
+		}
+
+		value = false;
+		return false;
 	}
 
 	private static string NormalizeDataType(string dataType)
 		=> dataType.Trim().ToLowerInvariant();
+
+	private static string NormalizeGemstoneToken(string? value) {
+		if (string.IsNullOrWhiteSpace(value)) {
+			return string.Empty;
+		}
+
+		var normalized = value.Trim().ToUpperInvariant();
+		var builder = new System.Text.StringBuilder(normalized.Length);
+		foreach (var c in normalized) {
+			if (c is >= 'A' and <= 'Z') {
+				builder.Append(c);
+			}
+		}
+
+		return builder.ToString();
+	}
 
 	private static string? NormalizeStringValue(string? value)
 		=> string.IsNullOrWhiteSpace(value) ? null : value.Trim().ToLowerInvariant();
@@ -104,6 +373,48 @@ internal sealed class ItemModelSelectorSpecial(string? baseModel, ItemModelSelec
 
 	public override string? Resolve(ItemModelContext context)
 		=> Nested?.Resolve(context) ?? BaseModel;
+
+	public override IReadOnlyList<string> ResolveAll(ItemModelContext context) {
+		var nested = Nested?.ResolveAll(context);
+		return nested is { Count: > 0 }
+			? nested
+			: string.IsNullOrWhiteSpace(BaseModel) ? [] : [BaseModel];
+	}
+}
+
+internal sealed class ItemModelSelectorFallthrough : ItemModelSelector
+{
+	public override string? Resolve(ItemModelContext context) => null;
+
+	public override IReadOnlyList<string> ResolveAll(ItemModelContext context) => [];
+}
+
+internal sealed class ItemModelSelectorComposite(IReadOnlyList<ItemModelSelector> selectors) : ItemModelSelector
+{
+	public IReadOnlyList<ItemModelSelector> Selectors { get; } = selectors;
+
+	public override string? Resolve(ItemModelContext context) {
+		var resolved = ResolveAll(context);
+		return resolved.Count > 0 ? resolved[0] : null;
+	}
+
+	public override IReadOnlyList<string> ResolveAll(ItemModelContext context) {
+		if (Selectors.Count == 0) {
+			return [];
+		}
+
+		var models = new List<string>();
+		var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		foreach (var selector in Selectors) {
+			foreach (var resolved in selector.ResolveAll(context)) {
+				if (!string.IsNullOrWhiteSpace(resolved) && seen.Add(resolved)) {
+					models.Add(resolved);
+				}
+			}
+		}
+
+		return models;
+	}
 }
 
 internal sealed class ItemModelSelectorCondition(
@@ -113,6 +424,9 @@ internal sealed class ItemModelSelectorCondition(
 	string? component,
 	IReadOnlyDictionary<string, string>? valueProperties,
 	string? valueLiteral,
+	int? amount,
+	string? gemstoneSlot,
+	string? gemstoneQuality,
 	ItemModelSelector? onTrue,
 	ItemModelSelector? onFalse) : ItemModelSelector
 {
@@ -122,15 +436,36 @@ internal sealed class ItemModelSelectorCondition(
 	public string? Component { get; } = component;
 	public IReadOnlyDictionary<string, string>? ValueProperties { get; } = valueProperties;
 	public string? ValueLiteral { get; } = valueLiteral;
+	public int? Amount { get; } = amount;
+	public string? GemstoneSlot { get; } = gemstoneSlot;
+	public string? GemstoneQuality { get; } = gemstoneQuality;
 	public ItemModelSelector? OnTrue { get; } = onTrue;
 	public ItemModelSelector? OnFalse { get; } = onFalse;
 
 	public override string? Resolve(ItemModelContext context)
 		=> EvaluateCondition(context) ? OnTrue?.Resolve(context) : OnFalse?.Resolve(context);
 
+	public override IReadOnlyList<string> ResolveAll(ItemModelContext context)
+		=> EvaluateCondition(context)
+			? OnTrue?.ResolveAll(context) ?? []
+			: OnFalse?.ResolveAll(context) ?? [];
+
 	private bool EvaluateCondition(ItemModelContext context) {
-		if (string.Equals(Property, "catharsis:data_type", StringComparison.OrdinalIgnoreCase)) {
+		if (string.Equals(Property, "catharsis:has_gemstones", StringComparison.OrdinalIgnoreCase)) {
+			return CatharsisDataTypeResolver.HasGemstones(context, Amount ?? 1, GemstoneSlot, GemstoneQuality);
+		}
+
+		if (IsCatharsisDataTypeProperty(Property)) {
 			return CatharsisDataTypeResolver.EvaluateCondition(DataType, context);
+		}
+
+		if (IsCatharsisDataTypePresentProperty(Property)) {
+			return CatharsisDataTypeResolver.IsPresent(DataType, context);
+		}
+
+		if (string.Equals(Property, "has_component", StringComparison.OrdinalIgnoreCase) ||
+		    string.Equals(Property, "minecraft:has_component", StringComparison.OrdinalIgnoreCase)) {
+			return HasComponent(Component, context);
 		}
 
 		if (string.Equals(Property, "component", StringComparison.OrdinalIgnoreCase)) {
@@ -169,7 +504,46 @@ internal sealed class ItemModelSelectorCondition(
 			return EvaluateCustomData(context);
 		}
 
+		if (string.IsNullOrWhiteSpace(predicate) && !string.IsNullOrWhiteSpace(Component)) {
+			return HasComponent(Component, context);
+		}
+
 		return false;
+	}
+
+	private static bool IsCatharsisDataTypeProperty(string property)
+		=> string.Equals(property, "catharsis:data_type", StringComparison.OrdinalIgnoreCase);
+
+	private static bool IsCatharsisDataTypePresentProperty(string property)
+		=> string.Equals(property, "catharsis:is_data_type_present", StringComparison.OrdinalIgnoreCase) ||
+		   string.Equals(property, "catharsis:has_data_type", StringComparison.OrdinalIgnoreCase);
+
+	internal static bool HasComponent(string? component, ItemModelContext context) {
+		if (string.IsNullOrWhiteSpace(component)) {
+			return false;
+		}
+
+		var normalized = NormalizeComponentName(component);
+		return normalized switch {
+			"custom_data" => context.ItemData?.CustomData is not null,
+			"profile" => context.ItemData?.Profile is not null,
+			"dyed_color" => context.ItemData?.Layer0Tint is not null
+			                 || (context.ItemData?.AdditionalLayerTints is not null &&
+			                     context.ItemData.AdditionalLayerTints.Count > 0)
+			                 || context.ItemData?.DisableDefaultLayer0Tint == true,
+			"item_model" => !string.IsNullOrWhiteSpace(context.ItemName),
+			_ => false
+		};
+	}
+
+	internal static string NormalizeComponentName(string component) {
+		var normalized = component.Trim();
+		var colon = normalized.IndexOf(':');
+		if (colon >= 0 && colon + 1 < normalized.Length) {
+			normalized = normalized[(colon + 1)..];
+		}
+
+		return normalized.ToLowerInvariant();
 	}
 
 	private bool EvaluateCustomData(ItemModelContext context) {
@@ -427,10 +801,15 @@ internal sealed class ItemModelSelectorSelect(
 	public ItemModelSelector? Fallback { get; } = fallback;
 
 	public override string? Resolve(ItemModelContext context) {
+		var resolved = ResolveAll(context);
+		return resolved.Count > 0 ? resolved[0] : null;
+	}
+
+	public override IReadOnlyList<string> ResolveAll(ItemModelContext context) {
 		foreach (var selectCase in Cases) {
 			if (Matches(selectCase.When, context)) {
-				var resolved = selectCase.Selector?.Resolve(context);
-				if (!string.IsNullOrWhiteSpace(resolved)) {
+				var resolved = selectCase.Selector?.ResolveAll(context);
+				if (resolved is { Count: > 0 }) {
 					return resolved;
 				}
 			}
@@ -438,28 +817,28 @@ internal sealed class ItemModelSelectorSelect(
 
 		if (ShouldResolveFirstCaseOnUnsupportedSelector()) {
 			var firstResolved = ResolveFirstCase(context);
-			if (!string.IsNullOrWhiteSpace(firstResolved)) {
+			if (firstResolved.Count > 0) {
 				return firstResolved;
 			}
 		}
 
-		return Fallback?.Resolve(context);
+		return Fallback?.ResolveAll(context) ?? [];
 	}
 
 	private bool ShouldResolveFirstCaseOnUnsupportedSelector() {
-		if (string.Equals(Property, "catharsis:data_type", StringComparison.OrdinalIgnoreCase)) {
+		if (IsCatharsisDataTypeProperty(Property)) {
 			return !CatharsisDataTypeResolver.SupportsSelectValue(DataType);
 		}
 
 		return false;
 	}
 
-	private string? ResolveFirstCase(ItemModelContext context) {
+	private IReadOnlyList<string> ResolveFirstCase(ItemModelContext context) {
 		if (Cases.Count == 0) {
-			return null;
+			return [];
 		}
 
-		return Cases[0].Selector?.Resolve(context);
+		return Cases[0].Selector?.ResolveAll(context) ?? [];
 	}
 
 	private bool Matches(IReadOnlyList<string> when, ItemModelContext context) {
@@ -467,7 +846,7 @@ internal sealed class ItemModelSelectorSelect(
 			return false;
 		}
 
-		if (string.Equals(Property, "catharsis:data_type", StringComparison.OrdinalIgnoreCase)) {
+		if (IsCatharsisDataTypeProperty(Property)) {
 			var value = CatharsisDataTypeResolver.GetSelectValue(DataType, context);
 			return !string.IsNullOrWhiteSpace(value)
 			       && when.Any(candidate => string.Equals(candidate, value, StringComparison.OrdinalIgnoreCase));
@@ -512,6 +891,11 @@ internal sealed class ItemModelSelectorSelect(
 			return false;
 		}
 
+		if (string.Equals(component, "dyed_color", StringComparison.OrdinalIgnoreCase) ||
+		    string.Equals(component, "minecraft:dyed_color", StringComparison.OrdinalIgnoreCase)) {
+			return MatchesDyedColor(value, itemData);
+		}
+
 		if (string.Equals(value, "minecraft:custom_data", StringComparison.OrdinalIgnoreCase) ||
 		    string.Equals(value, "custom_data", StringComparison.OrdinalIgnoreCase)) {
 			return itemData.CustomData is not null;
@@ -531,11 +915,27 @@ internal sealed class ItemModelSelectorSelect(
 
 		return false;
 	}
+
+	private static bool MatchesDyedColor(string? value, MinecraftBlockRenderer.ItemRenderData itemData) {
+		if (string.IsNullOrWhiteSpace(value) || itemData.Layer0Tint is not { } tint) {
+			return false;
+		}
+
+		var pixel = tint.ToPixel<Rgba32>();
+		var rgb = (pixel.R << 16) | (pixel.G << 8) | pixel.B;
+		return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var expected) &&
+		       rgb == expected;
+	}
+
+	private static bool IsCatharsisDataTypeProperty(string property)
+		=> string.Equals(property, "catharsis:data_type", StringComparison.OrdinalIgnoreCase);
 }
 
 internal sealed class ItemModelSelectorEmpty : ItemModelSelector
 {
 	public override string? Resolve(ItemModelContext context) => null;
+
+	public override IReadOnlyList<string> ResolveAll(ItemModelContext context) => [];
 }
 
 internal sealed class ItemModelSelectorRangeDispatch(
@@ -552,16 +952,21 @@ internal sealed class ItemModelSelectorRangeDispatch(
 	public ItemModelSelector? Fallback { get; } = fallback;
 
 	public override string? Resolve(ItemModelContext context) {
+		var resolved = ResolveAll(context);
+		return resolved.Count > 0 ? resolved[0] : null;
+	}
+
+	public override IReadOnlyList<string> ResolveAll(ItemModelContext context) {
 		var value = GetPropertyValue(context);
 		if (value is null) {
 			if (ShouldResolveFirstEntryOnUnsupportedSelector()) {
 				var firstResolved = ResolveFirstEntry(context);
-				if (!string.IsNullOrWhiteSpace(firstResolved)) {
+				if (firstResolved.Count > 0) {
 					return firstResolved;
 				}
 			}
 
-			return Fallback?.Resolve(context);
+			return Fallback?.ResolveAll(context) ?? [];
 		}
 
 		// Find the highest threshold that's <= value
@@ -575,13 +980,13 @@ internal sealed class ItemModelSelectorRangeDispatch(
 		}
 
 		if (matchedEntry is not null) {
-			var resolved = matchedEntry.Value.Selector?.Resolve(context);
-			if (!string.IsNullOrWhiteSpace(resolved)) {
+			var resolved = matchedEntry.Value.Selector?.ResolveAll(context);
+			if (resolved is { Count: > 0 }) {
 				return resolved;
 			}
 		}
 
-		return Fallback?.Resolve(context);
+		return Fallback?.ResolveAll(context) ?? [];
 	}
 
 	private bool ShouldResolveFirstEntryOnUnsupportedSelector() {
@@ -592,12 +997,12 @@ internal sealed class ItemModelSelectorRangeDispatch(
 		return false;
 	}
 
-	private string? ResolveFirstEntry(ItemModelContext context) {
+	private IReadOnlyList<string> ResolveFirstEntry(ItemModelContext context) {
 		if (Entries.Count == 0) {
-			return null;
+			return [];
 		}
 
-		return Entries[0].Selector?.Resolve(context);
+		return Entries[0].Selector?.ResolveAll(context) ?? [];
 	}
 
 	private double? GetPropertyValue(ItemModelContext context) {
@@ -647,6 +1052,11 @@ internal sealed class ItemModelSelectorOptimized : ItemModelSelector
 	}
 
 	public override string? Resolve(ItemModelContext context) {
+		var resolved = ResolveAll(context);
+		return resolved.Count > 0 ? resolved[0] : null;
+	}
+
+	public override IReadOnlyList<string> ResolveAll(ItemModelContext context) {
 		// Fast path: Check if we have a direct custom_data.id or custom_data.model match
 		if (context.ItemData?.CustomData is { } customData) {
 			string? customDataKey = null;
@@ -667,12 +1077,12 @@ internal sealed class ItemModelSelectorOptimized : ItemModelSelector
 			if (customDataKey != null) {
 				// Check simple model mapping first
 				if (_customDataIdToModel.TryGetValue(customDataKey, out var model)) {
-					return model;
+					return [model];
 				}
 
 				// Check complex selector mapping
 				if (_customDataIdToSelector.TryGetValue(customDataKey, out var selector)) {
-					return selector.Resolve(context);
+					return selector.ResolveAll(context);
 				}
 
 				// If id/model didn't match, DON'T short-circuit - fall through to check
@@ -688,20 +1098,20 @@ internal sealed class ItemModelSelectorOptimized : ItemModelSelector
 				}
 
 				if (mapping.Selector is not null) {
-					return mapping.Selector.Resolve(context);
+					return mapping.Selector.ResolveAll(context);
 				}
 
 				if (!string.IsNullOrWhiteSpace(mapping.Model)) {
-					return mapping.Model;
+					return [mapping.Model];
 				}
 			}
 		}
 
 		if (_fallbackSelector is null) {
-			return null;
+			return [];
 		}
 
-		return _fallbackSelector.Resolve(context);
+		return _fallbackSelector.ResolveAll(context);
 	}
 
 	private static bool MatchesComposite(NbtCompound customData, IReadOnlyDictionary<string, string> expected) {
@@ -1079,6 +1489,7 @@ internal static class ItemModelSelectorParser
 				"model" => new ItemModelSelectorModel(GetString(element, "model"), GetString(element, "base")),
 				"special" => new ItemModelSelectorSpecial(GetString(element, "base"),
 					Parse(element.TryGetProperty("model", out var nested) ? nested : default, depth + 1)),
+				"catharsis:fallthrough" => new ItemModelSelectorFallthrough(),
 				"condition" => ParseCondition(element, depth + 1),
 				"select" => ParseSelect(element, depth + 1),
 				"range_dispatch" => ParseRangeDispatch(element, depth + 1),
@@ -1128,6 +1539,9 @@ internal static class ItemModelSelectorParser
 		var dataType = GetString(element, "data_type");
 		var predicate = GetString(element, "predicate");
 		var component = GetString(element, "component");
+		var amount = GetInt(element, "amount");
+		var gemstoneSlot = GetString(element, "slot");
+		var gemstoneQuality = GetString(element, "quality");
 
 		IReadOnlyDictionary<string, string>? valueProperties = null;
 		string? valueLiteral = null;
@@ -1151,8 +1565,8 @@ internal static class ItemModelSelectorParser
 			return onFalse;
 		}
 
-		return new ItemModelSelectorCondition(property, dataType, predicate, component, valueProperties, valueLiteral, onTrue,
-			onFalse);
+		return new ItemModelSelectorCondition(property, dataType, predicate, component, valueProperties, valueLiteral, amount,
+			gemstoneSlot, gemstoneQuality, onTrue, onFalse);
 	}
 
 	private static ItemModelSelector? CreateFallbackSelector(JsonElement element) {
@@ -1161,21 +1575,19 @@ internal static class ItemModelSelectorParser
 	}
 
 	private static ItemModelSelector? ParseComposite(JsonElement element, int depth) {
-		// Composite type has a "models" array - for static rendering, we just use the first model
-		// Hopefully the first model is consistently a good one to use
-		// (keybind/animation effects are ignored in static atlas generation)
 		if (!element.TryGetProperty("models", out var modelsArray) || modelsArray.ValueKind != JsonValueKind.Array) {
 			return null;
 		}
 
+		var selectors = new List<ItemModelSelector>();
 		foreach (var modelElement in modelsArray.EnumerateArray()) {
 			var parsed = Parse(modelElement, depth);
 			if (parsed is not null) {
-				return parsed; // Return first valid model
+				selectors.Add(parsed);
 			}
 		}
 
-		return null;
+		return selectors.Count == 0 ? null : new ItemModelSelectorComposite(selectors);
 	}
 
 	private static ItemModelSelector? ParseSelect(JsonElement element, int depth) {
@@ -1254,8 +1666,7 @@ internal static class ItemModelSelectorParser
 	}
 
 	private static IReadOnlyList<string> ParseWhen(JsonElement element) {
-		if (element.ValueKind == JsonValueKind.String) {
-			var value = element.GetString();
+		if (TryReadCaseValue(element, out var value)) {
 			return string.IsNullOrWhiteSpace(value)
 				? Array.Empty<string>()
 				: new[] { value };
@@ -1264,11 +1675,8 @@ internal static class ItemModelSelectorParser
 		if (element.ValueKind == JsonValueKind.Array) {
 			var values = new List<string>();
 			foreach (var entry in element.EnumerateArray()) {
-				if (entry.ValueKind == JsonValueKind.String) {
-					var value = entry.GetString();
-					if (!string.IsNullOrWhiteSpace(value)) {
-						values.Add(value);
-					}
+				if (TryReadCaseValue(entry, out value) && !string.IsNullOrWhiteSpace(value)) {
+					values.Add(value);
 				}
 			}
 
@@ -1278,9 +1686,28 @@ internal static class ItemModelSelectorParser
 		return [];
 	}
 
+	private static bool TryReadCaseValue(JsonElement element, out string? value) {
+		value = element.ValueKind switch {
+			JsonValueKind.String => element.GetString(),
+			JsonValueKind.Number => element.TryGetInt64(out var longValue)
+				? longValue.ToString(CultureInfo.InvariantCulture)
+				: element.GetDouble().ToString(CultureInfo.InvariantCulture),
+			JsonValueKind.True => "true",
+			JsonValueKind.False => "false",
+			_ => null
+		};
+
+		return value is not null;
+	}
+
 	private static string? GetString(JsonElement element, string propertyName)
 		=> element.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String
 			? property.GetString()
+			: null;
+
+	private static int? GetInt(JsonElement element, string propertyName)
+		=> element.TryGetProperty(propertyName, out var property) && property.TryGetInt32(out var value)
+			? value
 			: null;
 
 	private static string NormalizeType(string? value) {

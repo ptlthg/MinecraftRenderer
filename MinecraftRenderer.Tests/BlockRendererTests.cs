@@ -49,7 +49,7 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 	[Fact]
 	public void BlockRenderOptionsRetainsItemDataWhenCloned()
 	{
-		var customTint = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(1, 2, 3)));
+		var customTint = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: Color.FromPixel(new Rgba32(1, 2, 3)));
 		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { ItemData = customTint };
 		var mutated = options with { Padding = 0.25f };
 		Assert.Same(customTint, mutated.ItemData);
@@ -78,7 +78,7 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with
 		{
 			Size = 64,
-			ItemData = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(10, 200, 240)))
+			ItemData = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: Color.FromPixel(new Rgba32(10, 200, 240)))
 		};
 		var method =
 			typeof(MinecraftBlockRenderer).GetMethod("RenderFlatItem", BindingFlags.NonPublic | BindingFlags.Instance);
@@ -91,7 +91,7 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 			(Image<Rgba32>)method.Invoke(renderer, [textures, baselineOptions, "leather_helmet"])!;
 		Assert.False(ImagesAreIdentical(baseline, custom));
 		using var apiBaseline = renderer.RenderItem("leather_helmet", baselineOptions);
-		var customTint = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(10, 200, 240)));
+		var customTint = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: Color.FromPixel(new Rgba32(10, 200, 240)));
 		using var apiCustom = renderer.RenderItem("leather_helmet", customTint, baselineOptions);
 		Assert.False(ImagesAreIdentical(apiBaseline, apiCustom));
 	}
@@ -783,7 +783,7 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
 		using var baseline = renderer.RenderItem("leather_helmet", options);
 		var defaultTintData =
-			new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(0xA0, 0x65, 0x40)));
+			new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: Color.FromPixel(new Rgba32(0xA0, 0x65, 0x40)));
 		using var explicitDefault = renderer.RenderItem("leather_helmet", defaultTintData, options);
 
 		Assert.True(ImagesAreIdentical(baseline, explicitDefault));
@@ -795,7 +795,7 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
 		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
 		using var baseline = renderer.RenderItem("leather_helmet", options);
-		var customTint = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(0x20, 0x60, 0xFF)));
+		var customTint = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: Color.FromPixel(new Rgba32(0x20, 0x60, 0xFF)));
 		using var custom = renderer.RenderItem("leather_helmet", customTint, options);
 		Assert.False(ImagesAreIdentical(baseline, custom));
 		var baselineAverage = ComputeAverageColor(baseline);
@@ -812,7 +812,7 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
 		using var baseline = renderer.RenderItem("wolf_armor_dyed", options);
 		var defaultTintData =
-			new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(0xA0, 0x65, 0x40)));
+			new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: Color.FromPixel(new Rgba32(0xA0, 0x65, 0x40)));
 		using var explicitDefault = renderer.RenderItem("wolf_armor_dyed", defaultTintData, options);
 
 		Assert.True(ImagesAreIdentical(baseline, explicitDefault));
@@ -824,7 +824,7 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
 		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
 		using var baseline = renderer.RenderItem("wolf_armor_dyed", options);
-		var customTint = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(0x40, 0x90, 0x30)));
+		var customTint = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: Color.FromPixel(new Rgba32(0x40, 0x90, 0x30)));
 		using var custom = renderer.RenderItem("wolf_armor_dyed", customTint, options);
 		Assert.False(ImagesAreIdentical(baseline, custom));
 		var baselineAverage = ComputeAverageColor(baseline);
@@ -840,7 +840,7 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
 		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
 		using var baseline = renderer.RenderItem("wolf_armor_dyed", options);
-		var overrides = new Dictionary<int, Color> { [1] = new Color(new Rgba32(0x90, 0x20, 0xF0)) };
+		var overrides = new Dictionary<int, Color> { [1] = Color.FromPixel(new Rgba32(0x90, 0x20, 0xF0)) };
 		var customTint = new MinecraftBlockRenderer.ItemRenderData(AdditionalLayerTints: overrides);
 		using var custom = renderer.RenderItem("wolf_armor_dyed", customTint, options);
 		Assert.False(ImagesAreIdentical(baseline, custom));
@@ -858,7 +858,7 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
 		using var baseline = renderer.RenderItem("leather_horse_armor", options);
 		var explicitDefault =
-			new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(0xA0, 0x65, 0x40)));
+			new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: Color.FromPixel(new Rgba32(0xA0, 0x65, 0x40)));
 		using var renderedDefault = renderer.RenderItem("leather_horse_armor", explicitDefault, options);
 		Assert.True(ImagesAreIdentical(baseline, renderedDefault));
 	}
@@ -869,7 +869,7 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
 		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
 		using var baseline = renderer.RenderItem("leather_horse_armor", options);
-		var customTint = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(0x35, 0x99, 0xCF)));
+		var customTint = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: Color.FromPixel(new Rgba32(0x35, 0x99, 0xCF)));
 		using var custom = renderer.RenderItem("leather_horse_armor", customTint, options);
 		Assert.False(ImagesAreIdentical(baseline, custom));
 		var baselineAverage = ComputeAverageColor(baseline);
@@ -907,7 +907,7 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
 		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
 		using var baseline = renderer.RenderItem("lily_pad", options);
-		var customTint = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: new Color(new Rgba32(0x40, 0xB0, 0x80)));
+		var customTint = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: Color.FromPixel(new Rgba32(0x40, 0xB0, 0x80)));
 		using var custom = renderer.RenderItem("lily_pad", customTint, options);
 		Assert.False(ImagesAreIdentical(baseline, custom));
 		var baselineAverage = ComputeAverageColor(baseline);
@@ -923,7 +923,7 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
 		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 128 };
 		using var tinted = renderer.RenderItem("potion", options);
-		var customColor = new Color(new Rgba32(0xD0, 0x40, 0xB0));
+		var customColor = Color.FromPixel(new Rgba32(0xD0, 0x40, 0xB0));
 		var customTintData = new MinecraftBlockRenderer.ItemRenderData(Layer0Tint: customColor);
 		using var customTinted = renderer.RenderItem("potion", customTintData, options);
 

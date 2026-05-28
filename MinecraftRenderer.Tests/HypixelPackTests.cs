@@ -19,8 +19,33 @@ public sealed class HypixelPackTests
     private static readonly string HypixelPackPath =
         Path.Combine(TexturePacksDirectory, "Hypixel+ 0.23.4 for 1.21.8");
 
+    private static readonly string HypixelPlusCatsPackPath =
+        Path.Combine(TexturePacksDirectory, "hplus");
+
     private static readonly string FurfSkyPackPath =
         Path.Combine(TexturePacksDirectory, "fursky");
+
+    [Fact]
+    public void HypixelPlusCatsPackRegistersEnabledCatharsisOverlays()
+    {
+        if (!Directory.Exists(HypixelPlusCatsPackPath)) return;
+
+        var registry = TexturePackRegistry.Create();
+        registry.RegisterPack(HypixelPlusCatsPackPath);
+
+        Assert.True(registry.TryGetPack("hypixelplus", out var pack));
+        Assert.True(pack.IsCatharsisPack);
+        Assert.Equal(69, pack.Meta.PackFormat);
+        Assert.NotNull(pack.CatharsisOverlays);
+        Assert.Contains("hplus_weapons_swords", pack.CatharsisOverlays!, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("hplus_items_farming", pack.CatharsisOverlays!, StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("hplus_ui", pack.CatharsisOverlays!, StringComparer.OrdinalIgnoreCase);
+
+        Assert.NotNull(pack.OverlayNamespaceProviders);
+        Assert.Contains(pack.OverlayNamespaceProviders!, overlay =>
+            overlay.Namespace.Equals("skyblock", StringComparison.OrdinalIgnoreCase) &&
+            overlay.DisplayPath.Contains("hplus_weapons_swords", StringComparison.OrdinalIgnoreCase));
+    }
 
     [Fact]
     public void HypixelPlayerHeadSelectorLoadsAndResolvesCorrectly()

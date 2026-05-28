@@ -98,7 +98,7 @@ public static class MinecraftAtlasGenerator
 						continue;
 					}
 
-					using var canvas = new Image<Rgba32>(columns * tileSize, rows * tileSize, Color.Transparent);
+					using var canvas = new Image<Rgba32>(columns * tileSize, rows * tileSize);
 					var manifestEntries = new List<AtlasManifestEntry>(count);
 
 					for (var localIndex = 0; localIndex < count; localIndex++) {

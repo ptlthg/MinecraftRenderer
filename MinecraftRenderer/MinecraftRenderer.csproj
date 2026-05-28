@@ -10,7 +10,7 @@
         <NoWarn>CS1591</NoWarn>
 
         <PackageId>MinecraftRenderer</PackageId>
-        <Version>0.6.0</Version>
+        <Version>0.7.0</Version>
         <Authors>ptlthg</Authors>
         <Description>A .NET library for rendering Minecraft blocks and items with support for custom texture packs, block models, and Hypixel Skyblock items.</Description>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -27,8 +27,15 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="SixLabors.ImageSharp" Version="3.1.11"/>
+        <PackageReference Include="SixLabors.ImageSharp" Version="4.0.0"/>
     </ItemGroup>
+
+    <PropertyGroup Condition="'$(SIXLABORS_LICENSE_KEY)' != ''">
+        <SixLaborsLicenseKey>$(SIXLABORS_LICENSE_KEY)</SixLaborsLicenseKey>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(SIXLABORS_LICENSE_KEY)' == ''">
+        <SixLaborsLicenseFile>../sixlabors.lic</SixLaborsLicenseFile>
+    </PropertyGroup>
 
     <ItemGroup>
         <None Include="../README.md" Pack="true" PackagePath="\"/>

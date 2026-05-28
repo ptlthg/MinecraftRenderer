@@ -147,4 +147,189 @@ public sealed class CatharsisPackConfigTests
 		Assert.Contains("item_tool", overlays, StringComparer.OrdinalIgnoreCase);
 		Assert.DoesNotContain("legacy_axerevert", overlays, StringComparer.OrdinalIgnoreCase);
 	}
+
+	[Fact]
+	public void ResolveEnabledOverlays_HandlesModernFabricConditionAliasesAndVersionRanges()
+	{
+		const string packMcmeta = """
+{
+  "pack": {
+    "min_format": 69,
+    "max_format": 84
+  },
+  "catharsis:pack/v1": {
+    "id": "hplus"
+  },
+  "fabric:overlays": {
+    "entries": [
+      {
+        "directory": "hplus_weapons_swords",
+        "condition": {
+          "condition": "fabric:and",
+          "values": [
+            {
+              "condition": "fabric:not",
+              "value": {
+                "condition": "catharsis:config",
+                "pack": "hplus",
+                "id": "toggle_swords",
+                "value": "off"
+              }
+            },
+            {
+              "condition": "fabric:not",
+              "value": {
+                "condition": "catharsis:config",
+                "pack": "hplus",
+                "id": "toggle_all_weapons",
+                "value": "off"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "directory": "hplus_anim_shortbow",
+        "condition": {
+          "condition": "fabric:or",
+          "values": [
+            {
+              "condition": "catharsis:config",
+              "pack": "hplus",
+              "id": "anim_shortbow",
+              "value": "off"
+            },
+            {
+              "condition": "catharsis:config",
+              "pack": "hplus",
+              "id": "toggle_all_animations",
+              "value": "off"
+            }
+          ]
+        }
+      },
+      {
+        "directory": "hplus_1_21_11_ui",
+        "condition": {
+          "condition": "catharsis:version",
+          "type": "pack_format",
+          "packFormatRange": {
+            "min_inclusive": 69.0,
+            "max_inclusive": 75.0
+          }
+        }
+      },
+      {
+        "directory": "future_ui",
+        "condition": {
+          "condition": "catharsis:version",
+          "type": "pack_format",
+          "packFormatRange": {
+            "min_inclusive": 85,
+            "max_inclusive": 90
+          }
+        }
+      }
+    ]
+  }
+}
+""";
+
+		const string config = """
+[
+  {
+    "type": "tab",
+    "title": "Items",
+    "options": [
+      {
+        "type": "dropdown",
+        "id": "toggle_swords",
+        "options": [
+          { "value": "on", "default": true },
+          { "value": "off" }
+        ]
+      },
+      {
+        "type": "dropdown",
+        "id": "toggle_all_weapons",
+        "options": [
+          { "value": "on", "default": true },
+          { "value": "off" }
+        ]
+      },
+      {
+        "type": "dropdown",
+        "id": "anim_shortbow",
+        "options": [
+          { "value": "on", "default": true },
+          { "value": "off" }
+        ]
+      },
+      {
+        "type": "dropdown",
+        "id": "toggle_all_animations",
+        "options": [
+          { "value": "on" },
+          { "value": "off", "default": true }
+        ]
+      }
+    ]
+  }
+]
+""";
+
+		var overlays = CatharsisPackConfig.ResolveEnabledOverlays(packMcmeta, config).ToArray();
+
+		Assert.Contains("hplus_weapons_swords", overlays, StringComparer.OrdinalIgnoreCase);
+		Assert.Contains("hplus_anim_shortbow", overlays, StringComparer.OrdinalIgnoreCase);
+		Assert.Contains("hplus_1_21_11_ui", overlays, StringComparer.OrdinalIgnoreCase);
+		Assert.DoesNotContain("future_ui", overlays, StringComparer.OrdinalIgnoreCase);
+	}
+
+	[Fact]
+	public void ResolveEnabledOverlays_UsesSelectedValuesFromSelectConfigEntries()
+	{
+		const string packMcmeta = """
+{
+  "catharsis:pack/v1": {
+    "id": "select-test",
+    "config": [
+      {
+        "type": "select",
+        "id": "enabled_categories",
+        "options": [
+          { "value": "farming", "selected": true },
+          { "value": "mining" }
+        ]
+      }
+    ]
+  },
+  "fabric:overlays": {
+    "entries": [
+      {
+        "directory": "farming",
+        "condition": {
+          "condition": "catharsis:config",
+          "id": "enabled_categories",
+          "value": "farming"
+        }
+      },
+      {
+        "directory": "mining",
+        "condition": {
+          "condition": "catharsis:config",
+          "id": "enabled_categories",
+          "value": "mining"
+        }
+      }
+    ]
+  }
+}
+""";
+
+		var overlays = CatharsisPackConfig.ResolveEnabledOverlays(packMcmeta).ToArray();
+
+		Assert.Contains("farming", overlays, StringComparer.OrdinalIgnoreCase);
+		Assert.DoesNotContain("mining", overlays, StringComparer.OrdinalIgnoreCase);
+	}
 }
