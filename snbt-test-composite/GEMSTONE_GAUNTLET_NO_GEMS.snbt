@@ -1,0 +1,9 @@
+{
+	components: {
+		"minecraft:custom_data": {
+			id: "GEMSTONE_GAUNTLET"
+		}
+	},
+	count: 1,
+	id: "minecraft:player_head"
+}

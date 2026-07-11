@@ -1,0 +1,12 @@
+{
+	components: {
+		"minecraft:custom_data": {
+			id: "GEMSTONE_GAUNTLET",
+			gems: {
+				JADE_0: "PERFECT"
+			}
+		}
+	},
+	count: 1,
+	id: "minecraft:player_head"
+}

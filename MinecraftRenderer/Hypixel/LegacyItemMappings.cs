@@ -1328,6 +1328,10 @@ public static class LegacyItemMappings
 	/// <param name="itemId"></param>
 	/// <returns></returns>
 	public static bool TryMapBukkitId(string bukkitId, out string itemId) {
+		if (TryMapSpecialBukkitId(bukkitId, out itemId)) {
+			return true;
+		}
+
 		var numericId = MapBukkit(bukkitId);
 
 		if (numericId == -1) {
@@ -1346,6 +1350,10 @@ public static class LegacyItemMappings
 	/// <param name="itemId"></param>
 	/// <returns></returns>
 	public static bool TryMapBukkitId(string bukkitId, short damage, out string itemId) {
+		if (TryMapSpecialBukkitId(bukkitId, out itemId)) {
+			return true;
+		}
+
 		var numericId = MapBukkit(bukkitId);
 
 		if (numericId == -1) {
@@ -1375,5 +1383,26 @@ public static class LegacyItemMappings
 	public static string MapBukkitIdOrDefault(string bukkitId, short damage,
 		string defaultValue = "minecraft:missingno") {
 		return TryMapBukkitId(bukkitId, damage, out var itemId) ? itemId : defaultValue;
+	}
+
+	private static bool TryMapSpecialBukkitId(string bukkitId, out string itemId) {
+		itemId = bukkitId.Trim().ToUpperInvariant() switch {
+			"SIGN_POST" or "WALL_SIGN" => "minecraft:oak_sign",
+			"OAK_SIGN_POST" or "OAK_WALL_SIGN" => "minecraft:oak_sign",
+			"SPRUCE_SIGN_POST" or "SPRUCE_WALL_SIGN" => "minecraft:spruce_sign",
+			"BIRCH_SIGN_POST" or "BIRCH_WALL_SIGN" => "minecraft:birch_sign",
+			"JUNGLE_SIGN_POST" or "JUNGLE_WALL_SIGN" => "minecraft:jungle_sign",
+			"ACACIA_SIGN_POST" or "ACACIA_WALL_SIGN" => "minecraft:acacia_sign",
+			"DARK_OAK_SIGN_POST" or "DARK_OAK_WALL_SIGN" => "minecraft:dark_oak_sign",
+			"MANGROVE_SIGN_POST" or "MANGROVE_WALL_SIGN" => "minecraft:mangrove_sign",
+			"CHERRY_SIGN_POST" or "CHERRY_WALL_SIGN" => "minecraft:cherry_sign",
+			"BAMBOO_SIGN_POST" or "BAMBOO_WALL_SIGN" => "minecraft:bamboo_sign",
+			"CRIMSON_SIGN_POST" or "CRIMSON_WALL_SIGN" => "minecraft:crimson_sign",
+			"WARPED_SIGN_POST" or "WARPED_WALL_SIGN" => "minecraft:warped_sign",
+			"PALE_OAK_SIGN_POST" or "PALE_OAK_WALL_SIGN" => "minecraft:pale_oak_sign",
+			_ => string.Empty
+		};
+
+		return itemId.Length > 0;
 	}
 }

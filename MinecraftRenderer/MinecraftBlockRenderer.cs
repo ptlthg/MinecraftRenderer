@@ -391,7 +391,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 
 	public Image<Rgba32> RenderItemFromNbt(NbtCompound compound, BlockRenderOptions? options = null) {
 		ArgumentNullException.ThrowIfNull(compound);
-		var itemId = SnbtItemUtilities.TryGetItemId(compound)
+		var itemId = SnbtItemUtilities.TryGetItemModel(compound) ?? SnbtItemUtilities.TryGetItemId(compound)
 		             ?? throw new ArgumentException("SNBT item payload did not contain an item id.", nameof(compound));
 		var normalizedItemId = NormalizeItemTextureKey(itemId);
 
@@ -410,7 +410,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 
 	public RenderedResource RenderItemFromNbtWithResourceId(NbtCompound compound, BlockRenderOptions? options = null) {
 		ArgumentNullException.ThrowIfNull(compound);
-		var itemId = SnbtItemUtilities.TryGetItemId(compound)
+		var itemId = SnbtItemUtilities.TryGetItemModel(compound) ?? SnbtItemUtilities.TryGetItemId(compound)
 		             ?? throw new ArgumentException("SNBT item payload did not contain an item id.", nameof(compound));
 		var normalizedItemId = NormalizeItemTextureKey(itemId);
 
@@ -434,7 +434,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 	public AnimatedRenderedResource RenderAnimatedItemFromNbtWithResourceId(NbtCompound compound,
 		BlockRenderOptions? options = null) {
 		ArgumentNullException.ThrowIfNull(compound);
-		var itemId = SnbtItemUtilities.TryGetItemId(compound)
+		var itemId = SnbtItemUtilities.TryGetItemModel(compound) ?? SnbtItemUtilities.TryGetItemId(compound)
 		             ?? throw new ArgumentException("SNBT item payload did not contain an item id.", nameof(compound));
 		var normalizedItemId = NormalizeItemTextureKey(itemId);
 
@@ -456,7 +456,7 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 
 	public ResourceIdResult ComputeResourceIdFromNbt(NbtCompound compound, BlockRenderOptions? options = null) {
 		ArgumentNullException.ThrowIfNull(compound);
-		var itemId = SnbtItemUtilities.TryGetItemId(compound)
+		var itemId = SnbtItemUtilities.TryGetItemModel(compound) ?? SnbtItemUtilities.TryGetItemId(compound)
 		             ?? throw new ArgumentException("SNBT item payload did not contain an item id.", nameof(compound));
 		var normalizedItemId = NormalizeItemTextureKey(itemId);
 
@@ -646,9 +646,6 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 
 	private static ItemRenderData? ExtractItemRenderDataFromComponents(NbtCompound root) {
 		var components = ResolveComponentsCompound(root);
-		if (components is null) {
-			return null;
-		}
 
 		Color? layer0Tint = null;
 		var disableDefaultLayer0Tint = false;
@@ -656,26 +653,53 @@ public sealed partial class MinecraftBlockRenderer : IDisposable
 		NbtCompound? customData = null;
 		NbtCompound? profile = null;
 
-		if (components.TryGetValue("minecraft:dyed_color", out var dyedTag) &&
+		if (components?.TryGetValue("minecraft:dyed_color", out var dyedTag) is true &&
 		    TryExtractColor(dyedTag, out var dyedColor)) {
 			layer0Tint = dyedColor;
 		}
 
-		if (components.TryGetValue("minecraft:custom_data", out var customDataTag) &&
+		if (components?.TryGetValue("minecraft:custom_data", out var customDataTag) is true &&
 		    customDataTag is NbtCompound customCompound &&
 		    customCompound.Count > 0) {
 			customData = customCompound;
 		}
 
-		if (components.TryGetValue("minecraft:profile", out var profileTag) &&
+		if (components?.TryGetValue("minecraft:profile", out var profileTag) is true &&
 		    profileTag is NbtCompound profileCompound &&
 		    profileCompound.Count > 0) {
 			profile = profileCompound;
 		}
 
+		if (customData is null && ResolveLegacyTagCompound(root) is { } legacyTag) {
+			if (legacyTag.GetCompound("ExtraAttributes") is { Count: > 0 } extraAttributes) {
+				customData = extraAttributes;
+			}
+
+			if (!layer0Tint.HasValue && legacyTag.GetCompound("display")?.GetInt("Color") is { } legacyColor) {
+				layer0Tint = Color.FromPixel(new Rgb24(
+					(byte)((legacyColor >> 16) & 0xFF),
+					(byte)((legacyColor >> 8) & 0xFF),
+					(byte)(legacyColor & 0xFF)));
+			}
+		}
+
 		if (layer0Tint.HasValue || additionalLayerTints is { Count: > 0 } || disableDefaultLayer0Tint ||
 		    customData is not null || profile is not null) {
 			return new ItemRenderData(layer0Tint, additionalLayerTints, disableDefaultLayer0Tint, customData, profile);
+		}
+
+		return null;
+	}
+
+	private static NbtCompound? ResolveLegacyTagCompound(NbtCompound root) {
+		if (root.GetCompound("tag") is { } tag) {
+			return tag;
+		}
+
+		foreach (var key in new[] { "item", "Item", "stack", "Stack" }) {
+			if (root.GetCompound(key) is { } nested && ResolveLegacyTagCompound(nested) is { } nestedTag) {
+				return nestedTag;
+			}
 		}
 
 		return null;

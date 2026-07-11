@@ -11,6 +11,7 @@ using MinecraftRenderer.Assets;
 public sealed class ItemRegistry
 {
 	private readonly Dictionary<string, ItemInfo> _entries;
+	private readonly Dictionary<string, ItemInfo> _skyblockItemAliases;
 
 	private static readonly JsonSerializerOptions Options = new JsonSerializerOptions {
 		PropertyNameCaseInsensitive = true,
@@ -18,7 +19,15 @@ public sealed class ItemRegistry
 	};
 
 	private ItemRegistry(IEnumerable<ItemInfo> entries) {
-		_entries = entries.ToDictionary(entry => entry.Name, StringComparer.OrdinalIgnoreCase);
+		var materializedEntries = entries.ToList();
+		_entries = materializedEntries.ToDictionary(entry => entry.Name, StringComparer.OrdinalIgnoreCase);
+		_skyblockItemAliases = materializedEntries
+			.Select(static entry => (Entry: entry, Alias: GetSkyblockItemAlias(entry.Name)))
+			.Where(static candidate => candidate.Alias is not null)
+			.GroupBy(static candidate => candidate.Alias!, StringComparer.OrdinalIgnoreCase)
+			.Where(static group => group.Count() == 1)
+			.ToDictionary(static group => group.Key, static group => group.Single().Entry,
+				StringComparer.OrdinalIgnoreCase);
 	}
 
 	public static ItemRegistry LoadFromFile(string path) {
@@ -57,7 +66,29 @@ public sealed class ItemRegistry
 	public bool TryGetInfo(string itemName, out ItemInfo info)
 		=> _entries.TryGetValue(itemName, out info!);
 
+	internal bool TryGetSkyblockItemInfo(string skyblockId, out ItemInfo info)
+		=> _skyblockItemAliases.TryGetValue(skyblockId, out info!);
+
 	public IReadOnlyList<string> GetAllItemNames() => _entries.Keys.ToList();
+
+	private static string? GetSkyblockItemAlias(string itemName) {
+		var separator = itemName.IndexOf(':');
+		if (separator <= 0 || separator == itemName.Length - 1) {
+			return null;
+		}
+
+		var itemNamespace = itemName[..separator];
+		var path = itemName[(separator + 1)..].Replace('\\', '/').Trim('/');
+		if (itemNamespace.Equals("minecraft", StringComparison.OrdinalIgnoreCase) ||
+		    !path.StartsWith("item/", StringComparison.OrdinalIgnoreCase)) {
+			return null;
+		}
+
+		var lastSeparator = path.LastIndexOf('/');
+		return lastSeparator >= 0 && lastSeparator < path.Length - 1
+			? path[(lastSeparator + 1)..]
+			: null;
+	}
 
 	public sealed class ItemInfo
 	{

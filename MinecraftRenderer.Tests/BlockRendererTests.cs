@@ -152,6 +152,72 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 	}
 
 	[Fact]
+	public void RenderSkyblockTextureIdFallsBackToBukkitStyleSkyblockIdWhenNumericIdIsUnknown()
+	{
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+
+		var extraAttributes = new NbtCompound(new[]
+		{
+			new KeyValuePair<string, NbtTag>("id", new NbtString("SPRUCE_SIGN_POST"))
+		});
+		var tag = new NbtCompound(new[]
+		{
+			new KeyValuePair<string, NbtTag>("ExtraAttributes", extraAttributes)
+		});
+
+		var hypixelItem = new HypixelItemData("3144", Count: 16, Tag: tag, NumericId: 3144);
+		var textureId = TextureResolver.GetTextureId(hypixelItem);
+
+		using var expected = renderer.RenderGuiItem("minecraft:spruce_sign");
+		using var actual = renderer.RenderGuiItemFromTextureId(textureId);
+
+		Assert.True(HasOpaquePixels(actual), "Bukkit-style SkyBlock fallback render should produce visible pixels.");
+		Assert.True(ImagesAreIdentical(expected, actual),
+			"SPRUCE_SIGN_POST should render as the spruce sign item when the numeric id is unknown.");
+	}
+
+	[Fact]
+	public void RenderLegacyBukkitCropItemNamesAsFlatItems()
+	{
+		var vanillaAssetsDirectory = Path.Combine(AssetsDirectory, "assets", "minecraft");
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(
+			Directory.Exists(vanillaAssetsDirectory) ? vanillaAssetsDirectory : AssetsDirectory);
+		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 64 };
+
+		foreach (var (bukkitId, modernId, expectedModel) in new[]
+		         {
+			         ("POTATO_ITEM", "minecraft:potato", "minecraft:item/potato"),
+			         ("CARROT_ITEM", "minecraft:carrot", "minecraft:item/carrot")
+		         })
+		{
+			using var legacy = renderer.RenderGuiItemWithResourceId(bukkitId, options);
+			using var modern = renderer.RenderGuiItemWithResourceId(modernId, options);
+
+			Assert.Equal(expectedModel, legacy.ResourceId.Model);
+			Assert.DoesNotContain("block/", legacy.ResourceId.Model ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+			Assert.True(ImagesAreIdentical(modern.Image, legacy.Image),
+				$"{bukkitId} should render identically to {modernId}.");
+
+			var nbt = new NbtCompound(new[]
+			{
+				new KeyValuePair<string, NbtTag>("id", new NbtString(bukkitId)),
+				new KeyValuePair<string, NbtTag>("Count", new NbtByte((sbyte)1))
+			});
+			using var fromNbt = renderer.RenderItemFromNbtWithResourceId(nbt, options);
+
+			Assert.Equal(legacy.ResourceId.Model, fromNbt.ResourceId.Model);
+			Assert.True(ImagesAreIdentical(legacy.Image, fromNbt.Image),
+				$"NBT item id {bukkitId} should render through the same flat item path.");
+
+			var textureId = TextureResolver.GetTextureId(new HypixelItemData(bukkitId));
+			using var fromTextureId = renderer.RenderGuiItemFromTextureId(textureId, options);
+
+			Assert.True(ImagesAreIdentical(legacy.Image, fromTextureId),
+				$"Texture id descriptor {bukkitId} should render through the same flat item path.");
+		}
+	}
+
+	[Fact]
 	public void RenderItemFromReconstructedNbtMatchesDirectRender()
 	{
 		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);

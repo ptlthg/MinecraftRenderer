@@ -236,7 +236,8 @@ public sealed partial class MinecraftBlockRenderer
 
 		var normalizedItemKey = NormalizeItemTextureKey(itemName);
 		if (capture is not null) {
-			capture.OriginalTarget = itemName.Trim();
+			capture.OriginalTarget =
+				TryMapLegacyBukkitItemName(itemName, out var mappedItemId, out _) ? mappedItemId : itemName.Trim();
 			capture.NormalizedItemKey = normalizedItemKey;
 		}
 
@@ -464,6 +465,16 @@ public sealed partial class MinecraftBlockRenderer
 			return fallback;
 		}
 
+		if (LegacyItemMappings.TryMapBukkitId(skyblockId, out var skyblockMappedId) &&
+		    !string.IsNullOrWhiteSpace(skyblockMappedId)) {
+			try {
+				return RenderGuiItemInternal(skyblockMappedId, mergedOptions);
+			}
+			catch {
+				// Fall through to player head below
+			}
+		}
+
 		return RenderGuiItemInternal("minecraft:player_head", mergedOptions);
 	}
 
@@ -521,12 +532,14 @@ public sealed partial class MinecraftBlockRenderer
 
 		if (parameters.TryGetValue("base", out var baseItem) && !string.IsNullOrWhiteSpace(baseItem)) {
 			var normalizedBase = NormalizeSkyblockFallbackIdentifier(baseItem);
-			try {
-				fallback = RenderGuiItemInternal(normalizedBase, options);
-				return true;
-			}
-			catch {
-				// Ignore and attempt numeric fallback
+			if (!ShouldSkipSkyblockFallbackBase(normalizedBase)) {
+				try {
+					fallback = RenderGuiItemInternal(normalizedBase, options);
+					return true;
+				}
+				catch {
+					// Ignore and attempt numeric fallback
+				}
 			}
 		}
 
@@ -544,6 +557,20 @@ public sealed partial class MinecraftBlockRenderer
 		}
 
 		return false;
+	}
+
+	private static bool ShouldSkipSkyblockFallbackBase(string identifier) {
+		if (string.IsNullOrWhiteSpace(identifier)) {
+			return true;
+		}
+
+		var normalized = identifier.Trim();
+		if (normalized.StartsWith(HypixelPrefixes.Skyblock, StringComparison.OrdinalIgnoreCase) ||
+		    normalized.StartsWith(HypixelPrefixes.LegacySkyblock, StringComparison.OrdinalIgnoreCase)) {
+			return true;
+		}
+
+		return normalized.All(char.IsDigit);
 	}
 
 	private static string NormalizeSkyblockFallbackIdentifier(string identifier) {
@@ -1004,12 +1031,52 @@ public sealed partial class MinecraftBlockRenderer
 	}
 
 	private static string NormalizeItemTextureKey(string itemName) {
+		if (TryMapLegacyBukkitItemName(itemName, out _, out var mappedItemKey)) {
+			return mappedItemKey;
+		}
+
 		var normalized = itemName.Trim();
 		if (normalized.StartsWith("minecraft:", StringComparison.OrdinalIgnoreCase)) {
 			normalized = normalized[10..];
 		}
 
 		return normalized.Replace('\\', '/').Trim('/');
+	}
+
+	private static bool TryMapLegacyBukkitItemName(string itemName, out string mappedItemId,
+		out string normalizedItemKey) {
+		mappedItemId = string.Empty;
+		normalizedItemKey = string.Empty;
+
+		var candidate = itemName.Trim().Replace('\\', '/').Trim('/');
+		if (candidate.StartsWith("minecraft:", StringComparison.OrdinalIgnoreCase)) {
+			candidate = candidate[10..];
+		}
+		else if (candidate.IndexOf(':') >= 0) {
+			return false;
+		}
+
+		if (!LooksLikeLegacyBukkitItemName(candidate) ||
+		    !LegacyItemMappings.TryMapBukkitId(candidate, out mappedItemId) ||
+		    string.IsNullOrWhiteSpace(mappedItemId) ||
+		    mappedItemId.Equals("minecraft:missingno", StringComparison.OrdinalIgnoreCase)) {
+			return false;
+		}
+
+		normalizedItemKey = mappedItemId.StartsWith("minecraft:", StringComparison.OrdinalIgnoreCase)
+			? mappedItemId[10..]
+			: mappedItemId;
+		normalizedItemKey = normalizedItemKey.Replace('\\', '/').Trim('/');
+		return !string.IsNullOrWhiteSpace(normalizedItemKey);
+	}
+
+	private static bool LooksLikeLegacyBukkitItemName(string itemName) {
+		if (string.IsNullOrWhiteSpace(itemName)) {
+			return false;
+		}
+
+		return itemName.Any(char.IsUpper) ||
+		       itemName.Contains("_ITEM", StringComparison.OrdinalIgnoreCase);
 	}
 
 	private Image<Rgba32> RenderFallbackTexture(string itemName, ItemRegistry.ItemInfo? itemInfo,
@@ -1328,7 +1395,7 @@ public sealed partial class MinecraftBlockRenderer
 		}
 
 		var encodedId = EncodeFirmamentId(skyblockId!);
-		if (_itemRegistry.TryGetInfo(encodedId, out var info)) {
+		if (TryGetSkyblockItemInfo(encodedId, out var info)) {
 			IReadOnlyList<string> models = [];
 
 			if (info.Selector is not null) {
@@ -1347,6 +1414,25 @@ public sealed partial class MinecraftBlockRenderer
 		}
 
 		return [];
+	}
+
+	private bool TryGetSkyblockItemInfo(string encodedId, out ItemRegistry.ItemInfo info) {
+		if (_itemRegistry is not null) {
+			if (_itemRegistry.TryGetInfo($"skyblock:{encodedId}", out info!)) {
+				return true;
+			}
+
+			if (_itemRegistry.TryGetInfo(encodedId, out info!)) {
+				return true;
+			}
+
+			if (_itemRegistry.TryGetSkyblockItemInfo(encodedId, out info!)) {
+				return true;
+			}
+		}
+
+		info = null!;
+		return false;
 	}
 
 	/// <summary>

@@ -48,6 +48,55 @@ public sealed class HypixelPackTests
     }
 
     [Fact]
+    public void HypixelPlusSkyblockItemDefinitionsDoNotOverrideVanillaBukkitCropItems()
+    {
+        if (!Directory.Exists(HypixelPlusCatsPackPath)) return;
+
+        var registry = TexturePackRegistry.Create();
+        registry.RegisterPack(HypixelPlusCatsPackPath);
+        var vanillaAssetsDirectory = Path.Combine(AssetsDirectory, "assets", "minecraft");
+
+        using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(
+            Directory.Exists(vanillaAssetsDirectory) ? vanillaAssetsDirectory : AssetsDirectory,
+            registry,
+            new[] { "hypixelplus" });
+        var options = MinecraftBlockRenderer.BlockRenderOptions.Default with
+        {
+            Size = 64,
+            PackIds = new[] { "hypixelplus" }
+        };
+
+        foreach (var (bukkitId, itemId, expectedModel) in new[]
+                 {
+                     ("POTATO_ITEM", "minecraft:potato", "minecraft:item/potato"),
+                     ("CARROT_ITEM", "minecraft:carrot", "minecraft:item/carrot")
+                 })
+        {
+            using var direct = renderer.RenderGuiItemWithResourceId(itemId, options);
+
+            var customData = new NbtCompound(new[]
+            {
+                new KeyValuePair<string, NbtTag>("id", new NbtString(bukkitId))
+            });
+            var nbt = new NbtCompound(new[]
+            {
+                new KeyValuePair<string, NbtTag>("id", new NbtString(itemId)),
+                new KeyValuePair<string, NbtTag>("count", new NbtByte((sbyte)1)),
+                new KeyValuePair<string, NbtTag>("components", new NbtCompound(new[]
+                {
+                    new KeyValuePair<string, NbtTag>("minecraft:custom_data", customData)
+                }))
+            });
+            using var fromApiNbt = renderer.RenderItemFromNbtWithResourceId(nbt, options);
+
+            Assert.Equal(expectedModel, direct.ResourceId.Model);
+            Assert.Equal(expectedModel, fromApiNbt.ResourceId.Model);
+            Assert.Equal(direct.ResourceId.Textures, fromApiNbt.ResourceId.Textures);
+            Assert.DoesNotContain("glitch", fromApiNbt.ResourceId.Model ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
     public void HypixelPlayerHeadSelectorLoadsAndResolvesCorrectly()
     {
         if (!Directory.Exists(HypixelPackPath)) return;

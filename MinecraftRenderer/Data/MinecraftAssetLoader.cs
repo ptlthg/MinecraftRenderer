@@ -423,7 +423,7 @@ internal static class MinecraftAssetLoader
 
 			foreach (var file in provider.EnumerateFiles("items", "*.json", recursive: true)) {
 				var relativePath = ResourceProviderExtensions.GetRelativePath(file, "items");
-				var itemName = NormalizeItemName(relativePath);
+				var itemName = NormalizeItemName(relativePath, nsRoot.Namespace);
 				if (string.IsNullOrWhiteSpace(itemName)) {
 					continue;
 				}
@@ -461,13 +461,20 @@ internal static class MinecraftAssetLoader
 		return normalized.Trim('/');
 	}
 
-	private static string NormalizeItemName(string relativePath) {
+	private static string NormalizeItemName(string relativePath, string? namespaceName = null) {
 		var normalized = relativePath.Replace('\\', '/');
 		if (normalized.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) {
 			normalized = normalized[..^5];
 		}
 
-		return normalized.Trim('/');
+		normalized = normalized.Trim('/');
+		if (!string.IsNullOrWhiteSpace(namespaceName) &&
+		    !namespaceName.Equals("minecraft", StringComparison.OrdinalIgnoreCase) &&
+		    !normalized.StartsWith(namespaceName + ":", StringComparison.OrdinalIgnoreCase)) {
+			normalized = $"{namespaceName}:{normalized}";
+		}
+
+		return normalized;
 	}
 
 	private static string? ResolveDefaultModel(string blockName, JsonElement root,

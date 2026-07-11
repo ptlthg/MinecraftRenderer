@@ -481,6 +481,90 @@ public sealed class ItemModelSelectorTests : IDisposable
 	}
 
 	[Fact]
+	public void NamespacedDisplayContextSelectUsesGuiModel()
+	{
+		using var document = JsonDocument.Parse(
+			"""
+{
+	"model": {
+		"type": "minecraft:select",
+		"property": "minecraft:display_context",
+		"cases": [
+			{
+				"when": ["gui", "ground", "fixed", "on_shelf"],
+				"model": { "type": "minecraft:model", "model": "hypixel_skyblock:item/gui" }
+			}
+		],
+		"fallback": { "type": "minecraft:model", "model": "hypixel_skyblock:item/in_hand" }
+	}
+}
+""");
+
+		Assert.Equal("hypixel_skyblock:item/gui", ResolveSelector(document, displayContext: "gui"));
+		Assert.Equal("hypixel_skyblock:item/in_hand", ResolveSelector(document, displayContext: "firstperson_righthand"));
+	}
+
+	[Fact]
+	public void NamespacedItemDefinitionUsesGuiDisplayContextModel()
+	{
+		var assetsRoot = Path.Combine(_tempRoot, "namespaced-assets");
+		Directory.CreateDirectory(Path.Combine(assetsRoot, "blockstates"));
+		var packRoot = CreateNamespacedItemPack();
+		var registry = TexturePackRegistry.Create();
+		registry.RegisterPack(packRoot);
+
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(assetsRoot, registry);
+		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with
+		{
+			PackIds = ["officialtest"],
+			Size = 64
+		};
+
+		using var render = renderer.RenderItem("hypixel_skyblock:item/test_item", options);
+		using var fromItemModelComponent = renderer.RenderItemFromNbtWithResourceId(new NbtCompound(new[]
+		{
+			new KeyValuePair<string, NbtTag>("id", new NbtString("minecraft:paper")),
+			new KeyValuePair<string, NbtTag>("components", new NbtCompound(new[]
+			{
+				new KeyValuePair<string, NbtTag>("minecraft:item_model",
+					new NbtString("hypixel_skyblock:item/test_item"))
+			}))
+		}), options);
+		using var fromSkyblockCustomData = renderer.RenderItemFromNbtWithResourceId(new NbtCompound(new[]
+		{
+			new KeyValuePair<string, NbtTag>("id", new NbtString("minecraft:paper")),
+			new KeyValuePair<string, NbtTag>("components", new NbtCompound(new[]
+			{
+				new KeyValuePair<string, NbtTag>("minecraft:custom_data", new NbtCompound(new[]
+				{
+					new KeyValuePair<string, NbtTag>("id", new NbtString("TEST_ITEM"))
+				}))
+			}))
+		}), options);
+		using var fromLegacyHypixelNbt = renderer.RenderItemFromNbtWithResourceId(new NbtCompound(new[]
+		{
+			new KeyValuePair<string, NbtTag>("id", new NbtShort(339)),
+			new KeyValuePair<string, NbtTag>("Count", new NbtByte(1)),
+			new KeyValuePair<string, NbtTag>("Damage", new NbtShort(0)),
+			new KeyValuePair<string, NbtTag>("tag", new NbtCompound(new[]
+			{
+				new KeyValuePair<string, NbtTag>("ExtraAttributes", new NbtCompound(new[]
+				{
+					new KeyValuePair<string, NbtTag>("id", new NbtString("TEST_ITEM"))
+				}))
+			}))
+		}), options);
+
+		AssertImageContainsColor(render, new Rgba32(0x22, 0xCC, 0x66, 0xFF));
+		AssertImageDoesNotContainColor(render, new Rgba32(0x22, 0x44, 0xEE, 0xFF));
+		foreach (var resolved in new[] { fromItemModelComponent, fromSkyblockCustomData, fromLegacyHypixelNbt })
+		{
+			AssertImageContainsColor(resolved.Image, new Rgba32(0x22, 0xCC, 0x66, 0xFF));
+			AssertImageDoesNotContainColor(resolved.Image, new Rgba32(0x22, 0x44, 0xEE, 0xFF));
+		}
+	}
+
+	[Fact]
 	public void CatharsisHasGemstonesReadsSocketedGemData()
 	{
 		using var document = JsonDocument.Parse(
@@ -793,6 +877,53 @@ public sealed class ItemModelSelectorTests : IDisposable
 		return packRoot;
 	}
 
+	private string CreateNamespacedItemPack()
+	{
+		var packRoot = Path.Combine(_tempRoot, "officialtest");
+		Directory.CreateDirectory(packRoot);
+		File.WriteAllText(Path.Combine(packRoot, "meta.json"),
+			"{\"id\":\"officialtest\",\"name\":\"Official test\",\"version\":\"1\",\"description\":\"Test pack\",\"authors\":[\"tests\"]}");
+		File.WriteAllText(Path.Combine(packRoot, "pack.mcmeta"),
+			"{\"pack\":{\"pack_format\":88,\"description\":\"Test\"}}");
+		Directory.CreateDirectory(Path.Combine(packRoot, "assets", "minecraft"));
+
+		var namespaceRoot = Path.Combine(packRoot, "assets", "hypixel_skyblock");
+		var itemsDir = Path.Combine(namespaceRoot, "items", "item");
+		Directory.CreateDirectory(itemsDir);
+		File.WriteAllText(Path.Combine(itemsDir, "test_item.json"),
+			"""
+{
+	"model": {
+		"type": "minecraft:select",
+		"property": "minecraft:display_context",
+		"cases": [{
+			"when": ["gui", "ground", "fixed", "on_shelf"],
+			"model": { "type": "minecraft:model", "model": "hypixel_skyblock:item/test_item_gui" }
+		}],
+		"fallback": { "type": "minecraft:model", "model": "hypixel_skyblock:item/test_item_in_hand" }
+	}
+}
+""");
+
+		var modelsDir = Path.Combine(namespaceRoot, "models", "item");
+		Directory.CreateDirectory(modelsDir);
+		File.WriteAllText(Path.Combine(modelsDir, "test_item_gui.json"), BuildNamespacedGeneratedModel("test_item_gui"));
+		File.WriteAllText(Path.Combine(modelsDir, "test_item_in_hand.json"), BuildNamespacedGeneratedModel("test_item_in_hand"));
+
+		var texturesDir = Path.Combine(namespaceRoot, "textures", "item");
+		Directory.CreateDirectory(texturesDir);
+		using (var gui = new Image<Rgba32>(16, 16, new Rgba32(0x22, 0xCC, 0x66, 0xFF)))
+		{
+			gui.Save(Path.Combine(texturesDir, "test_item_gui.png"));
+		}
+		using (var inHand = new Image<Rgba32>(16, 16, new Rgba32(0x22, 0x44, 0xEE, 0xFF)))
+		{
+			inHand.Save(Path.Combine(texturesDir, "test_item_in_hand.png"));
+		}
+
+		return packRoot;
+	}
+
 	private string CreateCompositeAssetsRoot(string id)
 	{
 		var assetsRoot = Path.Combine(_tempRoot, id);
@@ -914,6 +1045,9 @@ public sealed class ItemModelSelectorTests : IDisposable
 
 	private static string BuildBuiltinGeneratedModel(string modelName)
 		=> "{\n  \"parent\": \"minecraft:builtin/generated\",\n  \"textures\": {\n    \"layer0\": \"minecraft:item/" + modelName + "\"\n  }\n}\n";
+
+	private static string BuildNamespacedGeneratedModel(string modelName)
+		=> "{\n  \"parent\": \"minecraft:builtin/generated\",\n  \"textures\": {\n    \"layer0\": \"hypixel_skyblock:item/" + modelName + "\"\n  }\n}\n";
 
 	private static string BuildDefaultCustomItemDefinition(string modelName, string fallbackItemName)
 		=> "{\n  \"model\": {\n    \"type\": \"condition\",\n    \"property\": \"component\",\n    \"predicate\": \"custom_data\",\n    \"value\": { \"id\": \"selector_match\" },\n    \"on_false\": {\n      \"type\": \"model\",\n      \"model\": \"minecraft:item/" + fallbackItemName + "\"\n    },\n    \"on_true\": {\n      \"type\": \"model\",\n      \"model\": \"minecraft:item/" + modelName + "\"\n    }\n  }\n}\n";

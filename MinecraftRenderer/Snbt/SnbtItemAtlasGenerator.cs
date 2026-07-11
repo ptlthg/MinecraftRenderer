@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using MinecraftRenderer;
+using MinecraftRenderer.Hypixel;
 using MinecraftRenderer.Nbt;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -23,6 +24,11 @@ public static class SnbtItemUtilities
 			return idString.Value;
 		}
 
+		if (compound.TryGetValue("id", out idTag) && TryGetNumericId(idTag, out var numericId)) {
+			var damage = compound.GetShort("Damage") ?? compound.GetShort("damage") ?? 0;
+			return LegacyItemMappings.MapNumericIdOrDefault(numericId, damage);
+		}
+
 		foreach (var key in new[] { "item", "Item", "stack", "Stack" }) {
 			if (compound.TryGetValue(key, out var nested) && nested is NbtCompound nestedCompound) {
 				var nestedId = TryGetItemId(nestedCompound);
@@ -33,6 +39,44 @@ public static class SnbtItemUtilities
 		}
 
 		return null;
+	}
+
+	public static string? TryGetItemModel(NbtCompound compound) {
+		ArgumentNullException.ThrowIfNull(compound);
+
+		var components = compound.GetCompound("components") ?? compound.GetCompound("Components");
+		var itemModel = components?.GetString("minecraft:item_model") ?? components?.GetString("item_model");
+		if (!string.IsNullOrWhiteSpace(itemModel)) {
+			return itemModel;
+		}
+
+		foreach (var key in new[] { "item", "Item", "stack", "Stack" }) {
+			if (compound.TryGetValue(key, out var nested) && nested is NbtCompound nestedCompound) {
+				var nestedModel = TryGetItemModel(nestedCompound);
+				if (!string.IsNullOrWhiteSpace(nestedModel)) {
+					return nestedModel;
+				}
+			}
+		}
+
+		return null;
+	}
+
+	private static bool TryGetNumericId(NbtTag tag, out short value) {
+		switch (tag) {
+			case NbtByte byteTag:
+				value = byteTag.Value;
+				return true;
+			case NbtShort shortTag:
+				value = shortTag.Value;
+				return true;
+			case NbtInt intTag when intTag.Value is >= short.MinValue and <= short.MaxValue:
+				value = (short)intTag.Value;
+				return true;
+			default:
+				value = default;
+				return false;
+		}
 	}
 }
 

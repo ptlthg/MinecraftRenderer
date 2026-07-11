@@ -26,6 +26,13 @@ internal abstract class ItemModelSelector
 		var resolved = Resolve(context);
 		return string.IsNullOrWhiteSpace(resolved) ? [] : [resolved];
 	}
+
+	protected static string NormalizeProperty(string? property) {
+		var normalized = property?.Trim() ?? string.Empty;
+		return normalized.StartsWith("minecraft:", StringComparison.OrdinalIgnoreCase)
+			? normalized[10..]
+			: normalized;
+	}
 }
 
 internal static class CatharsisDataTypeResolver
@@ -430,7 +437,7 @@ internal sealed class ItemModelSelectorCondition(
 	ItemModelSelector? onTrue,
 	ItemModelSelector? onFalse) : ItemModelSelector
 {
-	public string Property { get; } = property;
+	public string Property { get; } = NormalizeProperty(property);
 	public string? DataType { get; } = dataType;
 	public string? Predicate { get; } = predicate;
 	public string? Component { get; } = component;
@@ -794,7 +801,7 @@ internal sealed class ItemModelSelectorSelect(
 	IReadOnlyList<ItemModelSelectorSelectCase> cases,
 	ItemModelSelector? fallback) : ItemModelSelector
 {
-	public string Property { get; } = property;
+	public string Property { get; } = NormalizeProperty(property);
 	public string? DataType { get; } = dataType;
 	public string? Component { get; } = component;
 	public IReadOnlyList<ItemModelSelectorSelectCase> Cases { get; } = cases;
@@ -945,7 +952,7 @@ internal sealed class ItemModelSelectorRangeDispatch(
 	IReadOnlyList<RangeDispatchEntry> entries,
 	ItemModelSelector? fallback) : ItemModelSelector
 {
-	public string Property { get; } = property;
+	public string Property { get; } = NormalizeProperty(property);
 	public string? DataType { get; } = dataType;
 	public bool Normalize { get; } = normalize;
 	public IReadOnlyList<RangeDispatchEntry> Entries { get; } = entries;
