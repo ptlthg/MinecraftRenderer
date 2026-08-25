@@ -7,6 +7,7 @@
 - `MinecraftBlockRenderer` renders block and item models with Minecraft's GUI transforms, lighting, biome tints, and pack overlays.
 - `RenderItemFromNbt` and `RenderItemFromNbtWithResourceId` turn vanilla or Hypixel SNBT payloads into images (and expose deterministic resource IDs plus animation metadata).
 - `MinecraftHeadRenderer` draws player heads from skins, custom data, or resolver-provided textures.
+- `LitematicReader` and `ExportSchematicGlb` turn Litematica schematics into textured, layer-addressable GLB models for browser viewers.
 - Texture pack stacks, overlays, and custom data directories are supported without rebuilding the renderer.
 - Skull rendering accepts pluggable resolvers that see the full item context (`SkullResolverContext`).
 - Ships with an xUnit suite that exercises model rendering, lighting, texture packs, and Hypixel item parsing.
@@ -69,6 +70,26 @@ dotnet add package MinecraftRenderer
 	```
 
 `RenderAnimatedItemFromNbtWithResourceId` returns an `AnimatedRenderedResource` when any bound textures carry animation metadata; static items still produce a single frame.
+
+## Schematic GLB export
+
+The schematic pipeline currently accepts `.litematic` files. It resolves vanilla blockstate variants and multipart models, including directional blocks, slabs, stairs, and fences. Water, flowing water, lava, and logged fluids use generated surfaces with level-dependent corner heights. Each visible Minecraft Y level is exported as a separately named GLB node so clients can show or hide vertical slices.
+
+```csharp
+using MinecraftRenderer;
+using MinecraftRenderer.Schematics;
+
+await using var source = File.OpenRead("build.litematic");
+var schematic = await LitematicReader.ReadAsync(source);
+
+using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(assetsPath);
+var result = renderer.ExportSchematicGlb(schematic);
+await File.WriteAllBytesAsync("build.glb", result.Glb);
+
+Console.WriteLine($"{result.BlockCount:N0} blocks across {result.LayerCount:N0} visible Y levels");
+```
+
+`SchematicExportOptions` provides block, triangle, texture-atlas, and output-byte budgets for untrusted uploads. Animated textures currently use their first frame in GLB exports.
 
 ## Hypixel Skyblock
 

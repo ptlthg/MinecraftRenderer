@@ -465,6 +465,29 @@ public sealed class BlockRendererTests(ITestOutputHelper output)
 	}
 
 	[Fact]
+	public void FireUsesAnAnimatedCrossBillboardModel()
+	{
+		var vanillaAssetsDirectory = Path.Combine(AssetsDirectory, "assets", "minecraft");
+		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(vanillaAssetsDirectory);
+		var options = MinecraftBlockRenderer.BlockRenderOptions.Default with { Size = 64 };
+
+		using var animated = renderer.RenderAnimatedGuiItemWithResourceId("fire", options);
+
+		Assert.Equal("minecraft:block/fire_cross", animated.ResourceId.Model);
+		Assert.Contains("minecraft:block/fire_0", animated.ResourceId.Textures);
+		Assert.True(animated.Frames.Count > 1, "Fire should retain its animated texture frames.");
+		Assert.Contains(animated.Frames.Skip(1), frame =>
+			!ImagesAreIdentical(animated.Frames[0].Image, frame.Image));
+
+		using var image = animated.CloneAsAnimatedImage();
+		using var output = new MemoryStream();
+		image.SaveAsWebp(output, new WebpEncoder { Quality = 100 });
+		output.Position = 0;
+		using var decoded = Image.Load<Rgba32>(output);
+		Assert.Equal(animated.Frames.Count, decoded.Frames.Count);
+	}
+
+	[Fact]
 	public void CloneAsAnimatedImageSetsAnimationMetadata()
 	{
 		using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
