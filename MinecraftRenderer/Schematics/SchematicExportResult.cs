@@ -2,7 +2,7 @@ namespace MinecraftRenderer.Schematics;
 
 public static class SchematicExportFormat
 {
-    public const int CurrentVersion = 8;
+    public const int CurrentVersion = 10;
 }
 
 public sealed record SchematicExportOptions(

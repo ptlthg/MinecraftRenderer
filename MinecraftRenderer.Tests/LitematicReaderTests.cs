@@ -26,15 +26,59 @@ public sealed class LitematicReaderTests
         Assert.Contains(schematic.Blocks, block => block.Position == new SchematicPosition(10, 21, 30));
     }
 
-    [Fact]
-    public void NegativeRegionSizeWalksTowardNegativeCoordinates()
+    [Theory]
+    [InlineData(-2, 1, 1, 4, 7, 9)]
+    [InlineData(1, -2, 1, 5, 6, 9)]
+    [InlineData(1, 1, -2, 5, 7, 8)]
+    public void NegativeRegionSizeStartsPackedBlocksAtTheMinimumCorner(
+        int sizeX, int sizeY, int sizeZ, int expectedX, int expectedY, int expectedZ)
     {
-        var document = CreateDocument(new SchematicPosition(5, 7, 9), new SchematicPosition(-2, 1, 1), 0b01_01);
+        var document = CreateDocument(
+            new SchematicPosition(5, 7, 9),
+            new SchematicPosition(sizeX, sizeY, sizeZ),
+            0b00_01);
 
         var schematic = LitematicReader.Read(document);
 
-        Assert.Contains(schematic.Blocks, block => block.Position == new SchematicPosition(5, 7, 9));
-        Assert.Contains(schematic.Blocks, block => block.Position == new SchematicPosition(4, 7, 9));
+        var block = Assert.Single(schematic.Blocks);
+        Assert.Equal(new SchematicPosition(expectedX, expectedY, expectedZ), block.Position);
+        Assert.Equal("stone", block.State.Name);
+    }
+
+    [Fact]
+    public void NegativeRegionBlockEntityUsesSignedLocalPosition()
+    {
+        var entities = new NbtList(NbtTagType.Compound, [
+            Compound(("Pos", new NbtIntArray([-1, 0, 0])))
+        ]);
+        var document = CreateDocument(
+            new SchematicPosition(5, 7, 9),
+            new SchematicPosition(-2, 1, 1),
+            0b00_01,
+            entities);
+
+        var block = Assert.Single(LitematicReader.Read(document).Blocks);
+        Assert.Equal(new SchematicPosition(4, 7, 9), block.Position);
+        Assert.NotNull(block.BlockEntity);
+    }
+
+    [Theory]
+    [InlineData(0, 0, 0)]
+    [InlineData(-1, -1, 0)]
+    public void NegativeRegionBlockEntityUsesScalarCoordinates(int x, int y, int z)
+    {
+        var entities = new NbtList(NbtTagType.Compound, [
+            Compound(("x", new NbtInt(x)), ("y", new NbtInt(y)), ("z", new NbtInt(z)))
+        ]);
+        var document = CreateDocument(
+            new SchematicPosition(5, 7, 9),
+            new SchematicPosition(-2, -2, 1),
+            0b00_01,
+            entities);
+
+        var block = Assert.Single(LitematicReader.Read(document).Blocks);
+        Assert.Equal(new SchematicPosition(4, 6, 9), block.Position);
+        Assert.NotNull(block.BlockEntity);
     }
 
     [Fact]
@@ -85,6 +129,16 @@ public sealed class LitematicReaderTests
     }
 
     [Fact]
+    public void ExportsStructuredSignTextComponents()
+    {
+        using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+        var withoutText = renderer.ExportSchematicGlb(LitematicReader.Read(CreateSignDocument(includeText: false)));
+        var withText = renderer.ExportSchematicGlb(LitematicReader.Read(CreateSignDocument(includeText: true, structuredMessages: true)));
+
+        Assert.Equal(withoutText.TriangleCount + 2, withText.TriangleCount);
+    }
+
+    [Fact]
     public void EnforcesExportResourceBudgets()
     {
         var schematic = LitematicReader.Read(CreateDocument(
@@ -112,17 +166,24 @@ public sealed class LitematicReaderTests
         Assert.Equal("texture atlas pixels", atlasLimit.LimitName);
     }
 
-    private static NbtDocument CreateDocument(SchematicPosition position, SchematicPosition size, long packed)
+    private static NbtDocument CreateDocument(
+        SchematicPosition position,
+        SchematicPosition size,
+        long packed,
+        NbtList? blockEntities = null)
     {
         var palette = new NbtList(NbtTagType.Compound, [
             Compound(("Name", new NbtString("minecraft:air"))),
             Compound(("Name", new NbtString("minecraft:stone")))
         ]);
-        var region = Compound(
+        var regionEntries = new List<(string Key, NbtTag Value)> {
             ("Position", Vector(position)),
             ("Size", Vector(size)),
             ("BlockStatePalette", palette),
-            ("BlockStates", new NbtLongArray([packed])));
+            ("BlockStates", new NbtLongArray([packed]))
+        };
+        if (blockEntities is not null) regionEntries.Add(("TileEntities", blockEntities));
+        var region = Compound(regionEntries.ToArray());
         return new NbtDocument(Compound(
             ("Version", new NbtInt(6)),
             ("MinecraftDataVersion", new NbtInt(3955)),
@@ -141,7 +202,7 @@ public sealed class LitematicReaderTests
         return root.GetProperty("nodes")[sceneRootNodeIndex].GetProperty("extras").Clone();
     }
 
-    private static NbtDocument CreateSignDocument(bool includeText)
+    private static NbtDocument CreateSignDocument(bool includeText, bool structuredMessages = false)
     {
         var palette = new NbtList(NbtTagType.Compound, [
             Compound(("Name", new NbtString("minecraft:air"))),
@@ -157,12 +218,23 @@ public sealed class LitematicReaderTests
         };
         if (includeText)
         {
-            var messages = new NbtList(NbtTagType.String, [
-                new NbtString("{\"text\":\"Elite\"}"),
-                new NbtString("\"SkyBlock\""),
-                new NbtString(string.Empty),
-                new NbtString(string.Empty)
-            ]);
+            var messages = structuredMessages
+                ? new NbtList(NbtTagType.Compound, [
+                    Compound(
+                        ("text", new NbtString("Elite")),
+                        ("extra", new NbtList(NbtTagType.Compound, [
+                            Compound(("text", new NbtString(" SkyBlock")))
+                        ]))),
+                    Compound(("text", new NbtString(string.Empty))),
+                    Compound(("text", new NbtString(string.Empty))),
+                    Compound(("text", new NbtString(string.Empty)))
+                ])
+                : new NbtList(NbtTagType.String, [
+                    new NbtString("{\"text\":\"Elite\"}"),
+                    new NbtString("\"SkyBlock\""),
+                    new NbtString(string.Empty),
+                    new NbtString(string.Empty)
+                ]);
             var entity = Compound(
                 ("Pos", new NbtIntArray([0, 0, 0])),
                 ("front_text", Compound(("messages", messages), ("color", new NbtString("black")))));

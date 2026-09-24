@@ -92,6 +92,9 @@ public static class LitematicReader
             }
 
             var blockEntities = ReadBlockEntities(region, position, signedSize);
+            var minimumX = MinimumCoordinate(position.X, signedSize.X);
+            var minimumY = MinimumCoordinate(position.Y, signedSize.Y);
+            var minimumZ = MinimumCoordinate(position.Z, signedSize.Z);
             for (long index = 0; index < volume; index++)
             {
                 var paletteIndex = ReadPackedValue(packedStates, index, bitsPerEntry);
@@ -110,9 +113,9 @@ public static class LitematicReader
                 var z = (int)(index / sizeX % sizeZ);
                 var y = (int)(index / (sizeX * (long)sizeZ));
                 var world = new SchematicPosition(
-                    position.X + x * Math.Sign(signedSize.X),
-                    position.Y + y * Math.Sign(signedSize.Y),
-                    position.Z + z * Math.Sign(signedSize.Z));
+                    minimumX + x,
+                    minimumY + y,
+                    minimumZ + z);
                 blockEntities.TryGetValue(world, out var blockEntity);
                 blocksByPosition[world] = new SchematicBlock(world, state, blockEntity, regionName);
             }
@@ -212,15 +215,39 @@ public static class LitematicReader
 
         foreach (var tag in entities)
         {
-            if (tag is not NbtCompound entity || entity.GetIntArray("Pos") is not { Length: >= 3 } pos)
+            if (tag is not NbtCompound entity)
             {
                 continue;
             }
 
-            var world = new SchematicPosition(
-                origin.X + pos[0] * Math.Sign(signedSize.X),
-                origin.Y + pos[1] * Math.Sign(signedSize.Y),
-                origin.Z + pos[2] * Math.Sign(signedSize.Z));
+            SchematicPosition world;
+            if (entity.GetIntArray("Pos") is { Length: >= 3 } pos)
+            {
+                world = new SchematicPosition(
+                    checked(origin.X + pos[0]),
+                    checked(origin.Y + pos[1]),
+                    checked(origin.Z + pos[2]));
+            }
+            else if (entity.GetInt("x") is { } x && entity.GetInt("y") is { } y && entity.GetInt("z") is { } z)
+            {
+                var storageCoordinates = x >= 0 && x < Math.Abs(signedSize.X)
+                    && y >= 0 && y < Math.Abs(signedSize.Y)
+                    && z >= 0 && z < Math.Abs(signedSize.Z);
+                world = storageCoordinates
+                    ? new SchematicPosition(
+                        checked(MinimumCoordinate(origin.X, signedSize.X) + x),
+                        checked(MinimumCoordinate(origin.Y, signedSize.Y) + y),
+                        checked(MinimumCoordinate(origin.Z, signedSize.Z) + z))
+                    : new SchematicPosition(
+                        checked(origin.X + x),
+                        checked(origin.Y + y),
+                        checked(origin.Z + z));
+            }
+            else
+            {
+                continue;
+            }
+
             result[world] = entity;
         }
 
@@ -271,4 +298,7 @@ public static class LitematicReader
         destination.Position = 0;
         return destination;
     }
+
+    private static int MinimumCoordinate(int origin, int signedSize) =>
+        checked(origin + (signedSize < 0 ? signedSize + 1 : 0));
 }

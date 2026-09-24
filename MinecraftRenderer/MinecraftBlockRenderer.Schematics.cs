@@ -37,14 +37,23 @@ public sealed partial class MinecraftBlockRenderer
         var warnings = new HashSet<string>(StringComparer.Ordinal);
         var resolver = new SchematicStateResolver(_assetsDirectory, _modelResolver, _blockRegistry, warnings);
         var opaqueFullCubeModels = new Dictionary<BlockModelInstance, bool>();
-        var fullCubeStates = new Dictionary<SchematicPosition, string>();
+        var occlusionProfiles = new Dictionary<ResolvedSchematicState, SchematicOcclusionProfile>(ReferenceEqualityComparer.Instance);
+        var opaqueTextures = new Dictionary<TextureTile, bool>(TextureTileComparer.Instance);
+        var occlusionBlocks = new Dictionary<SchematicPosition, SchematicOcclusionBlock>();
         var occupiedOpaqueFullCubes = new HashSet<SchematicPosition>();
         foreach (var block in schematic.Blocks)
         {
             var resolved = resolver.Resolve(block.State, block.Position);
-            if (!resolved.IsFullCube) continue;
-            fullCubeStates[block.Position] = block.State.Key;
-            if (IsOpaqueFullCube(resolved, opaqueFullCubeModels))
+            if (options.CullOccludedFullCubeFaces)
+            {
+                if (!occlusionProfiles.TryGetValue(resolved, out var profile))
+                {
+                    profile = BuildSchematicOcclusionProfile(resolved, opaqueTextures);
+                    occlusionProfiles[resolved] = profile;
+                }
+                occlusionBlocks[block.Position] = new SchematicOcclusionBlock(block.State.Key, profile);
+            }
+            if (resolved.IsFullCube && IsOpaqueFullCube(resolved, opaqueFullCubeModels))
             {
                 occupiedOpaqueFullCubes.Add(block.Position);
             }
@@ -57,13 +66,17 @@ public sealed partial class MinecraftBlockRenderer
         var layerSliceCaps = new SortedDictionary<int, List<ExportTriangle>>();
         var triangleCount = 0L;
         var fluidTextures = new Dictionary<SchematicFluidKind, SchematicFluidTextures>();
+        var headSkins = new Dictionary<string, Image<Rgba32>?>(StringComparer.Ordinal);
         using var signTextRenderer = SignTextRenderer.TryCreate(_assetsDirectory, warnings);
         foreach (var block in schematic.Blocks)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var resolved = resolver.Resolve(block.State, block.Position);
             schematicFluids.TryGetValue(block.Position, out var fluid);
-            if (resolved.Parts.Count == 0 && fluid is not { Standalone: true })
+            var isHead = IsSchematicHead(block.State.Name);
+            var isSign = IsSchematicSign(block.State.Name);
+            var needsSignGeometry = isSign && resolved.Parts.All(static part => part.Model.Elements.Count == 0);
+            if (resolved.Parts.Count == 0 && fluid is not { Standalone: true } && !isHead && !isSign)
             {
                 resolved = ResolveMissingState(block.State, warnings);
             }
@@ -83,55 +96,63 @@ public sealed partial class MinecraftBlockRenderer
             var trianglesBeforeBlock = target.Count;
             var sliceCapsBeforeBlock = sliceCaps.Count;
 
-            var modelParts = fluid is { Standalone: true } ? Array.Empty<ResolvedModelPart>() : resolved.Parts;
+            if (isHead)
+            {
+                AppendSchematicHead(block, centerX, centerZ, schematic.Min.Y, target, headSkins, warnings);
+            }
+            if (needsSignGeometry)
+            {
+                AppendSchematicSign(block, centerX, centerZ, schematic.Min.Y, target, warnings);
+            }
+
+            var modelParts = fluid is { Standalone: true } || isHead || needsSignGeometry
+                ? Array.Empty<ResolvedModelPart>()
+                : resolved.Parts;
             foreach (var part in modelParts)
             {
                 var rotation = Matrix4x4.CreateRotationX(part.XRotation * DegreesToRadians)
                     * Matrix4x4.CreateRotationY(-part.YRotation * DegreesToRadians);
-                var translation = Matrix4x4.CreateTranslation(
+                var blockTranslation = new Vector3(
                     block.Position.X - centerX,
                     block.Position.Y - schematic.Min.Y,
                     block.Position.Z - centerZ);
-                var triangles = BuildTriangles(part.Model, rotation * translation, applyInventoryLighting: true, block.State.Name);
+                var triangles = BuildTriangles(part.Model, rotation * Matrix4x4.CreateTranslation(blockTranslation), applyInventoryLighting: true, block.State.Name);
                 var transformedTriangles = TransformSchematicPartTriangles(triangles, rotation, part.UvLock);
-                foreach (var triangle in transformedTriangles)
+                for (var index = 0; index < transformedTriangles.Count; index += 2)
                 {
-                    var exportTriangle = new ExportTriangle(
-                        triangle.V1,
-                        triangle.V2,
-                        triangle.V3,
-                        Vector3.Normalize(triangle.Normal),
-                        triangle.T1,
-                        triangle.T2,
-                        triangle.T3,
-                        triangle.Texture,
-                        triangle.TextureRect,
-                        triangle.Shading);
+                    var triangle = transformedTriangles[index];
+                    var second = transformedTriangles[index + 1];
                     if (options.CullOccludedFullCubeFaces
-                        && fullCubeStates.TryGetValue(block.Position, out var blockStateKey)
-                        && HasOccludingNeighbor(
+                        && IsSchematicFaceOccluded(
                             block.Position,
+                            block.State.Key,
+                            part,
+                            triangles[index].FaceDirection,
                             triangle.FaceDirection,
-                            blockStateKey,
-                            fullCubeStates,
-                            occupiedOpaqueFullCubes))
+                            triangle,
+                            second,
+                            blockTranslation,
+                            rotation,
+                            occlusionBlocks))
                     {
                         // Keep vertical faces as normally hidden slice caps. The Website
                         // enables them only when this Y layer is viewed by itself.
                         if (triangle.FaceDirection is BlockFaceDirection.Up or BlockFaceDirection.Down)
                         {
-                            sliceCaps.Add(exportTriangle);
+                            sliceCaps.Add(ToExportTriangle(triangle));
+                            sliceCaps.Add(ToExportTriangle(second));
                         }
                         continue;
                     }
 
-                    target.Add(exportTriangle);
+                    target.Add(ToExportTriangle(triangle));
+                    target.Add(ToExportTriangle(second));
                 }
             }
 
-            if (block.BlockEntity is not null && block.State.Name.EndsWith("sign", StringComparison.Ordinal))
+            if (block.BlockEntity is not null && isSign)
             {
-                AppendSignText(block, centerX, centerZ, target, signTextRenderer);
+                AppendSignText(block, centerX, centerZ, schematic.Min.Y, target, signTextRenderer);
             }
 
             if (fluid is not null)
@@ -190,6 +211,7 @@ public sealed partial class MinecraftBlockRenderer
         SchematicBlock block,
         float centerX,
         float centerZ,
+        int minimumY,
         List<ExportTriangle> target,
         SignTextRenderer? textRenderer)
     {
@@ -199,15 +221,14 @@ public sealed partial class MinecraftBlockRenderer
         if (front is null && back is null) return;
 
         var normal = GetSignNormal(block.State);
-        var verticalCenter = block.State.Name.Contains("hanging_sign", StringComparison.Ordinal) ? 0.08f
-            : block.State.Name.Contains("wall_sign", StringComparison.Ordinal) ? 0f
-            : 0.2f;
-        var center = new Vector3(
+        var origin = new Vector3(
             block.Position.X - centerX,
-            block.Position.Y + verticalCenter,
+            block.Position.Y - minimumY,
             block.Position.Z - centerZ);
-        if (front is not null) AppendTextQuad(target, front, center, normal);
-        if (back is not null) AppendTextQuad(target, back, center, -normal);
+        var boardCenter = GetSchematicSignBoardCenter(block.State, origin, normal);
+        const float textOffset = 0.068f;
+        if (front is not null) AppendTextQuad(target, front, boardCenter, normal, textOffset);
+        if (back is not null) AppendTextQuad(target, back, boardCenter, -normal, textOffset);
     }
 
     private static Vector3 GetSignNormal(SchematicBlockState state)
@@ -231,12 +252,12 @@ public sealed partial class MinecraftBlockRenderer
         return Vector3.Normalize(new Vector3(-MathF.Sin(radians), 0, MathF.Cos(radians)));
     }
 
-    private static void AppendTextQuad(List<ExportTriangle> target, Image<Rgba32> texture, Vector3 center, Vector3 normal)
+    private static void AppendTextQuad(List<ExportTriangle> target, Image<Rgba32> texture, Vector3 center, Vector3 normal, float distance)
     {
         const float halfWidth = 0.375f;
         const float halfHeight = 0.175f;
         var right = Vector3.Normalize(new Vector3(normal.Z, 0, -normal.X));
-        var quadCenter = center + normal * 0.506f;
+        var quadCenter = center + normal * distance;
         var bottomLeft = quadCenter - right * halfWidth - Vector3.UnitY * halfHeight;
         var bottomRight = quadCenter + right * halfWidth - Vector3.UnitY * halfHeight;
         var topRight = quadCenter + right * halfWidth + Vector3.UnitY * halfHeight;
@@ -370,28 +391,6 @@ public sealed partial class MinecraftBlockRenderer
             return transformed.Y >= 0 ? BlockFaceDirection.Up : BlockFaceDirection.Down;
         }
         return transformed.Z >= 0 ? BlockFaceDirection.South : BlockFaceDirection.North;
-    }
-
-    private static bool HasOccludingNeighbor(
-        SchematicPosition position,
-        BlockFaceDirection direction,
-        string blockStateKey,
-        IReadOnlyDictionary<SchematicPosition, string> fullCubeStates,
-        IReadOnlySet<SchematicPosition> opaqueFullCubes)
-    {
-        var neighbor = direction switch
-        {
-            BlockFaceDirection.North => position with { Z = position.Z - 1 },
-            BlockFaceDirection.South => position with { Z = position.Z + 1 },
-            BlockFaceDirection.East => position with { X = position.X + 1 },
-            BlockFaceDirection.West => position with { X = position.X - 1 },
-            BlockFaceDirection.Up => position with { Y = position.Y + 1 },
-            BlockFaceDirection.Down => position with { Y = position.Y - 1 },
-            _ => position
-        };
-        return opaqueFullCubes.Contains(neighbor)
-            || (fullCubeStates.TryGetValue(neighbor, out var neighborStateKey)
-                && string.Equals(blockStateKey, neighborStateKey, StringComparison.Ordinal));
     }
 
     private bool IsOpaqueFullCube(
@@ -822,8 +821,8 @@ public sealed partial class MinecraftBlockRenderer
             ToNormalizedSignedByte(normal.Y),
             ToNormalizedSignedByte(normal.Z)
         ]);
-        uvs.Add((tile.X + 0.5f + uv.X * Math.Max(0, tile.Width - 1)) / atlas.Width);
-        uvs.Add((tile.Y + 0.5f + uv.Y * Math.Max(0, tile.Height - 1)) / atlas.Height);
+        uvs.Add((tile.X + uv.X * tile.Width) / atlas.Width);
+        uvs.Add((tile.Y + uv.Y * tile.Height) / atlas.Height);
         var shade = ToNormalizedUnsignedByte(shading);
         colors.AddRange([shade, shade, shade, byte.MaxValue]);
     }
@@ -962,7 +961,9 @@ public sealed partial class MinecraftBlockRenderer
             var document = GetBlockState(state.Name);
             if (document is null)
             {
-                return _positionIndependentStates[state.Key] = TryDefaultModel(state.Name);
+                return _positionIndependentStates[state.Key] = IsSchematicSign(state.Name)
+                    ? new ResolvedSchematicState([], false)
+                    : TryDefaultModel(state.Name);
             }
 
             var parts = new List<ResolvedModelPart>();
@@ -1197,7 +1198,7 @@ public sealed partial class MinecraftBlockRenderer
             if (text?.GetList("messages") is { } messages)
             {
                 return messages.Take(4)
-                    .Select(static tag => tag is NbtString value ? ReadComponentText(value.Value) : string.Empty)
+                    .Select(ReadComponentText)
                     .Concat(Enumerable.Repeat(string.Empty, 4))
                     .Take(4)
                     .ToArray();
@@ -1221,6 +1222,31 @@ public sealed partial class MinecraftBlockRenderer
             catch (JsonException)
             {
                 return value;
+            }
+        }
+
+        private static string ReadComponentText(NbtTag tag)
+        {
+            if (tag is NbtString value) return ReadComponentText(value.Value);
+            var builder = new StringBuilder();
+            AppendComponent(tag, builder);
+            return builder.ToString();
+        }
+
+        private static void AppendComponent(NbtTag tag, StringBuilder builder)
+        {
+            switch (tag)
+            {
+                case NbtString value:
+                    builder.Append(value.Value);
+                    break;
+                case NbtList list:
+                    foreach (var child in list) AppendComponent(child, builder);
+                    break;
+                case NbtCompound compound:
+                    if (compound.TryGetValue("text", out var text)) AppendComponent(text, builder);
+                    if (compound.TryGetValue("extra", out var extra)) AppendComponent(extra, builder);
+                    break;
             }
         }
 

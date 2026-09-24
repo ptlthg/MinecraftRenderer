@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Numerics;
 using System.Text;
 using System.Text.Json;
+using MinecraftRenderer.Nbt;
 using MinecraftRenderer.Schematics;
 using Xunit;
 
@@ -59,6 +60,144 @@ public sealed class SchematicBlockStateRenderingTests
         Assert.True(eastBottom.Vertices.Where(vertex => vertex.Position.Y > 0.25f).Average(vertex => vertex.Position.X) > 0.1f);
         Assert.True(northBottom.Vertices.Where(vertex => vertex.Position.Y > 0.25f).Average(vertex => vertex.Position.Z) < -0.1f);
         Assert.True(northTop.Vertices.Where(vertex => vertex.Position.Y < -0.25f).Average(vertex => vertex.Position.Z) < -0.1f);
+    }
+
+    [Fact]
+    public void OpenTrapdoorsFromLitematicStatesUseExpectedHingeEdges()
+    {
+        using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+        var north = Export(renderer, State("oak_trapdoor",
+            ("facing", "north"), ("half", "top"), ("open", "true"),
+            ("powered", "false"), ("waterlogged", "false")));
+        var east = Export(renderer, State("oak_trapdoor",
+            ("facing", "east"), ("half", "top"), ("open", "true"),
+            ("powered", "false"), ("waterlogged", "false")));
+
+        Assert.Equal(12, north.Result.TriangleCount);
+        Assert.Equal(12, east.Result.TriangleCount);
+        Assert.Equal(0.3125f, north.Vertices.Min(vertex => vertex.Position.Z), 4);
+        Assert.Equal(0.5f, north.Vertices.Max(vertex => vertex.Position.Z), 4);
+        Assert.Equal(-0.5f, east.Vertices.Min(vertex => vertex.Position.X), 4);
+        Assert.Equal(-0.3125f, east.Vertices.Max(vertex => vertex.Position.X), 4);
+    }
+
+    [Fact]
+    public void SkeletonSkullsRenderAsHeadsOnFloorAndWall()
+    {
+        using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+        var floor = Export(renderer, State("skeleton_skull", ("rotation", "0"), ("powered", "false")));
+        var northWall = Export(renderer, State("skeleton_wall_skull", ("facing", "north"), ("powered", "true")));
+
+        AssertBounds(floor, -0.5f, 0f);
+        AssertBounds(northWall, -0.25f, 0.25f);
+        Assert.Equal(-0.5f, northWall.Vertices.Min(vertex => vertex.Position.Z), 4);
+        Assert.Equal(0f, northWall.Vertices.Max(vertex => vertex.Position.Z), 4);
+        Assert.Empty(floor.Result.Warnings);
+        Assert.Empty(northWall.Result.Warnings);
+    }
+
+    [Fact]
+    public void PlayerHeadsRenderAsHeadsOnFloorAndWall()
+    {
+        using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+        var floor = Export(renderer, State("player_head", ("rotation", "4"), ("powered", "false")));
+        var westWall = Export(renderer, State("player_wall_head", ("facing", "west"), ("powered", "true")));
+
+        Assert.Equal(24, floor.Result.TriangleCount);
+        Assert.Equal(24, westWall.Result.TriangleCount);
+        Assert.Equal(-0.53125f, floor.Vertices.Min(vertex => vertex.Position.Y), 4);
+        Assert.Equal(0.03125f, floor.Vertices.Max(vertex => vertex.Position.Y), 4);
+        Assert.Equal(-0.28125f, westWall.Vertices.Min(vertex => vertex.Position.Y), 4);
+        Assert.Equal(0.28125f, westWall.Vertices.Max(vertex => vertex.Position.Y), 4);
+        Assert.Equal(-0.53125f, westWall.Vertices.Min(vertex => vertex.Position.X), 4);
+        Assert.Equal(0.03125f, westWall.Vertices.Max(vertex => vertex.Position.X), 4);
+        Assert.Empty(floor.Result.Warnings);
+        Assert.Empty(westWall.Result.Warnings);
+    }
+
+    [Fact]
+    public void OakSignRendersBoardAndPostWithoutText()
+    {
+        using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+        var sign = Export(renderer, State("oak_sign", ("rotation", "12"), ("waterlogged", "false")));
+
+        Assert.Equal(24, sign.Result.TriangleCount);
+        Assert.Equal(-0.5f, sign.Vertices.Min(vertex => vertex.Position.Y), 4);
+        Assert.Equal(0.45f, sign.Vertices.Max(vertex => vertex.Position.Y), 4);
+        Assert.Empty(sign.Result.Warnings);
+    }
+
+    [Fact]
+    public void AllSignWoodsRenderStandingWallAndHangingVariants()
+    {
+        using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+        string[] woods = [
+            "oak", "spruce", "birch", "jungle", "acacia", "dark_oak", "mangrove", "cherry",
+            "bamboo", "crimson", "warped", "pale_oak"
+        ];
+        var blocks = woods
+            .SelectMany(wood => new[] {
+                State($"{wood}_sign", ("rotation", "4")),
+                State($"{wood}_wall_sign", ("facing", "south")),
+                State($"{wood}_hanging_sign", ("rotation", "4"), ("attached", "false")),
+                State($"{wood}_wall_hanging_sign", ("facing", "south"))
+            })
+            .Select((state, index) => new SchematicBlock(new SchematicPosition(index, 0, 0), state))
+            .ToArray();
+
+        var export = Export(renderer, CreateSchematic(blocks), cull: false);
+
+        Assert.Equal(woods.Length * (24 + 12 + 36 + 36), export.Result.TriangleCount);
+        Assert.Empty(export.Result.Warnings);
+    }
+
+    [Fact]
+    public void WallSignBoardSitsAgainstTheSupportingFace()
+    {
+        using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+        var wall = Export(renderer, State("spruce_wall_sign", ("facing", "south")));
+        var northWall = Export(renderer, State("spruce_wall_sign", ("facing", "north")));
+        var eastWall = Export(renderer, State("spruce_wall_sign", ("facing", "east")));
+        var hanging = Export(renderer, State("bamboo_hanging_sign", ("rotation", "0"), ("attached", "true")));
+
+        Assert.Equal(12, wall.Result.TriangleCount);
+        Assert.Equal(-0.5f, wall.Vertices.Min(vertex => vertex.Position.Z), 4);
+        Assert.Equal(-0.375f, wall.Vertices.Max(vertex => vertex.Position.Z), 4);
+        Assert.Equal(0.375f, northWall.Vertices.Min(vertex => vertex.Position.Z), 4);
+        Assert.Equal(0.5f, northWall.Vertices.Max(vertex => vertex.Position.Z), 4);
+        Assert.Equal(-0.5f, eastWall.Vertices.Min(vertex => vertex.Position.X), 4);
+        Assert.Equal(-0.375f, eastWall.Vertices.Max(vertex => vertex.Position.X), 4);
+        Assert.Equal(24, hanging.Result.TriangleCount);
+        Assert.Equal(0.5f, hanging.Vertices.Max(vertex => vertex.Position.Y), 4);
+    }
+
+    [Fact]
+    public void WallSignTextRestsOnTheBoard()
+    {
+        using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+        var state = State("spruce_wall_sign", ("facing", "south"));
+        var entity = new NbtCompound(new Dictionary<string, NbtTag> {
+            ["Text1"] = new NbtString("Hello")
+        });
+        var export = Export(renderer, CreateSchematic([
+            new SchematicBlock(new SchematicPosition(0, 0, 0), state, entity)
+        ]), cull: false);
+
+        Assert.Equal(14, export.Result.TriangleCount);
+        Assert.Equal(-0.3695f, export.Vertices.Max(vertex => vertex.Position.Z), 4);
+    }
+
+    [Fact]
+    public void LegacySignBlockNamesUseOakGeometry()
+    {
+        using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+        var standing = Export(renderer, State("standing_sign", ("rotation", "0")));
+        var wall = Export(renderer, State("wall_sign", ("facing", "south")));
+
+        Assert.Equal(24, standing.Result.TriangleCount);
+        Assert.Equal(12, wall.Result.TriangleCount);
+        Assert.Empty(standing.Result.Warnings);
+        Assert.Empty(wall.Result.Warnings);
     }
 
     [Fact]
@@ -125,6 +264,74 @@ public sealed class SchematicBlockStateRenderingTests
         Assert.Equal(0, CountTrianglesOnPlane(triangles, static vertex => vertex.Position.X, 0));
         Assert.Equal(2, CountTrianglesOnPlane(triangles, static vertex => vertex.Position.X, -1));
         Assert.Equal(2, CountTrianglesOnPlane(triangles, static vertex => vertex.Position.X, 1));
+    }
+
+    [Fact]
+    public void FarmlandCullsSharedSidesAcrossMoistureStates()
+    {
+        using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+        var schematic = CreateSchematic([
+            new SchematicBlock(new SchematicPosition(0, 0, 0), State("farmland", ("moisture", "0"))),
+            new SchematicBlock(new SchematicPosition(1, 0, 0), State("farmland", ("moisture", "7")))
+        ]);
+
+        var export = Export(renderer, schematic, cull: true);
+        Assert.Equal(20, export.Result.TriangleCount);
+        Assert.Equal(0, CountTrianglesOnPlane(export.Vertices.Chunk(3).ToArray(), static vertex => vertex.Position.X, 0));
+    }
+
+    [Theory]
+    [InlineData("dirt_path", null)]
+    [InlineData("stone_slab", "bottom")]
+    public void MatchingPartialBlockSidesCullWhenFullyCovered(string block, string? slabType)
+    {
+        using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+        var state = slabType is null ? State(block) : State(block, ("type", slabType));
+        var export = Export(renderer, CreateSchematic([
+            new SchematicBlock(new SchematicPosition(0, 0, 0), state),
+            new SchematicBlock(new SchematicPosition(1, 0, 0), state)
+        ]), cull: true);
+
+        Assert.Equal(20, export.Result.TriangleCount);
+    }
+
+    [Fact]
+    public void PartialNeighborLeavesTheUncoveredFullCubeFaceVisible()
+    {
+        using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+        var export = Export(renderer, CreateSchematic([
+            new SchematicBlock(new SchematicPosition(0, 0, 0), State("stone")),
+            new SchematicBlock(new SchematicPosition(1, 0, 0), State("farmland", ("moisture", "7")))
+        ]), cull: true);
+
+        Assert.Equal(22, export.Result.TriangleCount);
+        Assert.Equal(2, CountTrianglesOnPlane(export.Vertices.Chunk(3).ToArray(), static vertex => vertex.Position.X, 0));
+    }
+
+    [Fact]
+    public void OppositeSlabHalvesDoNotCullEachOther()
+    {
+        using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+        var export = Export(renderer, CreateSchematic([
+            new SchematicBlock(new SchematicPosition(0, 0, 0), State("stone_slab", ("type", "bottom"))),
+            new SchematicBlock(new SchematicPosition(1, 0, 0), State("stone_slab", ("type", "top")))
+        ]), cull: true);
+
+        Assert.Equal(24, export.Result.TriangleCount);
+        Assert.Equal(4, CountTrianglesOnPlane(export.Vertices.Chunk(3).ToArray(), static vertex => vertex.Position.X, 0));
+    }
+
+    [Fact]
+    public void RotatedStairElementsTogetherCoverTheAdjacentFullCubeFace()
+    {
+        using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+        var export = Export(renderer, CreateSchematic([
+            new SchematicBlock(new SchematicPosition(0, 0, 0), Stair("east", "bottom", "straight")),
+            new SchematicBlock(new SchematicPosition(1, 0, 0), State("stone"))
+        ]), cull: true);
+
+        Assert.Equal(28, export.Result.TriangleCount);
+        Assert.Equal(0, CountTrianglesOnPlane(export.Vertices.Chunk(3).ToArray(), static vertex => vertex.Position.X, 0));
     }
 
     [Theory]
@@ -228,6 +435,32 @@ public sealed class SchematicBlockStateRenderingTests
         Assert.True(normalAccessor.GetProperty("normalized").GetBoolean());
         Assert.Equal(5121, colorAccessor.GetProperty("componentType").GetInt32());
         Assert.True(colorAccessor.GetProperty("normalized").GetBoolean());
+    }
+
+    [Fact]
+    public void FullBlockTextureUvsReachTileEdgesWithoutEnteringTheAtlasGutter()
+    {
+        using var renderer = MinecraftBlockRenderer.CreateFromMinecraftAssets(AssetsDirectory);
+        var export = Export(renderer, State("stone"));
+        using var document = ReadGlbJson(export.Result.Glb);
+        var root = document.RootElement;
+        var imageViewIndex = root.GetProperty("images")[0].GetProperty("bufferView").GetInt32();
+        var imageView = root.GetProperty("bufferViews")[imageViewIndex];
+        var jsonLength = checked((int)BinaryPrimitives.ReadUInt32LittleEndian(export.Result.Glb.AsSpan(12, 4)));
+        var imageOffset = 20 + jsonLength + 8 + imageView.GetProperty("byteOffset").GetInt32();
+        var atlasWidth = BinaryPrimitives.ReadInt32BigEndian(export.Result.Glb.AsSpan(imageOffset + 16, 4));
+        var atlasHeight = BinaryPrimitives.ReadInt32BigEndian(export.Result.Glb.AsSpan(imageOffset + 20, 4));
+        var minU = export.Vertices.Min(vertex => vertex.Uv.X) * atlasWidth;
+        var maxU = export.Vertices.Max(vertex => vertex.Uv.X) * atlasWidth;
+        var minV = export.Vertices.Min(vertex => vertex.Uv.Y) * atlasHeight;
+        var maxV = export.Vertices.Max(vertex => vertex.Uv.Y) * atlasHeight;
+
+        Assert.Equal(16f, maxU - minU, 3);
+        Assert.Equal(16f, maxV - minV, 3);
+        Assert.Equal(MathF.Round(minU), minU, 3);
+        Assert.Equal(MathF.Round(maxU), maxU, 3);
+        Assert.Equal(MathF.Round(minV), minV, 3);
+        Assert.Equal(MathF.Round(maxV), maxV, 3);
     }
 
     [Fact]
