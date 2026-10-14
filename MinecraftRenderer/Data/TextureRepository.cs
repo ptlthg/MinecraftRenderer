@@ -182,6 +182,8 @@ public sealed class TextureRepository : IDisposable
 	private Image<Rgba32> LoadTextureInternal(string normalized) {
 		var (namespaceName, pathWithinNamespace) = ParseNamespace(normalized);
 		var logicalPaths = EnumerateLogicalPaths(pathWithinNamespace).ToList();
+		var aliases = logicalPaths.SelectMany(path => VanillaTextureAliases.Alternatives(namespaceName, path));
+		logicalPaths = logicalPaths.Concat(aliases).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
 		// Iterate sources in reverse order (High Priority -> Low Priority)
 		for (var i = _sources.Count - 1; i >= 0; i--) {

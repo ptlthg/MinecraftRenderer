@@ -72,6 +72,7 @@ public sealed class BlockModelResolver
 
 		var parentChain = new List<string>();
 		var textures = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+		var translucent = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
 		var display = new Dictionary<string, TransformDefinition>(StringComparer.OrdinalIgnoreCase);
 		List<ModelElement>? elements = null;
 
@@ -82,6 +83,7 @@ public sealed class BlockModelResolver
 
 			foreach (var kvp in parent.Textures) {
 				textures.TryAdd(kvp.Key, kvp.Value);
+				translucent[kvp.Key] = parent.ForceTranslucentTextures.GetValueOrDefault(kvp.Key);
 			}
 
 			foreach (var kvp in parent.Display) {
@@ -96,6 +98,7 @@ public sealed class BlockModelResolver
 		if (definition.Textures is { Count: > 0 }) {
 			foreach (var kvp in definition.Textures) {
 				textures[kvp.Key] = kvp.Value;
+				translucent[kvp.Key] = definition.ForceTranslucentTextures.GetValueOrDefault(kvp.Key);
 			}
 		}
 
@@ -120,7 +123,8 @@ public sealed class BlockModelResolver
 			parentChain,
 			textures,
 			display,
-			elements ?? new List<ModelElement>());
+			elements ?? new List<ModelElement>(),
+			translucent);
 	}
 
 	private static TransformDefinition CloneTransform(TransformDefinition source) {

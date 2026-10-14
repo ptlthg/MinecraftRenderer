@@ -428,7 +428,7 @@ public sealed partial class MinecraftBlockRenderer
     {
         var comparer = TextureTileComparer.Instance;
         var tiles = triangles
-            .Select(static triangle => new TextureTile(triangle.Texture, triangle.TextureRect))
+            .Select(static triangle => new TextureTile(triangle.Texture, triangle.TextureRect, triangle.ForceTranslucent))
             .Distinct(comparer)
             .ToArray();
         if (tiles.Length == 0)
@@ -471,7 +471,7 @@ public sealed partial class MinecraftBlockRenderer
         var entries = new Dictionary<TextureTile, AtlasEntry>(comparer);
         foreach (var (tile, placement) in placements)
         {
-            var alpha = AlphaKind.Opaque;
+            var alpha = tile.ForceTranslucent ? AlphaKind.Blend : AlphaKind.Opaque;
             for (var py = 0; py < placement.Height; py++)
             {
                 var sourceRow = tile.Image.DangerousGetPixelRowMemory(tile.Rectangle.Y + py).Span;
@@ -535,7 +535,7 @@ public sealed partial class MinecraftBlockRenderer
             var primitives = new JsonArray();
             foreach (var alphaKind in Enum.GetValues<AlphaKind>())
             {
-                var selected = triangles.Where(triangle => atlas.Entries[new TextureTile(triangle.Texture, triangle.TextureRect)].Alpha == alphaKind).ToArray();
+                var selected = triangles.Where(triangle => atlas.Entries[new TextureTile(triangle.Texture, triangle.TextureRect, triangle.ForceTranslucent)].Alpha == alphaKind).ToArray();
                 if (selected.Length == 0) continue;
                 var positions = new List<float>(selected.Length * 9);
                 var normals = new List<sbyte>(selected.Length * 9);
@@ -545,7 +545,7 @@ public sealed partial class MinecraftBlockRenderer
                 {
                     if ((triangleIndex & 4095) == 0) cancellationToken.ThrowIfCancellationRequested();
                     var triangle = selected[triangleIndex];
-                    var entry = atlas.Entries[new TextureTile(triangle.Texture, triangle.TextureRect)];
+                    var entry = atlas.Entries[new TextureTile(triangle.Texture, triangle.TextureRect, triangle.ForceTranslucent)];
                     AppendVertex(triangle.V1, triangle.Normal, triangle.T1, triangle.Shading, entry.Rectangle, atlas, positions, normals, uvs, colors);
                     AppendVertex(triangle.V2, triangle.Normal, triangle.T2, triangle.Shading, entry.Rectangle, atlas, positions, normals, uvs, colors);
                     AppendVertex(triangle.V3, triangle.Normal, triangle.T3, triangle.Shading, entry.Rectangle, atlas, positions, normals, uvs, colors);
@@ -1344,9 +1344,9 @@ public sealed partial class MinecraftBlockRenderer
 
     private sealed record ResolvedSchematicState(IReadOnlyList<ResolvedModelPart> Parts, bool IsFullCube);
     private sealed record ResolvedModelPart(BlockModelInstance Model, int XRotation, int YRotation, bool UvLock);
-    private sealed record ExportTriangle(Vector3 V1, Vector3 V2, Vector3 V3, Vector3 Normal, Vector2 T1, Vector2 T2, Vector2 T3, Image<Rgba32> Texture, Rectangle TextureRect, float Shading);
+    private sealed record ExportTriangle(Vector3 V1, Vector3 V2, Vector3 V3, Vector3 Normal, Vector2 T1, Vector2 T2, Vector2 T3, Image<Rgba32> Texture, Rectangle TextureRect, float Shading, bool ForceTranslucent = false);
     private sealed record InstancedFaceTemplate(ExportTriangle First, ExportTriangle? Second);
-    private sealed record TextureTile(Image<Rgba32> Image, Rectangle Rectangle);
+    private sealed record TextureTile(Image<Rgba32> Image, Rectangle Rectangle, bool ForceTranslucent = false);
     private sealed record AtlasEntry(Rectangle Rectangle, AlphaKind Alpha);
     private sealed record TextureAtlas(byte[] Png, float Width, float Height, IReadOnlyDictionary<TextureTile, AtlasEntry> Entries);
     private enum AlphaKind { Opaque, Mask, Blend }
@@ -1366,8 +1366,8 @@ public sealed partial class MinecraftBlockRenderer
     private sealed class TextureTileComparer : IEqualityComparer<TextureTile>
     {
         public static TextureTileComparer Instance { get; } = new();
-        public bool Equals(TextureTile? x, TextureTile? y) => x is not null && y is not null && ReferenceEquals(x.Image, y.Image) && x.Rectangle == y.Rectangle;
-        public int GetHashCode(TextureTile obj) => HashCode.Combine(RuntimeHelpers.GetHashCode(obj.Image), obj.Rectangle);
+        public bool Equals(TextureTile? x, TextureTile? y) => x is not null && y is not null && ReferenceEquals(x.Image, y.Image) && x.Rectangle == y.Rectangle && x.ForceTranslucent == y.ForceTranslucent;
+        public int GetHashCode(TextureTile obj) => HashCode.Combine(RuntimeHelpers.GetHashCode(obj.Image), obj.Rectangle, obj.ForceTranslucent);
     }
 
     private sealed class InstancedFaceTemplateComparer : IEqualityComparer<InstancedFaceTemplate>

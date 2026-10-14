@@ -241,7 +241,7 @@ public sealed partial class MinecraftBlockRenderer
         triangle.T3,
         triangle.Texture,
         triangle.TextureRect,
-        triangle.Shading);
+        triangle.Shading, triangle.ForceTranslucent);
 
     private sealed record SchematicOcclusionBlock(string StateKey, SchematicOcclusionProfile Profile);
     private sealed record SchematicOcclusionProfile(bool IsFullCube, IReadOnlyList<SchematicFaceRectangle>[] Faces);

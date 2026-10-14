@@ -2,11 +2,15 @@ namespace MinecraftRenderer;
 
 using System.Text.Json.Serialization;
 
+[JsonConverter(typeof(BlockModelDefinitionConverter))]
 public sealed class BlockModelDefinition
 {
 	[JsonPropertyName("parent")] public string? Parent { get; init; }
 
 	[JsonPropertyName("textures")] public Dictionary<string, string>? Textures { get; init; }
+
+	[JsonIgnore] public IReadOnlyDictionary<string, bool> ForceTranslucentTextures { get; init; }
+		= new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
 
 	[JsonPropertyName("display")] public Dictionary<string, TransformDefinition>? Display { get; init; }
 

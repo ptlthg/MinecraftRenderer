@@ -711,7 +711,8 @@ public sealed partial class MinecraftBlockRenderer
 						model.ParentChain,
 						model.Textures,
 						model.Display,
-						model.Elements);
+						model.Elements,
+						model.ForceTranslucentTextures);
 				}
 
 				break;
@@ -1854,7 +1855,8 @@ public sealed partial class MinecraftBlockRenderer
 			parentChain,
 			textures,
 			display,
-			elements);
+			elements,
+			itemModel?.ForceTranslucentTextures);
 
 		rendered = RenderModel(composite, renderOptions);
 		return true;

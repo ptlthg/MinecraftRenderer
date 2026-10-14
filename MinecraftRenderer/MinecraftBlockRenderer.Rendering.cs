@@ -80,7 +80,8 @@ public sealed partial class MinecraftBlockRenderer
 
 		triangles.Sort((a, b) =>
 		{
-			var depthComparison = b.Depth.CompareTo(a.Depth);
+			if (a.ForceTranslucent != b.ForceTranslucent) return a.ForceTranslucent ? 1 : -1;
+			var depthComparison = a.ForceTranslucent ? a.Depth.CompareTo(b.Depth) : b.Depth.CompareTo(a.Depth);
 			return depthComparison != 0
 				? depthComparison
 				: a.RenderPriority.CompareTo(b.RenderPriority);
@@ -123,6 +124,9 @@ public sealed partial class MinecraftBlockRenderer
 		var canvas = new Image<Rgba32>(options.Size, options.Size);
 		var depthBuffer = new float[options.Size * options.Size];
 		Array.Fill(depthBuffer, float.NegativeInfinity);
+		var transparentFaces = triangles.Any(triangle => triangle.ForceTranslucent)
+			? new int[options.Size * options.Size] : Array.Empty<int>();
+		if (transparentFaces.Length > 0) Array.Fill(transparentFaces, -1);
 		var triangleOrder = 0;
 		const float DepthBiasPerTriangle = 1e-4f;
 
@@ -154,7 +158,10 @@ public sealed partial class MinecraftBlockRenderer
 				tri.T3,
 				tri.Texture,
 				tri.TextureRect,
-				tri.Shading);
+				tri.Shading,
+				tri.ForceTranslucent,
+				transparentFaces,
+				tri.ElementIndex * 6 + (int)tri.FaceDirection);
 		}
 
 		if (options.EnableAntiAliasing)
@@ -331,7 +338,10 @@ public sealed partial class MinecraftBlockRenderer
 		Vector2 t1, Vector2 t2, Vector2 t3,
 		Image<Rgba32> texture,
 		Rectangle textureRect,
-		float shadingFactor)
+		float shadingFactor,
+		bool forceTranslucent,
+		int[] transparentFaces,
+		int faceId)
 	{
 		var area = (p2.X - p1.X) * (p3.Y - p1.Y) - (p3.X - p1.X) * (p2.Y - p1.Y);
 		if (MathF.Abs(area) < 0.01f) return;
@@ -382,7 +392,7 @@ public sealed partial class MinecraftBlockRenderer
 				var texY = (int)MathF.Max(0, MathF.Min(texCoord.Y * textureRect.Height, texHeight));
 
 				var color = texture[textureRect.X + texX, textureRect.Y + texY];
-				if (color.A <= alphaThreshold)
+				if (color.A <= (forceTranslucent ? 0 : alphaThreshold))
 				{
 					continue;
 				}
@@ -393,12 +403,32 @@ public sealed partial class MinecraftBlockRenderer
 					continue;
 				}
 
-				depthBuffer[bufferIndex] = depth;
-				row[x] = shadingFactor is >= 0.999f and <= 1.001f
-					? color
-					: ApplyShading(color, shadingFactor);
+				var shaded = shadingFactor is >= 0.999f and <= 1.001f ? color : ApplyShading(color, shadingFactor);
+				if (forceTranslucent)
+				{
+					// A quad's two triangles may both cover their shared diagonal.
+					if (transparentFaces[bufferIndex] == faceId) continue;
+					transparentFaces[bufferIndex] = faceId;
+					row[x] = CompositeTranslucent(shaded, row[x]);
+				}
+				else
+				{
+					depthBuffer[bufferIndex] = depth;
+					row[x] = shaded;
+				}
 			}
 		});
+	}
+
+	private static Rgba32 CompositeTranslucent(Rgba32 source, Rgba32 destination)
+	{
+		float sourceAlpha = source.A / 255f;
+		float destinationWeight = destination.A / 255f * (1f - sourceAlpha);
+		float alpha = sourceAlpha + destinationWeight;
+		if (alpha <= 0f) return default;
+		byte Channel(byte a, byte b) => (byte)Math.Clamp(MathF.Round((a * sourceAlpha + b * destinationWeight) / alpha), 0, 255);
+		return new Rgba32(Channel(source.R, destination.R), Channel(source.G, destination.G),
+			Channel(source.B, destination.B), (byte)Math.Clamp(MathF.Round(alpha * 255f), 0, 255));
 	}
 
 	private static Rgba32 ApplyShading(Rgba32 original, float shadingFactor)
@@ -486,7 +516,8 @@ public sealed partial class MinecraftBlockRenderer
 		BlockFaceDirection FaceDirection,
 		int ElementIndex,
 		int RenderPriority,
-		float Shading);
+		float Shading,
+		bool ForceTranslucent = false);
 
 	private readonly record struct Bounds(float MinX, float MaxX, float MinY, float MaxY);
 

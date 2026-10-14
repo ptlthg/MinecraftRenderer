@@ -17,7 +17,8 @@ public sealed class BlockModelInstance(
 	IReadOnlyList<string> parentChain,
 	IReadOnlyDictionary<string, string> textures,
 	IReadOnlyDictionary<string, TransformDefinition> display,
-	IReadOnlyList<ModelElement> elements)
+	IReadOnlyList<ModelElement> elements,
+	IReadOnlyDictionary<string, bool>? forceTranslucentTextures = null)
 {
 	public string Name { get; } = name;
 
@@ -28,6 +29,23 @@ public sealed class BlockModelInstance(
 	public IReadOnlyDictionary<string, TransformDefinition> Display { get; } = display;
 
 	public IReadOnlyList<ModelElement> Elements { get; } = elements;
+
+	public IReadOnlyDictionary<string, bool> ForceTranslucentTextures { get; } = forceTranslucentTextures
+		?? new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+
+	public bool IsTextureForcedTranslucent(string reference)
+	{
+		var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		bool forced = false;
+		while (reference.StartsWith('#'))
+		{
+			string key = reference[1..];
+			if (!seen.Add(key)) break;
+			forced |= ForceTranslucentTextures.GetValueOrDefault(key);
+			if (!Textures.TryGetValue(key, out reference!)) break;
+		}
+		return forced;
+	}
 
 	public TransformDefinition? GetDisplayTransform(string name)
 		=> Display.GetValueOrDefault(name);

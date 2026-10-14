@@ -106,7 +106,7 @@ public sealed partial class MinecraftBlockRenderer
 				direction,
 				elementIndex,
 				renderPriority,
-				triangle1Shading));
+				triangle1Shading, model.IsTextureForcedTranslucent(face.Texture)));
 
 			results.Add(new VisibleTriangle(
 				transformed[0], transformed[2], transformed[3],
@@ -119,7 +119,7 @@ public sealed partial class MinecraftBlockRenderer
 				direction,
 				elementIndex,
 				renderPriority,
-				triangle2Shading));
+				triangle2Shading, model.IsTextureForcedTranslucent(face.Texture)));
 		}
 
 		return results;
